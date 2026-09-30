@@ -12,6 +12,7 @@ An open-world, historically grounded action-adventure set in **Ireland, 1169–1
 | Protagonist | Fixed, authored character with a personal backstory and a defining opening tragedy |
 | World structure | Open world sandbox. The main story is not mandatory to progress or enjoy the game. |
 | Timeline model | **Living history.** Events progress on their own on a historical clock. The player can meaningfully affect outcomes (who wins, who dies, who allies with whom, local consequences), but major historical currents like the invasion itself will most likely still happen. |
+| Engine | Godot 4 (Forward+ renderer). Stylized, not high-end, 3D. GDScript for gameplay, C# if the simulation needs more speed. Terrain3D add-on for landscapes. |
 
 ## Setting
 - **When:** 1169 (Norman landing at Bannow Bay) through 1171 (Siege of Dublin, arrival of Henry II).
@@ -102,6 +103,5 @@ A persistent base the player rebuilds after the opening tragedy. Recruit smiths,
 10. Rumor system
 
 ## Open Questions
-- Engine choice (Unity / Unreal / Godot)
 - Protagonist name, gender, and backstory details
 - Post-1171 ending: hard end at Henry II's arrival, or continued sandbox?
