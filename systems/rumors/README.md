@@ -1,7 +1,109 @@
 # Rumors
 
-News of offscreen events and opportunities. Runtime: `scripts/autoload/rumors.gd`.
+News of offscreen events and opportunities. Runtime: `scripts/autoload/rumors.gd`
+(autoload **`Rumors`**).
 
-- **Priority** — `PRIORITY_LOW` … `PRIORITY_CRITICAL`; bus sorts high→low
-- **Decay** — `decay_days` / `age_days`; `tick_decay` on `WorldClock.day_advanced`
-- Emitters (stubs): WorldClock event resolve, Honor swings, Faction attitude spikes
+| Piece | Role |
+|---|---|
+| `scripts/autoload/rumors.gd` | Priority + decay bus; Godot list/filter/tick API |
+| `scenes/ui/rumors_debug_hud.tscn` | Optional F5 greybox panel (bottom-left; **N**) |
+
+---
+
+## Priority
+
+| Const | Value | Use |
+|---|---|---|
+| `PRIORITY_LOW` | 1 | Flavor / ambient |
+| `PRIORITY_NORMAL` | 2 | Default swings (honor, mild attitude) |
+| `PRIORITY_HIGH` | 3 | Coastal pressure, survivor word |
+| `PRIORITY_CRITICAL` | 4 | Major timeline resolves (e.g. Bannow summary) |
+
+`get_top_rumors()` / the active list sort **high → low**. Equal priority: fresher
+(`age_days` lower) first, then newer `added_day`.
+
+`Rumors.priority_label(p)` → `"low"|"normal"|"high"|"critical"`.
+
+---
+
+## Decay
+
+| Field | Meaning |
+|---|---|
+| `decay_days` | Lifetime on the bus (≥ 1) |
+| `age_days` | Days since add/refresh |
+| `days_remaining` | `decay_days - age_days` (helper) |
+
+- `tick_decay(n)` ages every rumor by `n` and **drops** when `age_days >= decay_days`.
+- Wired automatically on `WorldClock.day_advanced` (same day tick as Bannow / cattle).
+- Call `tick_decay(1)` explicitly in tests or the Rumors debug HUD (**,** key).
+- Refresh via `add_rumor` with the same id resets `age_days` to 0 and may raise priority.
+
+Soft cap: `MAX_ACTIVE_RUMORS` (32) — lowest-priority tail is expired first.
+
+---
+
+## Godot call contract
+
+```gdscript
+# Emit / refresh
+Rumors.add_rumor(&"id", "Text…", &"source", Rumors.PRIORITY_HIGH, 10)
+
+# List / query
+Rumors.get_top_rumors(5)           # priority-sorted
+Rumors.list_recent(10)            # newest added_day first
+Rumors.filter_rumors(Rumors.PRIORITY_HIGH)                 # min priority
+Rumors.filter_rumors(0, &"honor")                          # by source_event
+Rumors.filter_rumors(0, &"", true)                         # unheard only
+Rumors.get_rumor(&"id") / Rumors.has_rumor(&"id")
+Rumors.count_active()
+Rumors.mark_heard(&"id")
+
+# Decay
+var expired: Array[StringName] = Rumors.tick_decay(1)
+Rumors.days_remaining(rumor_dict)
+
+# Debug / greybox
+Rumors.seed_demo_rumors()
+print(Rumors.to_debug_dict())
+print(Rumors.get_debug_text())
+```
+
+### Signals
+
+`rumor_added(rumor_id)`, `rumor_expired(rumor_id)`, `rumors_decayed(expired_ids)`.
+
+### Rumor dict keys
+
+`id`, `text`, `source_event`, `heard`, `priority`, `decay_days`, `age_days`, `added_day`.
+
+---
+
+## Emit hooks (already wired)
+
+| Source | When | Typical priority / life |
+|---|---|---|
+| **Timeline** (`WorldClock._emit_outcome_rumors`) | Event resolve | CRITICAL/HIGH, 7–14d |
+| **Honor** (`Honor._maybe_rumor_honor`) | `\|delta\| >= RUMOR_HONOR_THRESHOLD` | NORMAL, 7d · source `&"honor"` |
+| **Factions** (`Factions.modify_attitude`) | `\|delta\| >= 10` | NORMAL, 5d · source `&"faction"` |
+
+No extra glue needed for the slice — polish here is the bus API + docs/debug.
+
+---
+
+## F5 test path (Rumors debug)
+
+Timeline (**T**) already shows a short rumor list after Bannow (**Y**). For a
+dedicated bus panel that does **not** sit on top of Honor (top-left) or Timeline
+(top-right):
+
+1. F5 main scene.
+2. Press **N** — Rumors panel (bottom-left). Empty until seeded or resolved.
+3. **M** — `seed_demo_rumors()` (low/normal/high demo lines).
+4. **,** — `tick_decay(1)` once (watch `left=` / Expired lately).
+5. Or **Y** (Timeline) to resolve Bannow and fill CRITICAL/HIGH rumors via the
+   timeline emit hook; **N** panel mirrors the bus.
+6. **N** again to hide.
+
+Keys: **N** toggle · **M** seed demo · **,** decay tick.
+Remote: `print(Rumors.get_debug_text())`.
