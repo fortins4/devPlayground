@@ -7,7 +7,10 @@ extends CanvasLayer
 ##   G — show / hide panel
 ##   J / K — cycle destination among REGION_IDS (skip current)
 ##   F — toggle horse / foot mode
-##   B — commit previewed travel (advances WorldClock, sets Game.current_region)
+##   - / = — expedition day budget −1 / +1 (leaves unlimited on first adjust)
+##   L — clear budget → unlimited (−1)
+##   B — commit previewed travel (advances WorldClock, sets Game.current_region;
+##       spends trip days from budget when limited)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -54,6 +57,21 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_F:
 				_mode = &"foot" if _mode == &"horse" else &"horse"
 				_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_MINUS:
+				if TravelGate:
+					TravelGate.adjust_expedition_day_budget(-1)
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_EQUAL:
+				if TravelGate:
+					TravelGate.adjust_expedition_day_budget(1)
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_L:
+				if TravelGate:
+					TravelGate.clear_expedition_day_budget()
+					_refresh()
 				get_viewport().set_input_as_handled()
 			KEY_B:
 				_commit()
@@ -139,22 +157,39 @@ func _refresh() -> void:
 	else:
 		lines.append("TravelGate missing")
 	lines.append("")
-	lines.append("--- Preview ---")
+	lines.append("--- Preview / day budget ---")
 	lines.append("Mode: %s   (F toggles)" % String(_mode))
 	if dest == &"":
 		lines.append("Dest: (none)")
+		if TravelGate:
+			var idle := TravelGate.get_expedition_budget_status(-1)
+			lines.append(str(idle.get("summary", "")))
 	else:
 		var preview: Dictionary = TravelGate.request_travel(dest, _mode) if TravelGate else {}
+		var planned := int(preview.get("planned_days", preview.get("days", -1)))
+		var status: Dictionary = (
+			TravelGate.get_expedition_budget_status(planned) if TravelGate else {}
+		)
 		lines.append("Dest [%d]: %s (%s)" % [
 			_dest_index,
 			String(dest),
 			TravelDistances.display_name(dest),
 		])
-		lines.append("Preview ok=%s days=%s reason=%s" % [
-			str(preview.get("ok", false)),
-			str(preview.get("days", "?")),
-			String(preview.get("reason", &"")),
-		])
+		var budget_str := (
+			"unlimited" if bool(status.get("unlimited", true))
+			else "%d d remaining" % int(status.get("budget", 0))
+		)
+		lines.append("Budget: %s" % budget_str)
+		lines.append("Planned trip cost: %s d" % (str(planned) if planned >= 0 else "?"))
+		if bool(status.get("insufficient_days", false)) or String(preview.get("reason", &"")) == "insufficient_days":
+			lines.append("Status: INSUFFICIENT_DAYS — %s" % str(status.get("summary", preview.get("summary", ""))))
+		else:
+			lines.append("Preview ok=%s reason=%s" % [
+				str(preview.get("ok", false)),
+				String(preview.get("reason", &"")),
+			])
+			if status.has("summary"):
+				lines.append("  %s" % str(status["summary"]))
 		var path_ids: Array = preview.get("path", [])
 		if not path_ids.is_empty():
 			var hops: PackedStringArray = PackedStringArray()
@@ -162,4 +197,5 @@ func _refresh() -> void:
 				hops.append(String(p))
 			lines.append("Path: %s" % " → ".join(hops))
 		lines.append("B commits %s → %s" % [String(origin), String(dest)])
+		lines.append("Keys: -/= budget · L unlimited")
 	label.text = "\n".join(lines)

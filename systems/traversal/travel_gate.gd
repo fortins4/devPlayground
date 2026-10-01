@@ -15,6 +15,8 @@ extends RefCounted
 ##   missing_game      — Game autoload unavailable on commit
 
 ## Soft expedition budget in calendar days. -1 = unlimited (slice default).
+## When >= 0, preview/commit fail closed with insufficient_days if trip cost exceeds it;
+## a successful commit spends the trip days from the budget (remaining = budget - days).
 ## Supplies / band logistics can tighten this later.
 static var expedition_day_budget: int = -1
 
@@ -26,6 +28,58 @@ static var last_result: Dictionary = {}
 
 ## HUD poll flag (mirrors WorldClock / Honor / Rumors).
 static var debug_visible: bool = false
+
+
+## Set expedition day budget. days < 0 → unlimited (-1).
+static func set_expedition_day_budget(days: int) -> void:
+	expedition_day_budget = -1 if days < 0 else maxi(0, days)
+
+
+## Clear budget back to unlimited.
+static func clear_expedition_day_budget() -> void:
+	expedition_day_budget = -1
+
+
+## Adjust budget by delta. Leaving unlimited: start at 0 then apply delta (clamped >= 0).
+## Returns the new budget value (-1 only if still unlimited — clear via clear_expedition_day_budget).
+static func adjust_expedition_day_budget(delta: int) -> int:
+	if expedition_day_budget < 0:
+		expedition_day_budget = maxi(0, delta)
+	else:
+		expedition_day_budget = maxi(0, expedition_day_budget + delta)
+	return expedition_day_budget
+
+
+## Snapshot budget vs an optional planned trip cost (days). planned_days < 0 → no trip compared.
+## Keys: budget, unlimited, planned_days, remaining_after, spare_days, insufficient_days, summary.
+static func get_expedition_budget_status(planned_days: int = -1) -> Dictionary:
+	var unlimited := expedition_day_budget < 0
+	var insufficient := (not unlimited) and planned_days >= 0 and planned_days > expedition_day_budget
+	var remaining_after := -1
+	var spare := -1
+	if not unlimited and planned_days >= 0:
+		remaining_after = expedition_day_budget - planned_days
+		spare = maxi(0, remaining_after)
+	var summary := ""
+	if unlimited:
+		summary = "Budget unlimited" if planned_days < 0 else "Budget unlimited · planned %d d" % planned_days
+	elif planned_days < 0:
+		summary = "Budget remaining: %d d" % expedition_day_budget
+	elif insufficient:
+		summary = "INSUFFICIENT: need %d d, budget %d d (short %d)" % [
+			planned_days, expedition_day_budget, planned_days - expedition_day_budget,
+		]
+	else:
+		summary = "OK: planned %d d · remaining after %d d" % [planned_days, remaining_after]
+	return {
+		"budget": expedition_day_budget,
+		"unlimited": unlimited,
+		"planned_days": planned_days,
+		"remaining_after": remaining_after,
+		"spare_days": spare,
+		"insufficient_days": insufficient,
+		"summary": summary,
+	}
 
 
 ## Preview a trip without advancing the clock or changing region.
@@ -94,6 +148,10 @@ static func commit_travel(
 
 	Game.set_current_region(to_region)
 
+	var budget_before := expedition_day_budget
+	if expedition_day_budget >= 0 and days > 0:
+		expedition_day_budget = maxi(0, expedition_day_budget - days)
+
 	var result := preview.duplicate(true)
 	result["ok"] = true
 	result["committed"] = true
@@ -101,6 +159,8 @@ static func commit_travel(
 	result["day_after"] = day_after
 	result["days_advanced"] = day_after - day_before
 	result["region"] = String(to_region)
+	result["budget_before"] = budget_before
+	result["budget_remaining"] = expedition_day_budget
 	result["summary"] = _commit_summary(origin, to_region, days, mode, day_before, day_after)
 	last_result = result.duplicate(true)
 	return result
@@ -150,14 +210,16 @@ static func to_debug_dict() -> Dictionary:
 			"days": row["days"],
 			"reason": String(row.get("reason", &"")),
 		})
+	var sample := preview_travel(&"leinster", &"dublin")
 	return {
 		"current_region": String(origin),
 		"expedition_day_budget": expedition_day_budget,
+		"budget_status": get_expedition_budget_status(int(sample.get("days", -1))),
 		"direct_edges_only": direct_edges_only,
 		"world_day": int(WorldClock.day) if WorldClock else -1,
 		"destinations_horse": dests,
 		"last_result": last_result.duplicate(true),
-		"sample_leinster_dublin": preview_travel(&"leinster", &"dublin"),
+		"sample_leinster_dublin": sample,
 	}
 
 
@@ -170,12 +232,10 @@ static func get_debug_text() -> String:
 		TravelDistances.display_name(origin),
 	])
 	var day_str := str(WorldClock.day) if WorldClock else "?"
-	lines.append("WorldClock day: %s   budget: %s   direct_only: %s" % [
-		day_str,
-		str(expedition_day_budget) if expedition_day_budget >= 0 else "unlimited",
-		str(direct_edges_only),
-	])
-	lines.append("Keys: G toggle · J/K cycle dest · F horse/foot · B commit")
+	var budget_label := str(expedition_day_budget) + " d remaining" if expedition_day_budget >= 0 else "unlimited"
+	lines.append("WorldClock day: %s   direct_only: %s" % [day_str, str(direct_edges_only)])
+	lines.append("Day budget: %s" % budget_label)
+	lines.append("Keys: G toggle · J/K dest · F horse/foot · -/= budget · L unlimited · B commit")
 	lines.append("Destinations (horse, path allowed):")
 	var shown := 0
 	for row in list_destinations(origin, &"horse", true):
@@ -219,9 +279,12 @@ static func _evaluate(
 		"to_display": TravelDistances.display_name(to_region),
 		"mode": String(mode),
 		"days": -1,
+		"planned_days": -1,
 		"path": [],
 		"reason": &"",
 		"summary": "",
+		"expedition_day_budget": expedition_day_budget,
+		"insufficient_days": false,
 	}
 	if not TravelDistances.is_known_region(from_region) or not TravelDistances.is_known_region(to_region):
 		base["reason"] = &"unknown_region"
@@ -256,20 +319,24 @@ static func _evaluate(
 		base["path"] = [from_region, to_region]
 
 	var days := int(base["days"])
-	if expedition_day_budget >= 0 and days > expedition_day_budget:
+	base["planned_days"] = days
+	var status := get_expedition_budget_status(days)
+	base["expedition_day_budget"] = expedition_day_budget
+	base["insufficient_days"] = bool(status["insufficient_days"])
+	base["budget_remaining_after"] = status["remaining_after"]
+	if bool(status["insufficient_days"]):
 		base["reason"] = &"insufficient_days"
-		base["summary"] = "Needs %d days; expedition budget is %d." % [
-			days, expedition_day_budget,
-		]
+		base["summary"] = str(status["summary"])
 		return base
 
 	base["ok"] = true
 	base["reason"] = &"ok"
-	base["summary"] = "Ready: %s → %s in %d %s-day(s)." % [
+	base["summary"] = "Ready: %s → %s in %d %s-day(s). %s" % [
 		TravelDistances.display_name(from_region),
 		TravelDistances.display_name(to_region),
 		days,
 		String(mode),
+		str(status["summary"]),
 	]
 	return base
 

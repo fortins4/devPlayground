@@ -74,8 +74,21 @@ var result := TravelGate.commit_travel(&"dublin")  # horse, path allowed
 
 # Gate knobs (slice stubs)
 TravelGate.expedition_day_budget = 3   # -1 unlimited; over → insufficient_days
+TravelGate.set_expedition_day_budget(5)
+TravelGate.adjust_expedition_day_budget(-1)  # also leaves unlimited on first press
+TravelGate.clear_expedition_day_budget()     # back to -1 unlimited
 TravelGate.direct_edges_only = true    # no multi-hop; missing edge → blocked_edge
+
+# Budget vs planned trip (HUD / Remote)
+var st := TravelGate.get_expedition_budget_status(2)
+# st.budget / st.unlimited / st.planned_days / st.remaining_after
+# st.insufficient_days / st.spare_days / st.summary
 ```
+
+Preview / commit payloads include `planned_days`, `expedition_day_budget`,
+`insufficient_days`, and (on success) `budget_remaining_after`. A successful
+`commit_travel` **spends** trip days from a limited budget (`budget_remaining`
+on the result).
 
 ### Gate reasons (fail closed)
 
@@ -95,6 +108,22 @@ Multi-day commits call `WorldClock.advance_day(n)` once per day so factions /
 needs / rumors / cattle ticks and overdue timeline events resolve along the road
 (see timeline README day-advance semantics).
 
+## Day budget (expeditions)
+
+`TravelGate.expedition_day_budget` is the soft allotment for overland hops
+(complements the gate already on main via PR #38):
+
+| Value | Meaning |
+|---|---|
+| `-1` | Unlimited (default) |
+| `>= 0` | Remaining calendar days the party may spend |
+
+- Preview compares **planned trip cost** (`days` / `planned_days`) to the budget.
+- Cost over budget → reason `insufficient_days` (fail closed; no clock / region change).
+- Successful commit subtracts spent days from a limited budget.
+- Debug HUD (**G**) shows budget remaining, planned cost, and insufficient status;
+  **-** / **=** tune the budget; **L** resets to unlimited.
+
 ## Slice stance
 
 - Only `leinster` is an authored roam region in the vertical slice.
@@ -109,27 +138,33 @@ needs / rumors / cattle ticks and overdue timeline events resolve along the road
 2. Press **G** — Travel gate panel (bottom-right). Confirm:
    - `Region: leinster`
    - `WorldClock day: 0`
+   - `Day budget: unlimited`
    - Destinations list includes `dublin` at 2 horse-days
-3. Press **K** until dest is `dublin`, confirm preview `ok=true days=2`.
-4. Press **B** — commits travel:
+3. Press **K** until dest is `dublin`, confirm preview `ok=true` and **Planned trip cost: 2 d**.
+4. Press **-** twice (leaves unlimited → budget 0, then stays 0) then **=** until budget is **1**.
+   Preview for `dublin` (2 d) should show **Status: INSUFFICIENT_DAYS**.
+5. Press **=** once more (budget 2) — preview OK again; **remaining after 0 d**.
+6. Press **B** — commits travel:
    - `Game.current_region` → `dublin`
    - WorldClock advances to day **2** (and Bannow resolves on the first advance)
-5. Press **T** — Timeline panel should show `Day: 2` and Bannow resolved.
-6. Optional gate probes (Remote / Debugger):
+   - Day budget remaining → **0** (spent 2)
+7. Press **L** — budget back to **unlimited**. Press **T** — Timeline shows `Day: 2` + Bannow resolved.
+8. Optional gate probes (Remote / Debugger):
    ```gdscript
    print(TravelGate.preview_travel(&"dublin", &"dublin"))           # same_region
    TravelGate.direct_edges_only = true
    print(TravelGate.preview_travel(&"leinster", &"connacht", &"horse", false))  # blocked_edge
    TravelGate.direct_edges_only = false
-   TravelGate.expedition_day_budget = 1
+   TravelGate.set_expedition_day_budget(1)
    print(TravelGate.request_travel(&"munster_fringe"))              # insufficient_days if from leinster (3)
-   TravelGate.expedition_day_budget = -1
+   print(TravelGate.get_expedition_budget_status(3))
+   TravelGate.clear_expedition_day_budget()
    print(TravelGate.commit_travel(&"wicklow_glendalough"))
    print(TravelGate.to_debug_dict())
    ```
-7. Press **F** to toggle foot mode; **J** / **K** cycle destinations; **G** hide.
+9. Press **F** to toggle foot mode; **J** / **K** cycle destinations; **G** hide.
 
-Keys: **G** toggle · **J** / **K** cycle dest · **F** horse/foot · **B** commit.
+Keys: **G** toggle · **J** / **K** cycle dest · **F** horse/foot · **-** / **=** budget · **L** unlimited · **B** commit.
 
 Timeline debug remains **T** / **Y** / **U** / **I** / **O** (top-right).
 
