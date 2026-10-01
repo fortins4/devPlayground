@@ -3,9 +3,10 @@ extends CanvasLayer
 ##
 ## Keys (when this node is in the tree):
 ##   N — show / hide panel
-##   M — Rumors.seed_demo_rumors()
-##   , — Rumors.tick_decay(1)
+##   M — Rumors.seed_demo_rumors() (L/N/H/C table lifetimes)
+##   , — Rumors.tick_decay(1) — watch left=/life=/hl+; LOW demo drops after 4 ticks
 ##   . — Factions.demo_seed_diplomatic_swing() (attitude + graph → tagged rumors)
+## Remote: Rumors.probe_decay(true) — decay table + severity buckets + tick notes.
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
