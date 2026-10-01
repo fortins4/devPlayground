@@ -131,7 +131,21 @@ func _on_companion(_active: bool, _id: StringName) -> void:
 func _refresh() -> void:
 	if label == null:
 		return
+	var text := ""
 	if CharacterHealth:
-		label.text = CharacterHealth.get_debug_text()
+		text = CharacterHealth.get_debug_text()
 	else:
-		label.text = "CharacterHealth autoload missing"
+		text = "CharacterHealth autoload missing"
+	var bridge := _find_player_bridge()
+	if bridge:
+		text += "\n" + bridge.get_debug_text()
+	label.text = text
+
+
+func _find_player_bridge() -> HealthCombatBridge:
+	if not is_inside_tree():
+		return null
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null:
+		return null
+	return player.get_node_or_null("HealthCombatBridge") as HealthCombatBridge
