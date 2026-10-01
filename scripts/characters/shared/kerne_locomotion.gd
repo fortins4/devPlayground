@@ -81,6 +81,94 @@ func clear_combat_additives() -> void:
 	_combat_overrides.clear()
 
 
+## Snap all joints back to authored rest (used on dismount).
+func reset_to_rest() -> void:
+	_phase = 0.0
+	_breath = 0.0
+	_turn_blend = 0.0
+	_attack_lock = 0.0
+	_combat_overrides.clear()
+	_state = &"idle"
+	for key in joints:
+		var n: Node3D = joints[key] as Node3D
+		if n == null or not _rest.has(key):
+			continue
+		n.position = _rest[key]["pos"] as Vector3
+		n.rotation = _rest[key]["rot"] as Vector3
+	pose_updated.emit(_state)
+
+
+## Seated mounted bind pose (C2). Replaces on-foot walk cycles while is_mounted.
+## hips down, legs astride, spine slight forward; optional light bob from gait.
+func tick_mounted(delta: float, horiz_speed: float, galloping: bool = false) -> void:
+	if joints.is_empty():
+		return
+
+	_attack_lock = 0.0
+	_combat_overrides.clear()
+	_breath += delta
+
+	var target_state: StringName = &"mounted_idle"
+	if horiz_speed > 0.4:
+		target_state = &"mounted_gallop" if galloping else &"mounted_trot"
+	_state = target_state
+	pose_updated.emit(_state)
+
+	# Cadence / bob amplitude by gait
+	var cadence := 0.0
+	var bob_amp := 0.0
+	var lean_extra := 0.0
+	match _state:
+		&"mounted_trot":
+			cadence = 6.5
+			bob_amp = 0.018
+			lean_extra = deg_to_rad(2.0)
+		&"mounted_gallop":
+			cadence = 9.0
+			bob_amp = 0.032
+			lean_extra = deg_to_rad(5.0)
+		_:
+			cadence = 0.0
+			bob_amp = 0.0
+
+	if cadence > 0.0:
+		_phase += delta * cadence
+	else:
+		_phase = move_toward(_phase, 0.0, delta * 5.0)
+
+	var s := sin(_phase)
+	var breath := sin(_breath * 1.5) * 0.01
+	var bob_y := bob_amp * absf(s) if cadence > 0.0 else 0.0
+
+	# Sink hips into the saddle + light vertical bob
+	_apply_joint("root", Vector3(0.0, -0.08 + bob_y, 0.02), Vector3.ZERO)
+	_apply_joint("hips", Vector3.ZERO, Vector3(deg_to_rad(6.0), 0.0, 0.0))
+
+	# Spine slight forward lean (more at gallop)
+	var torso_pitch := deg_to_rad(10.0) + lean_extra + breath * 0.4
+	_apply_joint("torso", Vector3.ZERO, Vector3(torso_pitch, 0.0, 0.0))
+	_apply_joint("head", Vector3.ZERO, Vector3(-torso_pitch * 0.35 - breath * 0.3, 0.0, 0.0))
+
+	# Legs astride: thighs open + knees forward along the barrel
+	var thigh_pitch := deg_to_rad(68.0)
+	var thigh_open := deg_to_rad(32.0)
+	var shin_bend := deg_to_rad(55.0)
+	# Subtle post bounce on shins while moving
+	var shin_bob := deg_to_rad(4.0) * s if cadence > 0.0 else 0.0
+	_apply_joint("left_thigh", Vector3.ZERO, Vector3(thigh_pitch, 0.0, -thigh_open))
+	_apply_joint("right_thigh", Vector3.ZERO, Vector3(thigh_pitch, 0.0, thigh_open))
+	_apply_joint("left_shin", Vector3.ZERO, Vector3(shin_bend + shin_bob, 0.0, 0.0))
+	_apply_joint("right_shin", Vector3.ZERO, Vector3(shin_bend - shin_bob, 0.0, 0.0))
+
+	# Quiet rein / rest arms (slight forward, elbows soft)
+	var arm_pitch := deg_to_rad(28.0)
+	var arm_bob := deg_to_rad(3.0) * s if cadence > 0.0 else breath * 0.6
+	_apply_joint("left_arm", Vector3.ZERO, Vector3(arm_pitch + arm_bob, deg_to_rad(-8.0), deg_to_rad(18.0)))
+	_apply_joint("right_arm", Vector3.ZERO, Vector3(arm_pitch - arm_bob, deg_to_rad(8.0), deg_to_rad(-18.0)))
+	_apply_joint("left_forearm", Vector3.ZERO, Vector3(deg_to_rad(35.0), 0.0, 0.0))
+	_apply_joint("right_forearm", Vector3.ZERO, Vector3(deg_to_rad(35.0), 0.0, 0.0))
+
+
 ## Call from CharacterBody3D._physics_process after move_and_slide.
 func tick(
 	delta: float,
