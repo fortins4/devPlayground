@@ -2,7 +2,8 @@ extends Node
 ## Enech (honor) — reputation and social standing under Brehon law.
 ##
 ## Per-faction + overall tables. Law / dialogue gates are data-side stubs
-## (e.g. min honor to choose éraic or claim sanctuary).
+## (e.g. min honor to choose éraic or claim sanctuary). Sanctuary breach
+## facades forward to SanctuaryLocations.report/resolve_breach.
 
 signal honor_changed(faction_id: StringName, value: float)
 
@@ -77,6 +78,32 @@ func can_claim_sanctuary_at(site_id: StringName) -> bool:
 	return SanctuaryLocations.can_claim(site_id)
 
 
+## Preview sanctuary breach honor / rumor payload (no mutate).
+func probe_sanctuary_breach(site_id: StringName) -> Dictionary:
+	return SanctuaryLocations.probe_breach(site_id)
+
+
+## Report steel-in-precinct at a known sanctuary site → Honor + tagged Rumors.
+## Directors / stealth / combat call this (or SanctuaryLocations.report_breach).
+func report_sanctuary_breach(
+	site_id: StringName,
+	kind: StringName = &"steel",
+	apply_honor: bool = true,
+	spawn_rumor: bool = true
+) -> Dictionary:
+	return SanctuaryLocations.report_breach(site_id, kind, apply_honor, spawn_rumor)
+
+
+## Resolve sanctuary breach (alias path used by directors). Stamps last_law_result.
+func resolve_sanctuary_breach(
+	site_id: StringName,
+	kind: StringName = &"steel",
+	apply_honor: bool = true,
+	spawn_rumor: bool = true
+) -> Dictionary:
+	return SanctuaryLocations.resolve_breach(site_id, kind, apply_honor, spawn_rumor)
+
+
 ## Band recruitment uses overall enech (0..100) via BandUpkeep.RECRUIT_POOL /
 ## CattleEconomy — same scale as this autoload. See systems/economy/README.md.
 
@@ -142,6 +169,7 @@ func to_debug_dict() -> Dictionary:
 		"available_law_options": options,
 		"debug_visible": debug_visible,
 		"last_law_result": last_law_result.duplicate(true),
+		"last_sanctuary_breach": SanctuaryLocations.last_breach_result.duplicate(true),
 	}
 
 
@@ -169,6 +197,9 @@ func get_debug_text() -> String:
 	else:
 		lines.append("Open options: %s" % ", ".join(PackedStringArray(opts)))
 	lines.append("E attempt éraic · R sanctuary · D cycle dispute · F dump unlock probe")
+	lines.append(
+		"Breach: Honor.report_sanctuary_breach(site) / SanctuaryLocations.resolve_breach"
+	)
 	if not last_law_result.is_empty():
 		lines.append(
 			"Last: ok=%s option=%s  %s" % [
