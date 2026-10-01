@@ -1,6 +1,6 @@
 # World Timeline
 
-Historical clock and event definitions (Bannow Bay landing first).
+Historical clock and event definitions (Bannow Bay landing first; Wexford/Waterford struggle second).
 
 Runtime: `scripts/autoload/world_clock.gd`.
 
@@ -30,6 +30,7 @@ summary + survivor / coastal flavor).
 - `advance_day(n)` increments `day`, emits `day_advanced`, then resolves **all**
   unresolved events with `scheduled_day <= day` (overdue-inclusive).
 - Therefore the **first** `advance_day(1)` resolves Bannow Bay (scheduled day 0).
+- **Event #2** `wexford_waterford_struggle` is scheduled on **day 14** (after Bannow).
 - `force_resolve(event_id)` resolves immediately without advancing the calendar
   (debug / content hooks).
 
@@ -37,34 +38,47 @@ Design source: `docs/SCOPE.md` (lock one shared EventOutcome schema before conte
 
 ---
 
-## F5 test path (Bannow day-advance debug)
+## Seeded events
+
+| ID | Day | Historical lean | Result tags |
+|---|---|---|---|
+| `bannow_bay_landing` | 0 | Norman foothold | `norman_foothold` / `contested_landing` / `landing_checked` |
+| `wexford_waterford_struggle` | 14 | Ports fall to Norman–Diarmait pressure | `towns_fall` / `towns_contested` / `towns_hold` |
+
+Event #2 uses the same EventOutcome variables. Absent-player resolve blends toward
+historical troops/morale/supplies; present-player content mutates via
+`adjust_event_variable` / `set_player_present` before day 14 (or `force_resolve`).
+
+Ripples on resolve (attitudes, need pressures, rumors) are tagged per `result_tag`
+— see `_ripple_attitudes`, `_ripple_need_pressures`, `_emit_outcome_rumors` in
+`world_clock.gd`.
+
+---
+
+## F5 test path (Bannow → Wexford debug)
 
 1. Open `project.godot` in **Godot 4.4+** and press **F5** (main scene).
 2. Press **T** — Timeline debug panel appears (top-right). Confirm:
    - `Day: 0`
-   - `Bannow: resolved=false  tag=(pending)`
-   - Leinster attitudes at seed values (ui_chennselaig ~10, anglo_normans ~-25,
-     norse_wexford_waterford ~0)
+   - `Bannow: … resolved=false`
+   - `Wexford/Waterford: day=14 resolved=false`
+   - Leinster attitudes at seed values
    - `Rumors (0 active)`
 3. Press **Y** once — advances to day 1 and resolves Bannow (absent-player,
    history-weighted → typically `norman_foothold`).
-4. Panel should now show:
-   - `Day: 1`, `Bannow: resolved=true  tag=norman_foothold` (or contested/checked
-     if you lowered troops/morale/supplies first)
-   - Attitude deltas (e.g. anglo_normans up, norse_wexford_waterford down on foothold)
-   - Several active rumors (critical landing summary + survivors + Wexford pressure)
-   - A line under `Recent resolves`
-5. Optional checks:
-   - **U** force-resolves Bannow without advancing (no-op if already resolved).
-   - Remote: `print(WorldClock.to_debug_dict())` / `print(WorldClock.get_debug_text())`
-   - Pre-resolve mutation example (Debugger / temp script before Y):
-     ```gdscript
-     WorldClock.set_player_present(&"bannow_bay_landing", true)
-     WorldClock.adjust_event_variable(&"bannow_bay_landing", &"troops", 0.2)
-     WorldClock.adjust_event_variable(&"bannow_bay_landing", &"morale", 0.2)
-     WorldClock.adjust_event_variable(&"bannow_bay_landing", &"supplies", 0.2)
-     WorldClock.advance_day(1)  # expect landing_checked
-     ```
-6. Press **T** again to hide the panel.
+4. Keep pressing **Y** (or `WorldClock.advance_day(14)` from the remote) until
+   day ≥ 14 — Wexford/Waterford resolves (typically `towns_fall`).
+5. Optional force keys:
+   - **U** force-resolves Bannow without advancing
+   - **I** force-resolves Wexford/Waterford without advancing
+6. Pre-resolve mutation example (before the event's day):
+   ```gdscript
+   WorldClock.set_player_present(&"wexford_waterford_struggle", true)
+   WorldClock.adjust_event_variable(&"wexford_waterford_struggle", &"troops", 0.2)
+   WorldClock.adjust_event_variable(&"wexford_waterford_struggle", &"morale", 0.2)
+   WorldClock.adjust_event_variable(&"wexford_waterford_struggle", &"supplies", 0.2)
+   WorldClock.force_resolve(&"wexford_waterford_struggle")  # expect towns_hold
+   ```
+7. Press **T** again to hide the panel.
 
-Keys: **T** toggle panel · **Y** advance day · **U** force-resolve Bannow.
+Keys: **T** toggle · **Y** advance day · **U** force Bannow · **I** force Wexford/Waterford.

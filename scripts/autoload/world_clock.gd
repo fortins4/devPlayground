@@ -7,6 +7,7 @@ extends Node
 ## Day-advance: `advance_day()` increments the calendar then resolves every
 ## unresolved event with `scheduled_day <= day` (overdue inclusive). Bannow Bay
 ## is seeded on day 0; the first `advance_day(1)` therefore resolves it.
+## Event #2 (Wexford/Waterford struggle) is scheduled on day 14.
 
 signal day_advanced(day: int)
 signal event_triggered(event_id: StringName)
@@ -22,6 +23,7 @@ var events: Dictionary = {}
 ## on a later advance (see `_resolve_due_events`).
 var scheduled_events: Dictionary = {
 	0: &"bannow_bay_landing",
+	14: &"wexford_waterford_struggle",
 }
 
 ## Ring buffer of recent resolve summaries for the debug readout.
@@ -34,6 +36,7 @@ var debug_visible: bool = false
 
 func _ready() -> void:
 	_seed_bannow_bay()
+	_seed_wexford_waterford()
 
 
 func _seed_bannow_bay() -> void:
@@ -55,6 +58,34 @@ func _seed_bannow_bay() -> void:
 		&"ui_chennselaig_core": &"ui_chennselaig",
 	}
 	# Pre-resolve live seeds (player or content can mutate before resolve day).
+	outcome.troops = outcome.historical_troops
+	outcome.morale = outcome.historical_morale
+	outcome.supplies = outcome.historical_supplies
+	outcome.key_survivors = outcome.historical_survivors.duplicate(true)
+	outcome.clan_allegiance = outcome.historical_allegiance.duplicate(true)
+	events[outcome.event_id] = outcome
+
+
+func _seed_wexford_waterford() -> void:
+	var outcome := EventOutcome.new()
+	outcome.event_id = &"wexford_waterford_struggle"
+	outcome.display_name = "Struggle for Wexford and Waterford"
+	outcome.scheduled_day = 14
+	outcome.historical_bias = 0.75
+	# History-leaning: FitzStephen / Diarmait pressure on the Norse ports (1169).
+	outcome.historical_troops = 0.6
+	outcome.historical_morale = 0.58
+	outcome.historical_supplies = 0.55
+	outcome.historical_survivors = {
+		&"robert_fitzstephen": true,
+		&"diarmait_mac_murchada": true,
+		&"wexford_norse_jarl": false,
+	}
+	outcome.historical_allegiance = {
+		&"wexford_town": &"anglo_normans",
+		&"waterford_approaches": &"norse_wexford_waterford",
+		&"ui_chennselaig_core": &"ui_chennselaig",
+	}
 	outcome.troops = outcome.historical_troops
 	outcome.morale = outcome.historical_morale
 	outcome.supplies = outcome.historical_supplies
@@ -154,7 +185,16 @@ func force_resolve(event_id: StringName) -> EventOutcome:
 func _resolve_outcome(outcome: EventOutcome) -> void:
 	if not outcome.player_present:
 		outcome.apply_history_weight()
-	# Simple slice heuristic: strong Norman beachhead if troops+morale+supplies high.
+	match outcome.event_id:
+		&"wexford_waterford_struggle":
+			_resolve_wexford_waterford(outcome)
+		_:
+			_resolve_bannow_bay(outcome)
+	outcome.resolved = true
+
+
+func _resolve_bannow_bay(outcome: EventOutcome) -> void:
+	# Strong Norman beachhead if troops+morale+supplies high.
 	var pressure := (outcome.troops + outcome.morale + outcome.supplies) / 3.0
 	if pressure >= 0.55:
 		outcome.result_tag = &"norman_foothold"
@@ -165,7 +205,29 @@ func _resolve_outcome(outcome: EventOutcome) -> void:
 	else:
 		outcome.result_tag = &"landing_checked"
 		outcome.result_summary = "%s — Gaelic resistance checks the landing." % outcome.display_name
-	outcome.resolved = true
+
+
+func _resolve_wexford_waterford(outcome: EventOutcome) -> void:
+	# Port-town struggle: high pressure → towns fall to Norman/Diarmait axis.
+	var pressure := (outcome.troops + outcome.morale + outcome.supplies) / 3.0
+	if pressure >= 0.55:
+		outcome.result_tag = &"towns_fall"
+		outcome.result_summary = (
+			"%s — Wexford yields; Waterford approaches buckle under Norman and Diarmait pressure."
+			% outcome.display_name
+		)
+	elif pressure >= 0.35:
+		outcome.result_tag = &"towns_contested"
+		outcome.result_summary = (
+			"%s — harbor fighting stalls; neither side holds both ports cleanly."
+			% outcome.display_name
+		)
+	else:
+		outcome.result_tag = &"towns_hold"
+		outcome.result_summary = (
+			"%s — Norse-Gaelic defenses hold the ports; the inland advance slows."
+			% outcome.display_name
+		)
 
 
 func _broadcast_outcome(outcome: EventOutcome) -> void:
@@ -193,6 +255,23 @@ func _ripple_attitudes(outcome: EventOutcome) -> void:
 			Factions.modify_attitude(&"norse_wexford_waterford", 6.0)
 			Factions.modify_attitude(&"ui_chennselaig", -2.0)
 			Factions.modify_attitude(&"local_clans", 3.0)
+		&"towns_fall":
+			Factions.modify_attitude(&"anglo_normans", 10.0)
+			Factions.modify_attitude(&"ui_chennselaig", 6.0)
+			Factions.modify_attitude(&"norse_wexford_waterford", -18.0)
+			Factions.modify_attitude(&"norse_dublin", -6.0)
+			Factions.modify_attitude(&"local_clans", -5.0)
+			Factions.modify_attitude(&"high_kingship", -5.0)
+		&"towns_contested":
+			Factions.modify_attitude(&"anglo_normans", 3.0)
+			Factions.modify_attitude(&"norse_wexford_waterford", -8.0)
+			Factions.modify_attitude(&"ui_chennselaig", 2.0)
+		&"towns_hold":
+			Factions.modify_attitude(&"anglo_normans", -8.0)
+			Factions.modify_attitude(&"norse_wexford_waterford", 12.0)
+			Factions.modify_attitude(&"norse_dublin", 4.0)
+			Factions.modify_attitude(&"ui_chennselaig", -3.0)
+			Factions.modify_attitude(&"local_clans", 4.0)
 	# Clan allegiance soft ripples (slice-scale: map allegiance tags → faction nudges).
 	for _clan in outcome.clan_allegiance.keys():
 		var alleg: StringName = outcome.clan_allegiance[_clan]
@@ -221,6 +300,21 @@ func _ripple_need_pressures(outcome: EventOutcome) -> void:
 			Factions.set_need_pressure(&"anglo_normans", &"supplies_landing", 0.9)
 			Factions.set_need_pressure(&"norse_wexford_waterford", &"harbor_defense", 0.5)
 			Factions.set_need_pressure(&"ui_chennselaig", &"warrior_host", 0.8)
+		&"towns_fall":
+			Factions.set_need_pressure(&"anglo_normans", &"supplies_landing", 0.25)
+			Factions.set_need_pressure(&"anglo_normans", &"local_guides", 0.35)
+			Factions.set_need_pressure(&"norse_wexford_waterford", &"harbor_defense", 0.4)
+			Factions.set_need_pressure(&"norse_wexford_waterford", &"trade_cattle", 0.8)
+			Factions.set_need_pressure(&"ui_chennselaig", &"warrior_host", 0.45)
+		&"towns_contested":
+			Factions.set_need_pressure(&"anglo_normans", &"supplies_landing", 0.65)
+			Factions.set_need_pressure(&"norse_wexford_waterford", &"harbor_defense", 0.9)
+			Factions.set_need_pressure(&"ui_chennselaig", &"warrior_host", 0.65)
+		&"towns_hold":
+			Factions.set_need_pressure(&"anglo_normans", &"supplies_landing", 0.85)
+			Factions.set_need_pressure(&"anglo_normans", &"local_guides", 0.7)
+			Factions.set_need_pressure(&"norse_wexford_waterford", &"harbor_defense", 0.55)
+			Factions.set_need_pressure(&"ui_chennselaig", &"warrior_host", 0.75)
 
 
 func _emit_outcome_rumors(outcome: EventOutcome) -> void:
@@ -234,6 +328,9 @@ func _emit_outcome_rumors(outcome: EventOutcome) -> void:
 		14
 	)
 	# Flavor / survivor secondary rumors so the bus shows more than one line.
+	var place := "Bannow"
+	if outcome.event_id == &"wexford_waterford_struggle":
+		place = "Wexford"
 	var fallen: Array[String] = []
 	for who in outcome.key_survivors.keys():
 		if not bool(outcome.key_survivors[who]):
@@ -241,15 +338,18 @@ func _emit_outcome_rumors(outcome: EventOutcome) -> void:
 	if not fallen.is_empty():
 		Rumors.add_rumor(
 			StringName("rumor_%s_survivors" % String(outcome.event_id)),
-			"Word from Bannow: %s did not survive the landing." % ", ".join(fallen),
+			"Word from %s: %s did not survive the fighting." % [place, ", ".join(fallen)],
 			outcome.event_id,
 			Rumors.PRIORITY_HIGH,
 			10
 		)
 	else:
+		var ok_text := "Messengers say Diarmait and FitzStephen still live after the landing."
+		if outcome.event_id == &"wexford_waterford_struggle":
+			ok_text = "Messengers say Diarmait and FitzStephen still live after the port struggle."
 		Rumors.add_rumor(
 			StringName("rumor_%s_survivors" % String(outcome.event_id)),
-			"Messengers say Diarmait and FitzStephen still live after the landing.",
+			ok_text,
 			outcome.event_id,
 			Rumors.PRIORITY_NORMAL,
 			7
@@ -270,6 +370,37 @@ func _emit_outcome_rumors(outcome: EventOutcome) -> void:
 				outcome.event_id,
 				Rumors.PRIORITY_HIGH,
 				8
+			)
+		&"towns_fall":
+			Rumors.add_rumor(
+				&"rumor_wexford_ports_fall",
+				"Wexford's gates open to Diarmait's allies; Waterford merchants fear they are next.",
+				outcome.event_id,
+				Rumors.PRIORITY_HIGH,
+				12
+			)
+			Rumors.add_rumor(
+				&"rumor_wexford_trade_shock",
+				"Cattle-for-harbor trade stalls while Norse captains argue over terms.",
+				outcome.event_id,
+				Rumors.PRIORITY_NORMAL,
+				8
+			)
+		&"towns_contested":
+			Rumors.add_rumor(
+				&"rumor_wexford_ports_contested",
+				"Smoke over the harbors — neither Norman nor Norse holds both ports cleanly.",
+				outcome.event_id,
+				Rumors.PRIORITY_HIGH,
+				10
+			)
+		&"towns_hold":
+			Rumors.add_rumor(
+				&"rumor_wexford_ports_hold",
+				"Norse-Gaelic walls hold; word spreads that the inland advance has slowed.",
+				outcome.event_id,
+				Rumors.PRIORITY_HIGH,
+				10
 			)
 
 
@@ -326,28 +457,36 @@ func to_debug_dict() -> Dictionary:
 	}
 
 
+
+func _append_event_debug_lines(lines: PackedStringArray, event_id: StringName, label: String) -> void:
+	var outcome := get_outcome(event_id)
+	if outcome == null:
+		lines.append("%s: (missing EventOutcome)" % label)
+		return
+	lines.append(
+		"%s: day=%d resolved=%s tag=%s present=%s" % [
+			label,
+			outcome.scheduled_day,
+			str(outcome.resolved),
+			String(outcome.result_tag) if outcome.result_tag != &"" else "(pending)",
+			str(outcome.player_present),
+		]
+	)
+	lines.append(
+		"  troops=%.2f morale=%.2f supplies=%.2f bias=%.2f" % [
+			outcome.troops, outcome.morale, outcome.supplies, outcome.historical_bias,
+		]
+	)
+	if outcome.resolved and outcome.result_summary != "":
+		lines.append("  summary: %s" % outcome.result_summary)
+
+
 func get_debug_text() -> String:
 	var lines: PackedStringArray = PackedStringArray()
-	lines.append("=== WorldClock / Bannow debug ===")
-	lines.append("Day: %d   (T toggle · Y advance day · U force-resolve Bannow)" % day)
-	var bannow := get_outcome(&"bannow_bay_landing")
-	if bannow:
-		lines.append(
-			"Bannow: resolved=%s  tag=%s  present=%s" % [
-				str(bannow.resolved),
-				String(bannow.result_tag) if bannow.result_tag != &"" else "(pending)",
-				str(bannow.player_present),
-			]
-		)
-		lines.append(
-			"  troops=%.2f morale=%.2f supplies=%.2f bias=%.2f" % [
-				bannow.troops, bannow.morale, bannow.supplies, bannow.historical_bias,
-			]
-		)
-		if bannow.resolved and bannow.result_summary != "":
-			lines.append("  summary: %s" % bannow.result_summary)
-	else:
-		lines.append("Bannow: (missing EventOutcome)")
+	lines.append("=== WorldClock / living-history debug ===")
+	lines.append("Day: %d   (T toggle · Y advance · U force Bannow · I force Wexford)" % day)
+	_append_event_debug_lines(lines, &"bannow_bay_landing", "Bannow")
+	_append_event_debug_lines(lines, &"wexford_waterford_struggle", "Wexford/Waterford")
 	if Factions:
 		lines.append("Attitudes (Leinster):")
 		for fid in Factions.LEINSTER_ACTIVE:

@@ -5,6 +5,7 @@ extends CanvasLayer
 ##   T — show / hide panel
 ##   Y — WorldClock.advance_day(1)
 ##   U — force-resolve Bannow Bay (skips calendar)
+##   I — force-resolve Wexford/Waterford struggle (skips calendar)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -47,6 +48,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_U:
 				if WorldClock:
 					WorldClock.force_resolve(&"bannow_bay_landing")
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_I:
+				if WorldClock:
+					WorldClock.force_resolve(&"wexford_waterford_struggle")
 					_refresh()
 				get_viewport().set_input_as_handled()
 
