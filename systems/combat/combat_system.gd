@@ -42,7 +42,9 @@ var _owner_body: Node3D
 var _hitbox: Area3D
 var _hurtbox: Area3D
 var _weapon_visual: Node3D
-var _swing_flash_left: float = 0.0
+var _weapon_rest_transform: Transform3D
+var _swing_tween: Tween
+var _last_attack_kind: StringName = &"light"
 
 # Per-weapon attack profiles: light / heavy
 const PROFILES := {
@@ -82,6 +84,8 @@ func _ready() -> void:
 			_hitbox.body_entered.connect(_on_hitbox_body_entered)
 		if not _hitbox.area_entered.is_connected(_on_hitbox_area_entered):
 			_hitbox.area_entered.connect(_on_hitbox_area_entered)
+	if _weapon_visual:
+		_weapon_rest_transform = _weapon_visual.transform
 	_apply_weapon_visual()
 	stamina_changed.emit(stamina, max_stamina)
 	health_changed.emit(health, max_health)
@@ -101,10 +105,6 @@ func _physics_process(delta: float) -> void:
 		hitbox_active_left = maxf(0.0, hitbox_active_left - delta)
 		if hitbox_active_left <= 0.0 and _hitbox:
 			_hitbox.monitoring = false
-
-	if _swing_flash_left > 0.0:
-		_swing_flash_left = maxf(0.0, _swing_flash_left - delta)
-		_update_swing_visual()
 
 	var regenerating := not is_attacking and not is_blocking
 	if regenerating and stamina < max_stamina:
@@ -176,8 +176,8 @@ func try_attack(kind: StringName = &"light") -> bool:
 	var active: float = profile["active"]
 	var recovery: float = profile["recovery"]
 	attack_recovery_left = windup + active + recovery
-	_swing_flash_left = windup + active + 0.05
-	_update_swing_visual()
+	_last_attack_kind = kind
+	_play_weapon_swing(kind, windup, active, recovery)
 	attack_performed.emit(_owner_body, kind, WEAPON_NAMES[current_weapon])
 	_activate_hitbox_after(windup, active, profile["reach"], profile["damage"], kind)
 	return true
@@ -217,6 +217,7 @@ func _die() -> void:
 	is_blocking = false
 	if _hitbox:
 		_hitbox.monitoring = false
+	reset_weapon_pose()
 	died.emit(_owner_body)
 
 
@@ -333,12 +334,113 @@ func _apply_weapon_visual() -> void:
 			(_weapon_visual.get_child(0) as Node3D).visible = true
 
 
-func _update_swing_visual() -> void:
+func _play_weapon_swing(kind: StringName, windup: float, active: float, recovery: float) -> void:
 	if _weapon_visual == null:
 		return
-	var t := 0.0
-	if _swing_flash_left > 0.0:
-		t = sin((1.0 - clampf(_swing_flash_left / 0.4, 0.0, 1.0)) * PI)
-	# Arc swing: rotate weapon visual around local Y/Z for greybox readability
-	var angle := deg_to_rad(-70.0 * t) if current_weapon != Weapon.GOAD else deg_to_rad(-40.0 * t)
-	_weapon_visual.rotation_degrees = Vector3(angle * 0.3, 0.0, angle)
+	if _swing_tween and _swing_tween.is_valid():
+		_swing_tween.kill()
+	_weapon_visual.transform = _weapon_rest_transform
+
+	var poses := _swing_poses(kind)
+	var windup_rot: Vector3 = poses["windup_rot"]
+	var contact_rot: Vector3 = poses["contact_rot"]
+	var follow_rot: Vector3 = poses["follow_rot"]
+	var windup_pos: Vector3 = poses["windup_pos"]
+	var contact_pos: Vector3 = poses["contact_pos"]
+	var follow_pos: Vector3 = poses["follow_pos"]
+	var rest_rot := Vector3(
+		rad_to_deg(_weapon_rest_transform.basis.get_euler().x),
+		rad_to_deg(_weapon_rest_transform.basis.get_euler().y),
+		rad_to_deg(_weapon_rest_transform.basis.get_euler().z)
+	)
+
+	_swing_tween = create_tween()
+	_swing_tween.set_parallel(false)
+	# Windup: cock back/up before hit frames
+	var tw := _swing_tween.tween_property(_weapon_visual, "rotation_degrees", windup_rot, windup)
+	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", windup_pos, windup)
+	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	# Active: accelerate through the strike (synced with hitbox window)
+	tw = _swing_tween.tween_property(_weapon_visual, "rotation_degrees", contact_rot, active * 0.55)
+	tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", contact_pos, active * 0.55)
+	tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tw = _swing_tween.tween_property(_weapon_visual, "rotation_degrees", follow_rot, active * 0.45)
+	tw.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", follow_pos, active * 0.45)
+	tw.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	# Recovery: return to rest
+	tw = _swing_tween.tween_property(_weapon_visual, "rotation_degrees", rest_rot, recovery)
+	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", _weapon_rest_transform.origin, recovery)
+	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _swing_poses(kind: StringName) -> Dictionary:
+	## Degrees + local positions; heavy = bigger arc / higher cock than light.
+	var rest_pos := _weapon_rest_transform.origin
+	var heavy := kind == &"heavy"
+	match current_weapon:
+		Weapon.KNIFE:
+			if heavy:
+				return {
+					"windup_rot": Vector3(-25.0, 35.0, 55.0),
+					"contact_rot": Vector3(15.0, -50.0, -95.0),
+					"follow_rot": Vector3(25.0, -70.0, -130.0),
+					"windup_pos": rest_pos + Vector3(0.05, 0.12, 0.08),
+					"contact_pos": rest_pos + Vector3(0.02, 0.02, -0.28),
+					"follow_pos": rest_pos + Vector3(-0.08, -0.05, -0.18),
+				}
+			return {
+				"windup_rot": Vector3(-10.0, 20.0, 35.0),
+				"contact_rot": Vector3(8.0, -30.0, -70.0),
+				"follow_rot": Vector3(12.0, -40.0, -95.0),
+				"windup_pos": rest_pos + Vector3(0.03, 0.06, 0.04),
+				"contact_pos": rest_pos + Vector3(0.0, 0.0, -0.18),
+				"follow_pos": rest_pos + Vector3(-0.04, -0.02, -0.1),
+			}
+		Weapon.GOAD:
+			if heavy:
+				return {
+					"windup_rot": Vector3(-55.0, 25.0, 40.0),
+					"contact_rot": Vector3(35.0, -15.0, -55.0),
+					"follow_rot": Vector3(50.0, -25.0, -75.0),
+					"windup_pos": rest_pos + Vector3(0.08, 0.22, 0.12),
+					"contact_pos": rest_pos + Vector3(0.05, 0.05, -0.45),
+					"follow_pos": rest_pos + Vector3(-0.05, -0.08, -0.35),
+				}
+			return {
+				"windup_rot": Vector3(-30.0, 10.0, 20.0),
+				"contact_rot": Vector3(20.0, -5.0, -25.0),
+				"follow_rot": Vector3(30.0, -10.0, -40.0),
+				"windup_pos": rest_pos + Vector3(0.04, 0.1, 0.06),
+				"contact_pos": rest_pos + Vector3(0.02, 0.02, -0.35),
+				"follow_pos": rest_pos + Vector3(0.0, -0.04, -0.22),
+			}
+		_:
+			# Hatchet diagonal chop; heavy is a larger overhead arc
+			if heavy:
+				return {
+					"windup_rot": Vector3(-70.0, 45.0, 85.0),
+					"contact_rot": Vector3(25.0, -35.0, -100.0),
+					"follow_rot": Vector3(55.0, -55.0, -145.0),
+					"windup_pos": rest_pos + Vector3(0.12, 0.28, 0.1),
+					"contact_pos": rest_pos + Vector3(0.05, 0.05, -0.32),
+					"follow_pos": rest_pos + Vector3(-0.12, -0.15, -0.22),
+				}
+			return {
+				"windup_rot": Vector3(-35.0, 25.0, 50.0),
+				"contact_rot": Vector3(15.0, -20.0, -75.0),
+				"follow_rot": Vector3(30.0, -35.0, -105.0),
+				"windup_pos": rest_pos + Vector3(0.06, 0.14, 0.06),
+				"contact_pos": rest_pos + Vector3(0.02, 0.02, -0.22),
+				"follow_pos": rest_pos + Vector3(-0.06, -0.08, -0.14),
+			}
+
+
+func reset_weapon_pose() -> void:
+	if _swing_tween and _swing_tween.is_valid():
+		_swing_tween.kill()
+	if _weapon_visual:
+		_weapon_visual.transform = _weapon_rest_transform

@@ -16,6 +16,7 @@ const MOUSE_SENSITIVITY := 0.003
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _jump_buffered: bool = false
 var _arm_base_transform: Transform3D
+var _arm_tween: Tween
 
 
 func _ready() -> void:
@@ -110,18 +111,47 @@ func _move_vector() -> Vector2:
 	return v.normalized()
 
 
-func _on_attack_performed(_attacker: Node, kind: StringName, _weapon: StringName) -> void:
-	# Brief arm raise for greybox readability
-	if right_arm == null:
+func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName) -> void:
+	# Arm follows weapon swing phases for readable greybox attacks.
+	if right_arm == null or combat == null:
 		return
-	var lift := -0.9 if kind == &"heavy" else -0.55
-	right_arm.rotation.z = lift
+	var profile: Dictionary = CombatSystem.PROFILES[combat.current_weapon].get(
+		kind, CombatSystem.PROFILES[combat.current_weapon][&"light"]
+	)
+	var windup: float = profile["windup"]
+	var active: float = profile["active"]
+	var recovery: float = profile["recovery"]
+	var heavy := kind == &"heavy"
+	var base_rot := _arm_base_transform.basis.get_euler()
+	# Deltas on top of rest pose; heavy = higher cock + deeper follow-through.
+	var windup_delta := Vector3(deg_to_rad(-25.0 if heavy else -12.0), 0.0, deg_to_rad(-0.55 if heavy else -0.35))
+	var contact_delta := Vector3(deg_to_rad(20.0 if heavy else 10.0), 0.0, deg_to_rad(0.55 if heavy else 0.35))
+	var follow_delta := Vector3(deg_to_rad(45.0 if heavy else 28.0), 0.0, deg_to_rad(0.95 if heavy else 0.65))
+	if weapon == &"goad":
+		windup_delta = Vector3(deg_to_rad(-40.0 if heavy else -22.0), 0.0, deg_to_rad(-0.35 if heavy else -0.2))
+		contact_delta = Vector3(deg_to_rad(30.0 if heavy else 18.0), 0.0, deg_to_rad(0.25 if heavy else 0.15))
+		follow_delta = Vector3(deg_to_rad(50.0 if heavy else 30.0), 0.0, deg_to_rad(0.45 if heavy else 0.3))
+	elif weapon == &"knife":
+		windup_delta = Vector3(deg_to_rad(-15.0 if heavy else -8.0), 0.0, deg_to_rad(-0.45 if heavy else -0.28))
+		contact_delta = Vector3(deg_to_rad(10.0 if heavy else 5.0), 0.0, deg_to_rad(0.55 if heavy else 0.35))
+		follow_delta = Vector3(deg_to_rad(25.0 if heavy else 15.0), 0.0, deg_to_rad(0.85 if heavy else 0.55))
+
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	right_arm.transform = _arm_base_transform
+	_arm_tween = create_tween()
+	_arm_tween.tween_property(right_arm, "rotation", base_rot + windup_delta, windup).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_property(right_arm, "rotation", base_rot + contact_delta, active * 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_arm_tween.tween_property(right_arm, "rotation", base_rot + follow_delta, active * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_property(right_arm, "rotation", base_rot, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
-func _update_arm_swing(delta: float) -> void:
+func _update_arm_swing(_delta: float) -> void:
+	# Arm motion is tween-driven during attacks; idle keeps base pose.
 	if right_arm == null:
 		return
-	right_arm.rotation.z = move_toward(right_arm.rotation.z, 0.0, 3.5 * delta)
+	if combat and combat.is_attacking:
+		return
 
 
 func _on_died(_victim: Node) -> void:
