@@ -361,6 +361,8 @@ func _play_weapon_swing(kind: StringName, windup: float, active: float, recovery
 		return
 	if _swing_tween and _swing_tween.is_valid():
 		_swing_tween.kill()
+	# Refresh rest from current hand-follow pose so swings start at the gripped weapon.
+	_weapon_rest_transform = _weapon_visual.transform
 	_weapon_visual.transform = _weapon_rest_transform
 
 	var poses := _swing_poses(kind)

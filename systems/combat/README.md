@@ -48,3 +48,7 @@ Wire under a `CharacterBody3D` with optional `Hitbox`, `Hurtbox`, and `WeaponVis
 ## Test
 
 Open `scenes/main/main.tscn` (F5). A dummy fighter stands a few meters ahead — swing the hatchet, swap weapons, sprint, and watch HP/STA on the HUD. Confirm flash + damage numbers on hit, and dummy telegraph before counters.
+
+## Character anims
+
+Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS.md`](../../docs/CHARACTER_ANIMS.md).

@@ -1,6 +1,7 @@
 extends CharacterBody3D
 ## Third-person controller + hatchet-first combat wiring for the greybox slice.
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
+## Locomotion: procedural kerne joints via KerneLocomotion (walk/run/sprint/crouch/idle).
 
 const WALK_SPEED := 5.0
 const SPRINT_SPEED := 8.0
@@ -24,18 +25,22 @@ const CROUCH_LERP := 10.0
 @onready var pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D
 @onready var combat: CombatSystem = $CombatSystem
-@onready var right_arm: MeshInstance3D = $Visual/RightArm
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
 @onready var hurtbox_shape: CollisionShape3D = $Hurtbox/CollisionShape3D
 @onready var visual: Node3D = $Visual
 @onready var weapon_visual: Node3D = $WeaponVisual
+@onready var locomotion: KerneLocomotion = $KerneLocomotion
 
+var right_arm: Node3D
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _jump_buffered: bool = false
-var _arm_base_transform: Transform3D
+var _arm_base_rotation: Vector3 = Vector3.ZERO
 var _arm_tween: Tween
+var _torso_tween: Tween
 var _camera_base_pos: Vector3
 var _punch_tween: Tween
+var _sprinting: bool = false
+var _arm_fore_scale: float = 0.35
 
 ## Stealth footprint (read by DetectionSensor).
 var is_crouching: bool = false
@@ -57,8 +62,6 @@ var mounted_horse: Node3D = null
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	if right_arm:
-		_arm_base_transform = right_arm.transform
 	if camera:
 		_camera_base_pos = camera.position
 	if combat:
@@ -66,12 +69,26 @@ func _ready() -> void:
 		combat.hit_landed.connect(_on_hit_landed)
 		combat.damage_taken.connect(_on_damage_taken)
 		combat.died.connect(_on_died)
+		combat.weapon_changed.connect(_on_weapon_changed)
 	if collision_shape and collision_shape.shape is CapsuleShape3D:
 		_capsule_shape = collision_shape.shape as CapsuleShape3D
 	if hurtbox_shape and hurtbox_shape.shape is CapsuleShape3D:
 		_hurt_shape = hurtbox_shape.shape as CapsuleShape3D
 	if weapon_visual:
 		_weapon_base_y = weapon_visual.position.y
+	# Locomotion builds mesh in its _ready; resolve arm after a deferred pass.
+	call_deferred("_bind_locomotion_joints")
+
+
+func _bind_locomotion_joints() -> void:
+	if locomotion == null:
+		return
+	if locomotion.joints.is_empty():
+		locomotion.rebuild()
+	right_arm = locomotion.get_right_arm()
+	if right_arm:
+		_arm_base_rotation = right_arm.rotation
+	_sync_back_goad_visibility()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -155,11 +172,13 @@ func _physics_process(delta: float) -> void:
 		sprinting = combat.try_sprint_drain(delta)
 	elif want_sprint and combat == null:
 		sprinting = true
+	_sprinting = sprinting
 
 	var target_speed := WALK_SPEED
 	if dragging_body != null and is_instance_valid(dragging_body):
 		target_speed = DRAG_SPEED * (0.55 if drag_stamina_exhausted else 1.0)
 		sprinting = false
+		_sprinting = false
 	elif is_crouching:
 		target_speed = CROUCH_SPEED
 	elif sprinting:
@@ -183,8 +202,21 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 	_update_noise(horiz.length(), sprinting)
-	_update_arm_swing(delta)
 	_update_drag_stamina(delta)
+	if not is_mounted:
+		_tick_locomotion(delta, horiz.length(), sprinting, locked)
+		_sync_weapon_to_hand()
+
+
+func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked: bool) -> void:
+	if locomotion == null:
+		return
+	var attacking := combat != null and combat.is_attacking
+	var local_dir := Vector3.ZERO
+	var input_dir := _move_vector()
+	if not locked:
+		local_dir = Vector3(input_dir.x, 0.0, input_dir.y)
+	locomotion.tick(delta, horiz_speed, sprinting, is_crouching, attacking, local_dir)
 
 
 func _apply_crouch_visual(delta: float) -> void:
@@ -250,9 +282,31 @@ func _move_vector() -> Vector2:
 	return v.normalized()
 
 
+func _on_weapon_changed(weapon: StringName) -> void:
+	_sync_back_goad_visibility()
+	# Hide belt knife mesh when knife is drawn as active weapon.
+	if locomotion == null:
+		return
+	var visual_node := get_node_or_null("Visual") as Node3D
+	if visual_node == null:
+		return
+	var belt_knife := visual_node.find_child("BeltKnife", true, false) as Node3D
+	if belt_knife:
+		belt_knife.visible = weapon != &"knife"
+
+
+func _sync_back_goad_visibility() -> void:
+	var visual_node := get_node_or_null("Visual") as Node3D
+	if visual_node == null or combat == null:
+		return
+	var back_goad := visual_node.find_child("BackGoad", true, false) as Node3D
+	if back_goad:
+		back_goad.visible = combat.current_weapon != CombatSystem.Weapon.GOAD
+
+
 func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName) -> void:
-	# Arm follows weapon swing phases for readable greybox attacks.
-	if right_arm == null or combat == null:
+	# Body + arm follow weapon swing phases; timings match CombatSystem profiles.
+	if combat == null:
 		return
 	var profile: Dictionary = CombatSystem.PROFILES[combat.current_weapon].get(
 		kind, CombatSystem.PROFILES[combat.current_weapon][&"light"]
@@ -261,36 +315,75 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	var active: float = profile["active"]
 	var recovery: float = profile["recovery"]
 	var heavy := kind == &"heavy"
-	var base_rot := _arm_base_transform.basis.get_euler()
-	# Deltas on top of rest pose; heavy = higher cock + deeper follow-through.
-	var windup_delta := Vector3(deg_to_rad(-25.0 if heavy else -12.0), 0.0, deg_to_rad(-0.55 if heavy else -0.35))
-	var contact_delta := Vector3(deg_to_rad(20.0 if heavy else 10.0), 0.0, deg_to_rad(0.55 if heavy else 0.35))
-	var follow_delta := Vector3(deg_to_rad(45.0 if heavy else 28.0), 0.0, deg_to_rad(0.95 if heavy else 0.65))
+	if locomotion:
+		locomotion.lock_attack(windup + active + recovery)
+
+	if right_arm == null and locomotion:
+		right_arm = locomotion.get_right_arm()
+	if right_arm == null:
+		return
+
+	# Stronger readable arcs than the old capsule slice.
+	var windup_delta := Vector3(deg_to_rad(-55.0 if heavy else -32.0), deg_to_rad(-15.0 if heavy else -8.0), deg_to_rad(-25.0 if heavy else -14.0))
+	var contact_delta := Vector3(deg_to_rad(25.0 if heavy else 12.0), deg_to_rad(10.0), deg_to_rad(35.0 if heavy else 22.0))
+	var follow_delta := Vector3(deg_to_rad(55.0 if heavy else 35.0), deg_to_rad(18.0), deg_to_rad(50.0 if heavy else 32.0))
+	var torso_windup := Vector3(deg_to_rad(-8.0 if heavy else -4.0), deg_to_rad(-12.0 if heavy else -6.0), 0.0)
+	var torso_contact := Vector3(deg_to_rad(10.0 if heavy else 5.0), deg_to_rad(8.0 if heavy else 4.0), 0.0)
+	var torso_follow := Vector3(deg_to_rad(14.0 if heavy else 8.0), deg_to_rad(12.0 if heavy else 6.0), 0.0)
+
 	if weapon == &"goad":
-		windup_delta = Vector3(deg_to_rad(-40.0 if heavy else -22.0), 0.0, deg_to_rad(-0.35 if heavy else -0.2))
-		contact_delta = Vector3(deg_to_rad(30.0 if heavy else 18.0), 0.0, deg_to_rad(0.25 if heavy else 0.15))
-		follow_delta = Vector3(deg_to_rad(50.0 if heavy else 30.0), 0.0, deg_to_rad(0.45 if heavy else 0.3))
+		windup_delta = Vector3(deg_to_rad(-70.0 if heavy else -40.0), deg_to_rad(-5.0), deg_to_rad(-10.0))
+		contact_delta = Vector3(deg_to_rad(40.0 if heavy else 22.0), deg_to_rad(5.0), deg_to_rad(15.0))
+		follow_delta = Vector3(deg_to_rad(60.0 if heavy else 35.0), deg_to_rad(8.0), deg_to_rad(20.0))
+		torso_windup = Vector3(deg_to_rad(-12.0 if heavy else -6.0), 0.0, 0.0)
+		torso_contact = Vector3(deg_to_rad(16.0 if heavy else 8.0), 0.0, 0.0)
+		torso_follow = Vector3(deg_to_rad(20.0 if heavy else 10.0), 0.0, 0.0)
 	elif weapon == &"knife":
-		windup_delta = Vector3(deg_to_rad(-15.0 if heavy else -8.0), 0.0, deg_to_rad(-0.45 if heavy else -0.28))
-		contact_delta = Vector3(deg_to_rad(10.0 if heavy else 5.0), 0.0, deg_to_rad(0.55 if heavy else 0.35))
-		follow_delta = Vector3(deg_to_rad(25.0 if heavy else 15.0), 0.0, deg_to_rad(0.85 if heavy else 0.55))
+		windup_delta = Vector3(deg_to_rad(-25.0 if heavy else -14.0), deg_to_rad(-25.0 if heavy else -14.0), deg_to_rad(-40.0 if heavy else -22.0))
+		contact_delta = Vector3(deg_to_rad(10.0 if heavy else 5.0), deg_to_rad(20.0), deg_to_rad(55.0 if heavy else 35.0))
+		follow_delta = Vector3(deg_to_rad(20.0 if heavy else 10.0), deg_to_rad(30.0), deg_to_rad(70.0 if heavy else 45.0))
+		torso_windup = Vector3(0.0, deg_to_rad(-8.0), 0.0)
+		torso_contact = Vector3(deg_to_rad(4.0), deg_to_rad(10.0), 0.0)
+		torso_follow = Vector3(deg_to_rad(6.0), deg_to_rad(12.0), 0.0)
 
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
-	right_arm.transform = _arm_base_transform
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+
+	_arm_fore_scale = 0.35
 	_arm_tween = create_tween()
-	_arm_tween.tween_property(right_arm, "rotation", base_rot + windup_delta, windup).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_arm_tween.tween_property(right_arm, "rotation", base_rot + contact_delta, active * 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	_arm_tween.tween_property(right_arm, "rotation", base_rot + follow_delta, active * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_arm_tween.tween_property(right_arm, "rotation", base_rot, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_method(_apply_arm_additive, windup_delta * 0.15, windup_delta, windup).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.45)
+	_arm_tween.tween_method(_apply_arm_additive, windup_delta, contact_delta, active * 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.5)
+	_arm_tween.tween_method(_apply_arm_additive, contact_delta, follow_delta, active * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.25)
+	_arm_tween.tween_method(_apply_arm_additive, follow_delta, Vector3.ZERO, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_callback(_clear_attack_additives)
+
+	_torso_tween = create_tween()
+	_torso_tween.tween_method(_apply_torso_additive, torso_windup * 0.2, torso_windup, windup).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_torso_tween.tween_method(_apply_torso_additive, torso_windup, torso_contact, active * 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_torso_tween.tween_method(_apply_torso_additive, torso_contact, torso_follow, active * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_torso_tween.tween_method(_apply_torso_additive, torso_follow, Vector3.ZERO, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
-func _update_arm_swing(_delta: float) -> void:
-	# Arm motion is tween-driven during attacks; idle keeps base pose.
-	if right_arm == null:
+func _apply_arm_additive(v: Vector3) -> void:
+	if locomotion == null:
 		return
-	if combat and combat.is_attacking:
-		return
+	locomotion.set_combat_additive("right_arm", v)
+	locomotion.set_combat_additive("right_forearm", Vector3(v.x * _arm_fore_scale, 0.0, 0.0))
+
+
+func _apply_torso_additive(v: Vector3) -> void:
+	if locomotion:
+		locomotion.set_combat_additive("torso", v)
+
+
+func _clear_attack_additives() -> void:
+	if locomotion:
+		locomotion.clear_combat_additives()
 
 
 func _on_hit_landed(_attacker: Node, _target: Node, damage: float, kind: StringName) -> void:
@@ -320,6 +413,23 @@ func _on_died(_victim: Node) -> void:
 	# Keep camera; player ragdoll deferred — just stop combat inputs via combat.is_dead
 	pass
 
+
+
+func _sync_weapon_to_hand() -> void:
+	## Keep hatchet/knife/goad near the right forearm tip so swings read with the arm.
+	if weapon_visual == null or locomotion == null:
+		return
+	if combat and combat.is_attacking:
+		return  # CombatSystem owns WeaponVisual transform during swings
+	var forearm := locomotion.get_joint("right_forearm")
+	if forearm == null:
+		return
+	# Tip of forearm in player local space
+	var tip_global := forearm.to_global(Vector3(0.0, -0.28, 0.05))
+	weapon_visual.global_position = tip_global
+	# Preserve roughly upright kit rest; yaw follows body
+	weapon_visual.rotation = Vector3(deg_to_rad(-10.0), 0.0, deg_to_rad(-8.0))
+	_weapon_base_y = weapon_visual.position.y
 
 func begin_drag(body: Node3D) -> void:
 	if body == null or is_mounted:

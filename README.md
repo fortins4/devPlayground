@@ -19,3 +19,5 @@ Working title for an open-world, historically grounded action-adventure set in *
 ## Status
 
 Greybox slice in progress: third-person move/sprint/crouch + hatchet combat + stealth/bog body-drag + ringfort band muster + Leinster greybox; autoload stubs (honor, factions, timeline, rumors).
+
+Character feel: procedural **kerne** silhouette + locomotion (see [docs/CHARACTER_ANIMS.md](docs/CHARACTER_ANIMS.md)). Kit lock — hatchet + knife + cattle goad.
