@@ -3,10 +3,11 @@ extends CanvasLayer
 ##
 ## Keys (when this node is in the tree):
 ##   T — show / hide panel
-##   Y — WorldClock.advance_day(1)
+##   Y — WorldClock.advance_day(1)  (also ticks Factions need pressure)
 ##   U — force-resolve Bannow Bay (skips calendar)
 ##   I — force-resolve Wexford/Waterford struggle (skips calendar)
 ##   O — force-resolve Aífe/Strongbow marriage (skips calendar)
+##   P — Factions.demo_need_pressure_surge(5)  (need tick without calendar events)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -59,6 +60,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_O:
 				if WorldClock:
 					WorldClock.force_resolve(&"aife_strongbow_marriage")
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_P:
+				if Factions:
+					Factions.demo_need_pressure_surge(5)
 					_refresh()
 				get_viewport().set_input_as_handled()
 

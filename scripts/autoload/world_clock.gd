@@ -9,6 +9,9 @@ extends Node
 ## is seeded on day 0; the first `advance_day(1)` therefore resolves it.
 ## Event #2 (Wexford/Waterford struggle) is scheduled on day 14.
 ## Event #3 (Aífe / Strongbow marriage) is scheduled on day 28.
+##
+## Listeners on `day_advanced` (auto): Rumors.tick_decay, Factions need-pressure
+## tick (hunger/security). CattleEconomy may also subscribe when owned by a scene.
 
 signal day_advanced(day: int)
 signal event_triggered(event_id: StringName)
@@ -576,11 +579,15 @@ func to_debug_dict() -> Dictionary:
 				"age_days": rumor.get("age_days"),
 				"days_remaining": Rumors.days_remaining(rumor),
 			})
+	var needs: Dictionary = {}
+	if Factions:
+		needs = Factions.to_needs_debug_dict()
 	return {
 		"day": day,
 		"debug_visible": debug_visible,
 		"events": event_debug,
 		"leinster_attitudes": attitudes,
+		"leinster_needs": needs,
 		"top_rumors": rumors,
 		"recent_resolutions": recent_resolutions.duplicate(true),
 	}
@@ -613,7 +620,7 @@ func _append_event_debug_lines(lines: PackedStringArray, event_id: StringName, l
 func get_debug_text() -> String:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("=== WorldClock / living-history debug ===")
-	lines.append("Day: %d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage)" % day)
+	lines.append("Day: %d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage · P need surge)" % day)
 	_append_event_debug_lines(lines, &"bannow_bay_landing", "Bannow")
 	_append_event_debug_lines(lines, &"wexford_waterford_struggle", "Wexford/Waterford")
 	_append_event_debug_lines(lines, &"aife_strongbow_marriage", "Aífe/Strongbow")
@@ -621,6 +628,7 @@ func get_debug_text() -> String:
 		lines.append("Attitudes (Leinster):")
 		for fid in Factions.LEINSTER_ACTIVE:
 			lines.append("  %s: %.1f" % [String(fid), Factions.get_attitude(fid)])
+		lines.append(Factions.get_needs_debug_text())
 	if Rumors:
 		var top := Rumors.get_top_rumors(4)
 		lines.append("Rumors (%d active):" % Rumors.count_active())
