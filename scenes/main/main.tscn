@@ -1,4 +1,4 @@
-[gd_scene load_steps=30 format=3 uid="uid://cq8riochtmain0001"]
+[gd_scene load_steps=32 format=3 uid="uid://cq8riochtmain0001"]
 
 [ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtdummy01" path="res://scenes/characters/npcs/dummy_fighter.tscn" id="2_dummy"]
@@ -16,6 +16,8 @@
 [ext_resource type="PackedScene" uid="uid://cq8riochtringfort01" path="res://scenes/world/ringfort/ringfort.tscn" id="9_ringfort"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtbandhud01" path="res://scenes/ui/band_hud.tscn" id="10_band_hud"]
 [ext_resource type="PackedScene" uid="uid://cq8riochthorse001" path="res://scenes/characters/horse/horse.tscn" id="13_horse"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtraidlane01" path="res://scenes/world/raid/cattle_raid_lane.tscn" id="14_raid_lane"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtraidhud01" path="res://scenes/ui/cattle_raid_hud.tscn" id="15_raid_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.45, 0.55, 0.65, 1)
@@ -253,3 +255,16 @@ E mount/dismount · WASD ride · Shift gallop
 billboard = 1
 font_size = 30
 modulate = Color(0.85, 0.78, 0.55, 1)
+
+[node name="CattleRaidApproachSign" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 2.3, 6)
+text = "Cattle raid ↓ south
+Pens → drive west to home"
+billboard = 1
+font_size = 30
+modulate = Color(0.92, 0.82, 0.5, 1)
+
+[node name="CattleRaidLane" parent="." instance=ExtResource("14_raid_lane")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 26)
+
+[node name="CattleRaidHUD" parent="." instance=ExtResource("15_raid_hud")]
