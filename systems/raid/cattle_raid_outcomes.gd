@@ -518,14 +518,16 @@ func _apply_honor_heat(
 	honor_victim: float,
 	attitude_delta: float
 ) -> void:
-	# Autoloads may be absent in isolated / headless unit stubs.
-	if Honor != null:
-		if honor_overall != 0.0:
-			Honor.modify_honor(honor_overall, &"")
-		if victim != &"" and honor_victim != 0.0:
-			Honor.modify_honor(honor_victim, victim)
-	if Factions != null and victim != &"" and attitude_delta != 0.0:
-		Factions.modify_attitude(victim, attitude_delta)
+	# Resolve via tree so --script / isolated stubs still compile without autoload globals.
+	var honor := _autoload("Honor")
+	var factions := _autoload("Factions")
+	if honor != null:
+		if honor_overall != 0.0 and honor.has_method("modify_honor"):
+			honor.call("modify_honor", honor_overall, &"")
+		if victim != &"" and honor_victim != 0.0 and honor.has_method("modify_honor"):
+			honor.call("modify_honor", honor_victim, victim)
+	if factions != null and victim != &"" and attitude_delta != 0.0 and factions.has_method("modify_attitude"):
+		factions.call("modify_attitude", victim, attitude_delta)
 
 
 func _upkeep_snapshot(economy: Object) -> Dictionary:
@@ -542,27 +544,32 @@ func _upkeep_snapshot(economy: Object) -> Dictionary:
 
 
 func _spawn_raid_rumor(success: bool, victim: StringName, cattle: int, mercy: bool) -> void:
-	if Rumors == null:
+	var rumors := _autoload("Rumors")
+	if rumors == null or not rumors.has_method("add_rumor"):
 		return
 	var who := String(victim) if victim != &"" else "rivals"
 	var day := _day_stamp()
+	var prio_high := 3
+	var prio_normal := 2
 	if success:
 		var text := "Word of a cattle raid against %s — %d head driven off." % [who, cattle]
 		if not mercy:
 			text = "Heat rises: another cattle raid against %s is the talk of the túatha." % who
-		Rumors.add_rumor(
+		rumors.call(
+			"add_rumor",
 			StringName("cattle_raid_%s_%d" % [who, day]),
 			text,
 			&"raid",
-			Rumors.PRIORITY_HIGH if not mercy else Rumors.PRIORITY_NORMAL,
+			prio_high if not mercy else prio_normal,
 			8
 		)
 	else:
-		Rumors.add_rumor(
+		rumors.call(
+			"add_rumor",
 			StringName("cattle_raid_fail_%s_%d" % [who, day]),
 			"A bungled night raid near %s is whispered in the ringforts." % who,
 			&"raid",
-			Rumors.PRIORITY_NORMAL,
+			prio_normal,
 			5
 		)
 
@@ -581,6 +588,14 @@ func _retaliation_note(kind: StringName, mercy_active: bool) -> String:
 
 
 func _day_stamp() -> int:
-	if WorldClock:
-		return WorldClock.day
+	var clock := _autoload("WorldClock")
+	if clock != null and "day" in clock:
+		return int(clock.get("day"))
 	return 0
+
+
+func _autoload(name: String) -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return null
+	return tree.root.get_node_or_null(name)
