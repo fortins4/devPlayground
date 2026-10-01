@@ -1,5 +1,5 @@
 extends CharacterBody3D
-## Placeholder third-person controller for the greybox vertical slice.
+## Third-person controller for the greybox vertical slice (humanoid visual in player.tscn).
 
 const SPEED := 5.0
 const JUMP_VELOCITY := 4.5
