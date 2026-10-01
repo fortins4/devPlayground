@@ -26,17 +26,38 @@ func finish_prologue() -> void:
 
 
 func _ensure_default_input() -> void:
-	var binds := {
+	var key_binds := {
 		&"move_forward": KEY_W,
 		&"move_back": KEY_S,
 		&"move_left": KEY_A,
 		&"move_right": KEY_D,
 		&"jump": KEY_SPACE,
+		&"sprint": KEY_SHIFT,
+		&"cycle_weapon": KEY_Q,
+		&"weapon_hatchet": KEY_1,
+		&"weapon_knife": KEY_2,
+		&"weapon_goad": KEY_3,
 	}
-	for action in binds:
-		if not InputMap.has_action(action):
-			InputMap.add_action(action)
-		if InputMap.action_get_events(action).is_empty():
-			var event := InputEventKey.new()
-			event.physical_keycode = binds[action]
-			InputMap.action_add_event(action, event)
+	for action in key_binds:
+		_ensure_key_action(action, key_binds[action])
+
+	_ensure_mouse_action(&"attack_light", MOUSE_BUTTON_LEFT)
+	_ensure_mouse_action(&"attack_heavy", MOUSE_BUTTON_RIGHT)
+
+
+func _ensure_key_action(action: StringName, keycode: Key) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+	if InputMap.action_get_events(action).is_empty():
+		var event := InputEventKey.new()
+		event.physical_keycode = keycode
+		InputMap.action_add_event(action, event)
+
+
+func _ensure_mouse_action(action: StringName, button: MouseButton) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+	if InputMap.action_get_events(action).is_empty():
+		var event := InputEventMouseButton.new()
+		event.button_index = button
+		InputMap.action_add_event(action, event)

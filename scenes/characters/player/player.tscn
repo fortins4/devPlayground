@@ -1,6 +1,7 @@
-[gd_scene load_steps=13 format=3 uid="uid://bq8riochtplayer01"]
+[gd_scene load_steps=22 format=3 uid="uid://bq8riochtplayer01"]
 
 [ext_resource type="Script" path="res://scripts/characters/player/player_controller.gd" id="1_player"]
+[ext_resource type="Script" path="res://systems/combat/combat_system.gd" id="2_combat"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -21,6 +22,15 @@ roughness = 0.95
 [sub_resource type="StandardMaterial3D" id="Mat_hair"]
 albedo_color = Color(0.18, 0.12, 0.08, 1)
 roughness = 0.8
+
+[sub_resource type="StandardMaterial3D" id="Mat_wood"]
+albedo_color = Color(0.42, 0.28, 0.14, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="Mat_iron"]
+albedo_color = Color(0.45, 0.48, 0.5, 1)
+metallic = 0.55
+roughness = 0.45
 
 [sub_resource type="SphereMesh" id="Mesh_head"]
 radius = 0.16
@@ -47,8 +57,28 @@ height = 0.78
 [sub_resource type="BoxMesh" id="Mesh_foot"]
 size = Vector3(0.12, 0.06, 0.2)
 
-[node name="Player" type="CharacterBody3D"]
+[sub_resource type="BoxMesh" id="Mesh_haft"]
+size = Vector3(0.04, 0.55, 0.04)
+
+[sub_resource type="BoxMesh" id="Mesh_blade"]
+size = Vector3(0.22, 0.14, 0.04)
+
+[sub_resource type="BoxMesh" id="Mesh_knife"]
+size = Vector3(0.03, 0.28, 0.02)
+
+[sub_resource type="BoxMesh" id="Mesh_goad"]
+size = Vector3(0.035, 1.35, 0.035)
+
+[sub_resource type="BoxShape3D" id="BoxShape_hitbox"]
+size = Vector3(0.55, 0.7, 1.2)
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape_hurt"]
+radius = 0.4
+height = 1.75
+
+[node name="Player" type="CharacterBody3D" groups=["player"]]
 collision_layer = 2
+collision_mask = 5
 script = ExtResource("1_player")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
@@ -106,6 +136,62 @@ surface_material_override/0 = SubResource("Mat_pants")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11, 0.03, 0.04)
 mesh = SubResource("Mesh_foot")
 surface_material_override/0 = SubResource("Mat_pants")
+
+[node name="WeaponVisual" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.38, 1.05, -0.15)
+
+[node name="Hatchet" type="Node3D" parent="WeaponVisual"]
+
+[node name="Haft" type="MeshInstance3D" parent="WeaponVisual/Hatchet"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+mesh = SubResource("Mesh_haft")
+surface_material_override/0 = SubResource("Mat_wood")
+
+[node name="Blade" type="MeshInstance3D" parent="WeaponVisual/Hatchet"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.08, 0.32, 0)
+mesh = SubResource("Mesh_blade")
+surface_material_override/0 = SubResource("Mat_iron")
+
+[node name="Knife" type="Node3D" parent="WeaponVisual"]
+visible = false
+
+[node name="Blade" type="MeshInstance3D" parent="WeaponVisual/Knife"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.12, 0)
+mesh = SubResource("Mesh_knife")
+surface_material_override/0 = SubResource("Mat_iron")
+
+[node name="Goad" type="Node3D" parent="WeaponVisual"]
+visible = false
+
+[node name="Staff" type="MeshInstance3D" parent="WeaponVisual/Goad"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, 0)
+mesh = SubResource("Mesh_goad")
+surface_material_override/0 = SubResource("Mat_wood")
+
+[node name="CombatSystem" type="Node" parent="."]
+script = ExtResource("2_combat")
+team = 0
+starting_weapon = 0
+enable_block = false
+
+[node name="Hitbox" type="Area3D" parent="."]
+collision_layer = 8
+collision_mask = 4
+monitoring = false
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Hitbox"]
+shape = SubResource("BoxShape_hitbox")
+
+[node name="Hurtbox" type="Area3D" parent="."]
+collision_layer = 2
+collision_mask = 0
+monitoring = false
+monitorable = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Hurtbox"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+shape = SubResource("CapsuleShape_hurt")
 
 [node name="CameraPivot" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.45, 0)

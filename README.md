@@ -18,4 +18,4 @@ Working title for an open-world, historically grounded action-adventure set in *
 
 ## Status
 
-Early scaffold: project layout, autoload stubs (honor, factions, timeline, rumors), and a runnable 3D greybox.
+Greybox slice in progress: third-person move/sprint + hatchet-first stamina combat; autoload stubs (honor, factions, timeline, rumors).
