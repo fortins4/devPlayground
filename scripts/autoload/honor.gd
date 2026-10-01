@@ -168,7 +168,7 @@ func get_debug_text() -> String:
 		lines.append("Open options: (none — raise enech)")
 	else:
 		lines.append("Open options: %s" % ", ".join(PackedStringArray(opts)))
-	lines.append("E attempt éraic · R attempt sanctuary (refuge)")
+	lines.append("E attempt éraic · R sanctuary · D cycle dispute · F dump unlock probe")
 	if not last_law_result.is_empty():
 		lines.append(
 			"Last: ok=%s option=%s  %s" % [
