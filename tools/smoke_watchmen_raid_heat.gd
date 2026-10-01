@@ -1,6 +1,5 @@
 extends SceneTree
-## Smoke: undetected deliver still succeeds; forced watchman spot raises raid heat.
-## Optional: heat past fail threshold blows the raid.
+## Smoke: calm deliver; mid-drove spot raises heat/alarm; hot heat → ATTACK (no auto-fail).
 
 
 func _initialize() -> void:
@@ -35,7 +34,6 @@ func _run() -> void:
 		quit(1)
 		return
 	var watchmen := get_nodes_in_group("raid_watchman")
-	# Bridge wires on deferred; force wire via Watchmen children if needed.
 	if watchmen.is_empty():
 		var wr := director.get_node_or_null("Watchmen")
 		if wr:
@@ -49,13 +47,13 @@ func _run() -> void:
 		quit(1)
 		return
 
-	# --- Path A: undetected success still works ---
+	# --- Path A: undetected success ---
 	if heat.has_method("force_heat"):
 		heat.call("force_heat", 0.0, &"smoke_reset")
 	if bridge.has_method("reset_for_new_raid"):
 		bridge.call("reset_for_new_raid")
-	# Disable fail-on-hot for calm path (in case residual heat).
 	bridge.set("fail_on_hot_heat", false)
+	bridge.set("attack_on_hot_heat", true)
 
 	director.call("debug_begin_raid")
 	await process_frame
@@ -77,8 +75,7 @@ func _run() -> void:
 		return
 	print("SMOKE calm_success_ok")
 
-	# --- Path B: spot mid-drove raises heat + alarm ---
-	# Reset lane for a fresh drove.
+	# --- Path B: spot mid-drove ---
 	if director.has_method("_reset_raid"):
 		director.call("_reset_raid")
 	await process_frame
@@ -86,7 +83,6 @@ func _run() -> void:
 		heat.call("force_heat", 0.0, &"smoke_reset2")
 	if bridge.has_method("reset_for_new_raid"):
 		bridge.call("reset_for_new_raid")
-	bridge.set("fail_on_hot_heat", false)
 
 	director.call("debug_begin_raid")
 	await process_frame
@@ -110,51 +106,51 @@ func _run() -> void:
 		quit(1)
 		return
 
-	# --- Path C: hot heat fails drove ---
+	# --- Path C: hot heat → ATTACK, raid NOT failed ---
 	if director.has_method("_reset_raid"):
 		director.call("_reset_raid")
 	await process_frame
-	bridge.set("fail_on_hot_heat", true)
-	bridge.set("fail_heat_threshold", 40.0)
 	if heat.has_method("force_heat"):
 		heat.call("force_heat", 0.0, &"smoke_reset3")
 	if bridge.has_method("reset_for_new_raid"):
 		bridge.call("reset_for_new_raid")
+	bridge.set("fail_on_hot_heat", false)
+	bridge.set("attack_on_hot_heat", true)
+	bridge.set("attack_heat_threshold", 40.0)
 	director.call("debug_begin_raid")
 	await process_frame
 	await process_frame
-	var phase_drive := String(director.call("get_phase_name"))
-	print("SMOKE phase_before_hot=", phase_drive)
-	if phase_drive == "success":
-		push_error("SMOKE_FAIL raid auto-succeeded before heat pressure (sticky return?)")
-		quit(1)
-		return
-	# Pump heat over threshold via spots / force.
-	if heat.has_method("force_heat"):
-		heat.call("force_heat", 50.0, &"smoke_hot")
-	# Bridge checks threshold in _process.
-	for _i in 30:
+	if bridge.has_method("debug_force_hot_attack"):
+		bridge.call("debug_force_hot_attack")
+	else:
+		if heat.has_method("force_heat"):
+			heat.call("force_heat", 90.0, &"smoke_hot")
+		for _i in 30:
+			await process_frame
+			await physics_frame
+	for _i in 10:
 		await process_frame
 		await physics_frame
 	var phase_hot := String(director.call("get_phase_name"))
 	print("SMOKE phase_after_hot=", phase_hot)
-	if phase_hot != "failed":
-		# Fallback: call fail explicitly if process gate missed (headless timing).
-		if director.has_method("fail_from_watchmen_heat"):
-			director.call("fail_from_watchmen_heat")
-		await process_frame
-		phase_hot = String(director.call("get_phase_name"))
-	if phase_hot != "failed":
-		push_error("SMOKE_FAIL expected failed from watchmen heat, got %s" % phase_hot)
+	if phase_hot == "failed":
+		push_error("SMOKE_FAIL hot heat must NOT auto-fail raid (Q1)")
 		quit(1)
 		return
-	var fail_out: Dictionary = director.get("last_outcome")
-	print("SMOKE fail_outcome=", fail_out)
-	var reason := String(fail_out.get("fail_reason", ""))
-	if reason != "watchmen_alarm":
-		push_error("SMOKE_FAIL expected fail_reason watchmen_alarm, got %s" % reason)
+	var attacking := bool(bridge.call("are_watchmen_attacking")) if bridge.has_method("are_watchmen_attacking") else false
+	print("SMOKE attacking=", attacking)
+	if not attacking:
+		push_error("SMOKE_FAIL expected watchmen ATTACK after hot heat")
+		quit(1)
+		return
+	# Still completable while attacking
+	var hot_deliver: Dictionary = director.call("debug_force_deliver")
+	await process_frame
+	print("SMOKE hot_deliver=", hot_deliver)
+	if not bool(hot_deliver.get("success", false)):
+		push_error("SMOKE_FAIL deliver should still succeed while watchmen attack")
 		quit(1)
 		return
 
-	print("WATCHMEN_RAID_HEAT_SMOKE_OK heat_after_spot=", heat_after)
+	print("WATCHMEN_RAID_HEAT_SMOKE_OK heat_after_spot=", heat_after, " attack_ok=1")
 	quit(0)

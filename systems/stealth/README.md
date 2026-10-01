@@ -83,3 +83,7 @@ see [`systems/raid/README.md`](../raid/README.md). One shared heat meter for the
 - Dogs, night FOV, multi-sentry social chains
 - Stealth takedowns (melee silent kill) — combat kill path only for now
 - Deep Brehon law / éraic resolution (Honor stub only)
+
+
+### Cattle-lane watchmen (raid)
+Heat ≥85 raises **RAID ALARM** and watchmen **ATTACK**; the drove stays completable. Separate raid meter is a post-merge follow-up.

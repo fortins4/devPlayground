@@ -363,8 +363,8 @@ func _on_return_exited(body: Node3D) -> void:
 
 
 func fail_from_watchmen_heat() -> void:
-	## Called by RaidHeatBridge when shared heat crosses the fail threshold mid-drove.
-	_fail_raid(&"watchmen_alarm")
+	## Legacy hook — Q1 lock: heat≥85 no longer auto-fails. Prefer attack path.
+	push_warning("fail_from_watchmen_heat deprecated; raid stays completable (alarm+attack)")
 
 
 func debug_force_watchman_spot() -> void:
@@ -389,7 +389,9 @@ func _heat_hud_suffix() -> String:
 	if h <= 0.05:
 		return ""
 	var bit := "  ·  raid heat %d" % int(h)
-	if _heat_bridge and _heat_bridge.has_method("is_alarm_raised") and bool(_heat_bridge.call("is_alarm_raised")):
+	if _heat_bridge and _heat_bridge.has_method("are_watchmen_attacking") and bool(_heat_bridge.call("are_watchmen_attacking")):
+		bit += " ATTACK — escape with herd"
+	elif _heat_bridge and _heat_bridge.has_method("is_alarm_raised") and bool(_heat_bridge.call("is_alarm_raised")):
 		bit += " ALARM"
 	elif h >= 70.0:
 		bit += " HOT"

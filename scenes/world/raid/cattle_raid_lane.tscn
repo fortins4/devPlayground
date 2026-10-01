@@ -187,24 +187,50 @@ modulate = Color(1, 0.92, 0.55, 1)
 [node name="Watchmen" type="Node3D" parent="."]
 
 [node name="WatchmanPens" parent="Watchmen" instance=ExtResource("3_sentry")]
-transform = Transform3D(0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, 0.707107, -3.2, 0.1, 1.2)
+transform = Transform3D(-0.702713, 0, -0.711473, 0, 1, 0, 0.711473, 0, -0.702713, -3.2, 0.1, 1.2)
 
 [node name="WatchmanMid" parent="Watchmen" instance=ExtResource("3_sentry")]
-transform = Transform3D(0.34202, 0, 0.939693, 0, 1, 0, -0.939693, 0, 0.34202, -11.5, 0.1, -4.5)
+transform = Transform3D(-0.989992, 0, -0.141120, 0, 1, 0, 0.141120, 0, -0.989992, -11.5, 0.1, -4.5)
 
 [node name="WatchmanHome" parent="Watchmen" instance=ExtResource("3_sentry")]
-transform = Transform3D(-0.173648, 0, 0.984808, 0, 1, 0, -0.984808, 0, -0.173648, -17.5, 0.1, -12.5)
+transform = Transform3D(0.852525, 0, 0.522687, 0, 1, 0, -0.522687, 0, 0.852525, -17.5, 0.1, -12.5)
 
 [node name="WatchmenLabel" type="Label3D" parent="Watchmen"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11.5, 3.0, -4.5)
-text = "Watchmen on the drove
-Stay out of LOS / crouch"
+text = "Watchmen on the drove\nSkirt cover / crouch\nHeat 85 = ATTACK (still completable)"
 billboard = 1
 font_size = 26
 modulate = Color(0.75, 0.8, 0.95, 1)
 
+
+[node name="CalmCover" type="Node3D" parent="."]
+
+[node name="RockA" type="CSGBox3D" parent="CalmCover"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.5, 0.55, -2.2)
+use_collision = true
+size = Vector3(1.6, 1.1, 1.3)
+
+[node name="CrateB" type="CSGBox3D" parent="CalmCover"]
+transform = Transform3D(0.92, 0, 0.39, 0, 1, 0, -0.39, 0, 0.92, -14.2, 0.65, -8.0)
+use_collision = true
+size = Vector3(1.2, 1.3, 1.0)
+
+[node name="RockC" type="CSGBox3D" parent="CalmCover"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19.0, 0.45, -14.5)
+use_collision = true
+size = Vector3(1.8, 0.9, 1.5)
+
+[node name="CalmCoverLabel" type="Label3D" parent="CalmCover"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11.0, 2.2, -6.5)
+text = "Calm cover (skirt LOS)"
+billboard = 1
+font_size = 22
+modulate = Color(0.7, 0.85, 0.75, 1)
+
 [node name="RaidHeatBridge" type="Node" parent="."]
 script = ExtResource("4_bridge")
-fail_on_hot_heat = true
+attack_on_hot_heat = true
+attack_heat_threshold = 85.0
+fail_on_hot_heat = false
 fail_heat_threshold = 85.0
 pressure_warn_threshold = 50.0

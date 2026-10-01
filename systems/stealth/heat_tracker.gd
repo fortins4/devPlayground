@@ -26,6 +26,9 @@ signal raid_alarm(heat_after: float)
 @export var raid_rediscovery_bump: float = 10.0
 @export var raid_rediscovery_interval: float = 3.5
 
+@export var pre_raid_suspicious_bump: float = 3.0
+@export var pre_raid_alert_bump: float = 6.0
+
 var heat: float = 0.0
 var _scan_cd: float = 0.0
 var _discovered: Dictionary = {}  # instance_id -> true (first formal discovery)
@@ -221,6 +224,43 @@ func reset_raid_spot_state() -> void:
 		_banner_tween.kill()
 	_refresh_hud("raid_reset")
 
+
+
+
+func note_pre_raid_suspicious(sentry: Node3D) -> void:
+	## Q2=2b: light heat seed near pens before the drove starts.
+	if sentry == null:
+		return
+	var id := sentry.get_instance_id()
+	if float(_raid_spot_cd.get(id, 0.0)) > 0.0:
+		return
+	_raid_spot_cd[id] = raid_rediscovery_interval * 0.8
+	bump(pre_raid_suspicious_bump, &"pre_raid_suspicious")
+	_nudge_sentry_suspicious(sentry)
+	_flash_banner("Watchman stirs at pens — heat +%d" % int(pre_raid_suspicious_bump), Color(0.9, 0.85, 0.45))
+
+
+func note_pre_raid_alert(sentry: Node3D) -> void:
+	## Q2=2b: ALERT near pens seeds a little heat (not full mid-drove alarm).
+	if sentry == null:
+		return
+	var id := sentry.get_instance_id()
+	if float(_raid_spot_cd.get(id, 0.0)) > 0.0:
+		return
+	_raid_spot_cd[id] = raid_rediscovery_interval
+	bump(pre_raid_alert_bump, &"pre_raid_alert")
+	_nudge_sentry_alert(sentry)
+	_flash_banner("Spotted near pens — heat +%d" % int(pre_raid_alert_bump), Color(0.95, 0.55, 0.3))
+
+
+func raise_raid_alarm(reason: StringName = &"raid_alarm") -> void:
+	## Force RAID ALARM banner/flag without requiring a fresh LOS bump (e.g. heat≥85 attack).
+	if _raid_alarm_raised:
+		return
+	_raid_alarm_raised = true
+	_flash_banner("RAID ALARM — watchmen ATTACK! (%s)" % String(reason), Color(0.98, 0.25, 0.18))
+	raid_alarm.emit(heat)
+	_refresh_hud(String(reason))
 
 func is_raid_alarm_raised() -> bool:
 	return _raid_alarm_raised

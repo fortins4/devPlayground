@@ -13,7 +13,7 @@ This folder ships:
 | `../../scripts/world/raid/cattle_raid_director.gd` | F5 greybox state machine (phases + E start + deliver) |
 | `../../scripts/world/raid/raid_cow.gd` | Placeholder cattle (idle wander → driven follow) |
 | `../../scenes/world/raid/cattle_raid_lane.tscn` | Victim pens, herd, path stubs, home return zone, **watchmen** |
-| `raid_heat_bridge.gd` | Drove-gated watchmen → shared HeatTracker · fail at high heat |
+| `raid_heat_bridge.gd` | Drove-gated watchmen → shared HeatTracker · heat≥85 ATTACK (no auto-fail) |
 | `../../scenes/ui/cattle_raid_hud.tscn` | Phase strip + outcome banner + raid alert line |
 
 Design: [`docs/SCOPE.md`](../../docs/SCOPE.md) (Raid · Economy · cattle-raid feedback loop).
@@ -30,10 +30,10 @@ Lane is instanced on `scenes/main/main.tscn` as **CattleRaidLane** at roughly **
 | 1 Approach | Follow the gold **Cattle raid ↓ south** sign from spawn |
 | 2 Start | Enter victim pens · **E** start raid (5 placeholder head) |
 | 3 Drive | Cattle follow as a drove · walk the path markers **west / NW** · skirt **watchmen** LOS |
-| 4 Heat | Mid-drove LOS → SUSPICIOUS / **RAID ALARM** on shared Heat HUD · optional fail at heat ≥85 |
+| 4 Heat | Pre-raid light pens heat · mid-drove LOS → SUSPICIOUS / **RAID ALARM** · heat ≥85 → watchmen **ATTACK** (raid still completable) |
 | 5 Deliver | Reach **Home pens** pad (near ringfort) with ≥3 head · auto-resolve success (if not blown) |
 | 6 Outcome | HUD banner + `CattleEconomy.resolve_raid_success(&"local_clan_herd", heads)` |
-| Fail | 90s timeout · abandon · **or watchmen_alarm** → `resolve_raid_failure` |
+| Fail | 90s timeout · abandon → `resolve_raid_failure` (watchmen heat no longer auto-fails) |
 | Retry | Back at victim pens · **E** resets herd (raid spot cooldowns clear) |
 
 ### Controls
@@ -272,3 +272,8 @@ lane.get_raid_heat()
 - Full procedural raid generator
 - Mounted cattle-drive / goad physics herding (goad weapon exists; follow-drove is the greybox stand-in)
 - Separate raid-only heat meter (intentionally shared with stealth)
+
+
+### Follow-ups (locked)
+- **Q3:** split a **separate raid heat meter** from bog `HeatTracker` — after this merge.
+- Q1/Q2/Q4 applied on this branch: soft-fail attack @85, light pre-raid pens heat, facing pass + light calm cover.
