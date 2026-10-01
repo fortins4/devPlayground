@@ -13,12 +13,17 @@ extends Node
 ## Need-pressure tick: hunger / security (+ related needs) evolve on
 ## WorldClock.day_advanced via apply_need_pressure_tick() — missions need no
 ## separate call. Tunable rates + thresholds in NEED_* constants / need_daily_rates.
+##
+## Quest hook board: quest-threshold crosses (and sync/query) land concrete stubs
+## on offered_quest_stubs for directors to list / pick_up — see offer_quest_stub.
 
 signal attitude_changed(faction_id: StringName, value: float)
 signal need_changed(faction_id: StringName, need_id: StringName)
 signal need_threshold_crossed(faction_id: StringName, need_id: StringName, threshold_kind: StringName, pressure: float)
 signal need_pressure_ticked(day: int, report: Dictionary)
 signal quest_stub_generated(faction_id: StringName, quest: Dictionary)
+signal quest_stub_offered(faction_id: StringName, quest: Dictionary)
+signal quest_stub_status_changed(quest_id: StringName, status: StringName, quest: Dictionary)
 signal relationship_changed(from_id: StringName, to_id: StringName, edge: Dictionary)
 
 const FACTION_IDS: Array[StringName] = [
@@ -96,6 +101,13 @@ const NEED_RUMOR_DECAY_DAYS: int = 5
 ## Re-arm threshold hooks when pressure falls below (threshold - gap).
 const NEED_HOOK_CLEAR_GAP: float = 0.15
 
+## Quest stub board statuses (data-only — no quest UI).
+const QUEST_STATUS_AVAILABLE: StringName = &"available"
+const QUEST_STATUS_PICKED_UP: StringName = &"picked_up"
+const QUEST_STATUS_DISMISSED: StringName = &"dismissed"
+## Soft cap so long need climbs cannot flood the board.
+const MAX_OFFERED_QUEST_STUBS: int = 24
+
 ## Attitude toward the player: -100 hostile … +100 allied.
 var attitudes: Dictionary = {}
 ## faction_id → { display_name, goals: Array, needs: Array, resources: Dictionary, ... }
@@ -109,6 +121,8 @@ var need_daily_rates: Dictionary = {}
 var _need_hook_latched: Dictionary = {}
 var _last_need_tick_day: int = -1
 var _last_need_tick_report: Dictionary = {}
+## Concrete stubs directors can list / pick_up (need-threshold → quest hook).
+var offered_quest_stubs: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -459,8 +473,8 @@ func _maybe_cross_need_threshold(
 	need_threshold_crossed.emit(faction_id, need_id, kind, pressure)
 	match kind:
 		&"quest":
-			# Surface data stubs once per climb (no quest UI).
-			generate_quest_stubs(faction_id)
+			# Land the crossed need on the director-facing board (idempotent).
+			offer_quest_stub(faction_id, need_id, &"threshold_cross")
 		&"rumor":
 			_seed_need_pressure_rumor(faction_id, need_id, pressure)
 		&"attitude":
@@ -542,6 +556,7 @@ func get_needs_debug_text() -> String:
 				(_last_need_tick_report.get("changes", []) as Array).size(),
 			]
 		)
+	lines.append(get_quest_stubs_debug_text())
 	return "\n".join(lines)
 
 
@@ -549,17 +564,122 @@ func get_needs_debug_text() -> String:
 func demo_need_pressure_surge(days: int = 5) -> Dictionary:
 	var before := to_needs_debug_dict()
 	var report := apply_need_pressure_tick(days, WorldClock.day if WorldClock else -1, false)
+	# Seed-latched needs never "cross" on surge alone — sync so directors see board.
+	var synced := sync_offered_quest_stubs()
 	return {
 		"days": days,
 		"before": before,
 		"report": report,
 		"after": to_needs_debug_dict(),
 		"quest_stubs": generate_quest_stubs(),
+		"offered_quest_stubs": list_offered_quest_stubs(),
+		"synced_count": synced.size(),
 	}
 
 
-## Build 1–2 dynamic quest stubs from current needs (data only — no quest UI).
-func generate_quest_stubs(faction_id: StringName = &"") -> Array[Dictionary]:
+# --- Quest stub hook board (need pressure → director pickup) -----------------
+
+## Schema keys for each stub dict on offered_quest_stubs.
+func quest_stub_schema_keys() -> PackedStringArray:
+	return PackedStringArray([
+		"id", "faction_id", "need_id", "title",
+		"pressure", "priority", "status", "offered_day", "source",
+	])
+
+
+## Stable stub id: "<faction>_<need>".
+func quest_stub_id(faction_id: StringName, need_id: StringName) -> StringName:
+	return StringName("%s_%s" % [String(faction_id), String(need_id)])
+
+
+## Pure builder — empty dict when faction inactive, need missing, or below quest floor.
+func build_quest_stub(faction_id: StringName, need_id: StringName) -> Dictionary:
+	if not is_leinster_active(faction_id):
+		return {}
+	var pressure := get_need_pressure(faction_id, need_id)
+	if pressure < NEED_QUEST_THRESHOLD:
+		return {}
+	var priority := 1
+	var found := false
+	for need in get_needs(faction_id):
+		if need.get("id") == need_id:
+			priority = int(need.get("priority", 1))
+			found = true
+			break
+	if not found:
+		return {}
+	var day := WorldClock.day if WorldClock else 0
+	return {
+		"id": quest_stub_id(faction_id, need_id),
+		"faction_id": faction_id,
+		"need_id": need_id,
+		"title": _quest_title(faction_id, need_id),
+		"pressure": pressure,
+		"priority": priority,
+		"status": QUEST_STATUS_AVAILABLE,
+		"offered_day": day,
+		"source": &"build",
+	}
+
+
+## Land (or refresh pressure on) a stub on the board. Idempotent by stub id —
+## does not clobber picked_up / dismissed status. Returns the board row (or {}).
+func offer_quest_stub(
+	faction_id: StringName,
+	need_id: StringName,
+	source: StringName = &"threshold_cross"
+) -> Dictionary:
+	var built := build_quest_stub(faction_id, need_id)
+	if built.is_empty():
+		return {}
+	built["source"] = source
+	var qid: StringName = built["id"]
+	var idx := _find_quest_stub_index(qid)
+	if idx >= 0:
+		var existing: Dictionary = offered_quest_stubs[idx]
+		# Refresh live pressure / title; keep director status + offered_day.
+		existing["pressure"] = built["pressure"]
+		existing["priority"] = built["priority"]
+		existing["title"] = built["title"]
+		offered_quest_stubs[idx] = existing
+		quest_stub_generated.emit(faction_id, existing.duplicate(true))
+		return existing.duplicate(true)
+	_trim_offered_quest_stubs_if_needed()
+	offered_quest_stubs.append(built)
+	quest_stub_generated.emit(faction_id, built.duplicate(true))
+	quest_stub_offered.emit(faction_id, built.duplicate(true))
+	return built.duplicate(true)
+
+
+## Query path: offer a stub for every Leinster need currently at/above quest floor.
+## Seed-latched boot pressures never "cross" — call this (or generate_quest_stubs)
+## so directors still see concrete stubs without waiting for a re-cross.
+func sync_offered_quest_stubs(faction_id: StringName = &"") -> Array[Dictionary]:
+	var offered: Array[Dictionary] = []
+	var targets: Array[StringName] = []
+	if faction_id != &"":
+		targets.append(faction_id)
+	else:
+		targets.append_array(LEINSTER_ACTIVE)
+	for id in targets:
+		if not is_leinster_active(id):
+			continue
+		for need in get_needs(id):
+			var nid: StringName = need.get("id")
+			if float(need.get("pressure", 0.0)) < NEED_QUEST_THRESHOLD:
+				continue
+			var row := offer_quest_stub(id, nid, &"sync_query")
+			if not row.is_empty():
+				offered.append(row)
+	return offered
+
+
+## Build 1–2 dynamic quest stubs per faction from current needs (priority desc).
+## When land_on_board is true (default), each stub is offered onto the board.
+func generate_quest_stubs(
+	faction_id: StringName = &"",
+	land_on_board: bool = true
+) -> Array[Dictionary]:
 	var stubs: Array[Dictionary] = []
 	var targets: Array[StringName] = []
 	if faction_id != &"":
@@ -575,21 +695,182 @@ func generate_quest_stubs(faction_id: StringName = &"") -> Array[Dictionary]:
 		for need in needs:
 			if count >= 2:
 				break
+			var nid: StringName = need.get("id")
 			if float(need.get("pressure", 0.0)) < NEED_QUEST_THRESHOLD:
 				continue
-			var quest := {
-				"id": StringName("%s_%s" % [String(id), String(need.get("id", &"need"))]),
-				"faction_id": id,
-				"need_id": need.get("id"),
-				"title": _quest_title(id, need.get("id")),
-				"pressure": need.get("pressure"),
-				"priority": need.get("priority"),
-				"status": &"available",
-			}
+			var quest: Dictionary
+			if land_on_board:
+				quest = offer_quest_stub(id, nid, &"generate")
+			else:
+				quest = build_quest_stub(id, nid)
+				if not quest.is_empty():
+					quest_stub_generated.emit(id, quest)
+			if quest.is_empty():
+				continue
 			stubs.append(quest)
-			quest_stub_generated.emit(id, quest)
 			count += 1
 	return stubs
+
+
+func list_offered_quest_stubs(
+	faction_id: StringName = &"",
+	status: StringName = &""
+) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for stub in offered_quest_stubs:
+		if faction_id != &"" and stub.get("faction_id") != faction_id:
+			continue
+		if status != &"" and stub.get("status") != status:
+			continue
+		out.append(stub.duplicate(true))
+	out.sort_custom(func(a, b):
+		var pa := int(a.get("priority", 0))
+		var pb := int(b.get("priority", 0))
+		if pa != pb:
+			return pa > pb
+		return float(a.get("pressure", 0.0)) > float(b.get("pressure", 0.0))
+	)
+	return out
+
+
+## Directors' pickup queue — available stubs only.
+func list_available_quest_stubs(faction_id: StringName = &"") -> Array[Dictionary]:
+	return list_offered_quest_stubs(faction_id, QUEST_STATUS_AVAILABLE)
+
+
+func get_quest_stub(quest_id: StringName) -> Dictionary:
+	var idx := _find_quest_stub_index(quest_id)
+	if idx < 0:
+		return {}
+	return offered_quest_stubs[idx].duplicate(true)
+
+
+func has_quest_stub(quest_id: StringName) -> bool:
+	return _find_quest_stub_index(quest_id) >= 0
+
+
+func count_offered_quest_stubs(status: StringName = &"") -> int:
+	if status == &"":
+		return offered_quest_stubs.size()
+	var n := 0
+	for stub in offered_quest_stubs:
+		if stub.get("status") == status:
+			n += 1
+	return n
+
+
+## Director claims a stub. Returns updated row, or {} if missing / not available.
+func pick_up_quest_stub(quest_id: StringName) -> Dictionary:
+	var idx := _find_quest_stub_index(quest_id)
+	if idx < 0:
+		return {}
+	var stub: Dictionary = offered_quest_stubs[idx]
+	if stub.get("status") != QUEST_STATUS_AVAILABLE:
+		return {}
+	stub["status"] = QUEST_STATUS_PICKED_UP
+	offered_quest_stubs[idx] = stub
+	quest_stub_status_changed.emit(quest_id, QUEST_STATUS_PICKED_UP, stub.duplicate(true))
+	return stub.duplicate(true)
+
+
+## Soft-dismiss (keeps history on the board). Returns false if missing.
+func dismiss_quest_stub(quest_id: StringName) -> bool:
+	var idx := _find_quest_stub_index(quest_id)
+	if idx < 0:
+		return false
+	var stub: Dictionary = offered_quest_stubs[idx]
+	stub["status"] = QUEST_STATUS_DISMISSED
+	offered_quest_stubs[idx] = stub
+	quest_stub_status_changed.emit(quest_id, QUEST_STATUS_DISMISSED, stub.duplicate(true))
+	return true
+
+
+func clear_offered_quest_stubs() -> void:
+	offered_quest_stubs.clear()
+
+
+func to_quest_stubs_debug_dict() -> Dictionary:
+	return {
+		"threshold": NEED_QUEST_THRESHOLD,
+		"offered_count": offered_quest_stubs.size(),
+		"available_count": count_offered_quest_stubs(QUEST_STATUS_AVAILABLE),
+		"picked_up_count": count_offered_quest_stubs(QUEST_STATUS_PICKED_UP),
+		"dismissed_count": count_offered_quest_stubs(QUEST_STATUS_DISMISSED),
+		"stubs": list_offered_quest_stubs(),
+	}
+
+
+func get_quest_stubs_debug_text() -> String:
+	var lines: PackedStringArray = PackedStringArray()
+	var avail := count_offered_quest_stubs(QUEST_STATUS_AVAILABLE)
+	var picked := count_offered_quest_stubs(QUEST_STATUS_PICKED_UP)
+	lines.append(
+		"Quest stubs (board %d · avail=%d picked=%d · / probe):" % [
+			offered_quest_stubs.size(), avail, picked,
+		]
+	)
+	var listed := list_offered_quest_stubs()
+	if listed.is_empty():
+		lines.append("  (none — sync_offered_quest_stubs / P surge / threshold cross)")
+	else:
+		for stub in listed:
+			lines.append(
+				"  [%s] %s p=%.2f pri=%d src=%s" % [
+					String(stub.get("status", &"")),
+					String(stub.get("id", &"")),
+					float(stub.get("pressure", 0.0)),
+					int(stub.get("priority", 0)),
+					String(stub.get("source", &"")),
+				]
+			)
+	return "\n".join(lines)
+
+
+## Remote / F5 probe — sync board from current pressures, sample pick_up, report.
+func probe_quest_stubs() -> Dictionary:
+	var before_count := offered_quest_stubs.size()
+	var synced := sync_offered_quest_stubs()
+	var available := list_available_quest_stubs()
+	var sample_id: StringName = &""
+	var picked: Dictionary = {}
+	if not available.is_empty():
+		sample_id = available[0].get("id", &"")
+		picked = pick_up_quest_stub(sample_id)
+	return {
+		"ok": true,
+		"before_count": before_count,
+		"synced_count": synced.size(),
+		"available_before_pickup": available.size(),
+		"sample_id": sample_id,
+		"picked": picked,
+		"board": to_quest_stubs_debug_dict(),
+		"debug_text": get_quest_stubs_debug_text(),
+	}
+
+
+func _find_quest_stub_index(quest_id: StringName) -> int:
+	for i in offered_quest_stubs.size():
+		if offered_quest_stubs[i].get("id") == quest_id:
+			return i
+	return -1
+
+
+func _trim_offered_quest_stubs_if_needed() -> void:
+	while offered_quest_stubs.size() >= MAX_OFFERED_QUEST_STUBS:
+		# Drop oldest dismissed, else oldest available; never drop picked_up first.
+		var drop_idx := -1
+		for i in offered_quest_stubs.size():
+			if offered_quest_stubs[i].get("status") == QUEST_STATUS_DISMISSED:
+				drop_idx = i
+				break
+		if drop_idx < 0:
+			for i in offered_quest_stubs.size():
+				if offered_quest_stubs[i].get("status") == QUEST_STATUS_AVAILABLE:
+					drop_idx = i
+					break
+		if drop_idx < 0:
+			drop_idx = 0
+		offered_quest_stubs.remove_at(drop_idx)
 
 
 func _quest_title(faction_id: StringName, need_id: Variant) -> String:
