@@ -1,4 +1,4 @@
-[gd_scene load_steps=20 format=3 uid="uid://cq8riochtmain0001"]
+[gd_scene load_steps=24 format=3 uid="uid://cq8riochtmain0001"]
 
 [ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtdummy01" path="res://scenes/characters/npcs/dummy_fighter.tscn" id="2_dummy"]
@@ -8,6 +8,9 @@
 [ext_resource type="PackedScene" uid="uid://cq8riochtrumdbg01" path="res://scenes/ui/rumors_debug_hud.tscn" id="6_rumors_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtsentry01" path="res://scenes/characters/npcs/sentry.tscn" id="7_sentry"]
 [ext_resource type="Script" path="res://systems/stealth/bog_hide_stub.gd" id="8_bog"]
+
+[ext_resource type="PackedScene" uid="uid://cq8riochtringfort01" path="res://scenes/world/ringfort/ringfort.tscn" id="9_ringfort"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtbandhud01" path="res://scenes/ui/band_hud.tscn" id="10_band_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.45, 0.55, 0.65, 1)
@@ -34,10 +37,10 @@ albedo_color = Color(0.35, 0.42, 0.28, 1)
 roughness = 0.9
 
 [sub_resource type="BoxMesh" id="BoxMesh_ground"]
-size = Vector3(48, 0.2, 40)
+size = Vector3(72, 0.2, 48)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
-size = Vector3(48, 0.2, 40)
+size = Vector3(72, 0.2, 48)
 
 [sub_resource type="BoxMesh" id="BoxMesh_landmark"]
 size = Vector3(1.5, 2, 1.5)
@@ -58,6 +61,17 @@ roughness = 1.0
 
 [sub_resource type="BoxMesh" id="BoxMesh_bog"]
 size = Vector3(4.5, 0.08, 3.5)
+
+
+[sub_resource type="StandardMaterial3D" id="Mat_path"]
+albedo_color = Color(0.48, 0.42, 0.3, 1)
+roughness = 0.95
+
+[sub_resource type="BoxMesh" id="BoxMesh_path"]
+size = Vector3(2.4, 0.06, 8.0)
+
+[sub_resource type="BoxMesh" id="BoxMesh_sign"]
+size = Vector3(0.35, 1.8, 0.35)
 
 [node name="Main" type="Node3D"]
 
@@ -143,3 +157,39 @@ modulate = Color(0.75, 0.85, 0.7, 1)
 [node name="HonorDebugHUD" parent="." instance=ExtResource("5_honor_dbg")]
 
 [node name="RumorsDebugHUD" parent="." instance=ExtResource("6_rumors_dbg")]
+
+[node name="PathToRingfort" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0.12, 0)
+
+[node name="Stone0" type="MeshInstance3D" parent="PathToRingfort"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 0)
+mesh = SubResource("BoxMesh_path")
+surface_material_override/0 = SubResource("Mat_path")
+
+[node name="Stone1" type="MeshInstance3D" parent="PathToRingfort"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("BoxMesh_path")
+surface_material_override/0 = SubResource("Mat_path")
+
+[node name="Stone2" type="MeshInstance3D" parent="PathToRingfort"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0, 0)
+mesh = SubResource("BoxMesh_path")
+surface_material_override/0 = SubResource("Mat_path")
+
+[node name="Signpost" type="MeshInstance3D" parent="PathToRingfort"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.5, 0.9, 1.2)
+mesh = SubResource("BoxMesh_sign")
+surface_material_override/0 = SubResource("Mat_path")
+
+[node name="RingfortSign" type="Label3D" parent="PathToRingfort"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.5, 2.4, 1.2)
+text = "← Ringfort muster
+Walk west · E recruit · H follow/hold"
+billboard = 1
+font_size = 30
+modulate = Color(0.9, 0.82, 0.55, 1)
+
+[node name="Ringfort" parent="." instance=ExtResource("9_ringfort")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24, 0, 0)
+
+[node name="BandHUD" parent="." instance=ExtResource("10_band_hud")]

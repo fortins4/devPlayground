@@ -37,6 +37,8 @@ func _ensure_default_input() -> void:
 		&"weapon_hatchet": KEY_1,
 		&"weapon_knife": KEY_2,
 		&"weapon_goad": KEY_3,
+		&"interact": KEY_E,
+		&"band_toggle": KEY_H,
 	}
 	for action in key_binds:
 		_ensure_key_action(action, key_binds[action])
