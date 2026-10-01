@@ -34,7 +34,7 @@ var herd_upkeep_per_10: float = 0.5
 var norse_trade_contact_id: StringName = &"norse_wexford_waterford"
 var norse_trade_unlocked: bool = true
 
-## Band upkeep API for later recruitment (no gameplay UI here).
+## Band upkeep + recruitment data hooks (no gameplay UI here).
 var band: BandUpkeep = BandUpkeep.new()
 
 var _clock_subscribed: Node = null
@@ -292,6 +292,85 @@ func modify_band_readiness(delta: float) -> void:
 	band.modify_readiness(delta)
 
 
+
+
+# --- Recruitment data hooks (who / cost) -------------------------------------
+
+func get_recruit_pool() -> Array[Dictionary]:
+	return band.get_recruit_pool()
+
+
+func get_recruit_option(option_id: StringName) -> Dictionary:
+	return band.get_recruit_option(option_id)
+
+
+func get_recruit_cattle_cost(option_id: StringName) -> int:
+	return band.get_recruit_cattle_cost(option_id)
+
+
+## List pool rows with eligible/can_afford flags. Attitudes default to Factions if present.
+func list_recruit_options(
+	honor_score: float = 0.0,
+	faction_attitudes: Dictionary = {},
+	affordable_only: bool = false
+) -> Array[Dictionary]:
+	var attitudes := faction_attitudes
+	if attitudes.is_empty():
+		attitudes = _default_faction_attitudes()
+	return band.list_recruit_options(
+		honor_score, attitudes, affordable_only, herd_size
+	)
+
+
+func list_eligible_recruits(
+	honor_score: float = 0.0,
+	faction_attitudes: Dictionary = {}
+) -> Array[Dictionary]:
+	var attitudes := faction_attitudes
+	if attitudes.is_empty():
+		attitudes = _default_faction_attitudes()
+	return band.list_eligible_recruits(honor_score, attitudes, herd_size)
+
+
+func can_recruit_option(
+	option_id: StringName,
+	honor_score: float = 0.0,
+	faction_attitudes: Dictionary = {}
+) -> Dictionary:
+	var attitudes := faction_attitudes
+	if attitudes.is_empty():
+		attitudes = _default_faction_attitudes()
+	var gate := band.can_recruit_option(option_id, honor_score, attitudes)
+	if not bool(gate.get("ok", false)):
+		return gate
+	var cost := int(gate.get("cattle_cost", 0))
+	if herd_size < cost:
+		var denied := gate.duplicate(true)
+		denied["ok"] = false
+		denied["reason"] = &"cannot_afford"
+		denied["herd_size"] = herd_size
+		return denied
+	return gate
+
+
+## Pay from this herd and grow the band. Pass Honor.get_honor() (or equivalent) from Game.
+func try_recruit_option(
+	option_id: StringName,
+	honor_score: float = 0.0,
+	faction_attitudes: Dictionary = {}
+) -> Dictionary:
+	var attitudes := faction_attitudes
+	if attitudes.is_empty():
+		attitudes = _default_faction_attitudes()
+	return band.try_recruit_option(option_id, self, honor_score, attitudes)
+
+
+func _default_faction_attitudes() -> Dictionary:
+	# Autoload may be absent in headless / isolated tests.
+	if Factions == null:
+		return {}
+	return Factions.attitudes.duplicate(true)
+
 # --- Norse trade -------------------------------------------------------------
 
 ## Simple trade stub: cattle_delta < 0 sells cattle for goods; > 0 buys cattle.
@@ -335,4 +414,5 @@ func to_debug_dict() -> Dictionary:
 		"subscribed_to_clock": is_subscribed_to_world_clock(),
 		"last_tick_day": _last_tick_day,
 		"band": band.to_debug_dict(),
+		"recruit_pool_size": band.RECRUIT_POOL.size(),
 	}
