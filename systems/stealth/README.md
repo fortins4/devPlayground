@@ -37,7 +37,7 @@ Combat inputs unchanged (LMB/RMB hatchet, Q cycle, etc.) — blocked while dragg
 | `systems/stealth/bog_zone.gd` | Wetland Area3D — hide, deep sink, splash/ripple stub |
 | `scripts/characters/npcs/draggable_corpse.gd` | Hold-drag corpse: ground → drag → hide |
 | `systems/stealth/corpse_spawner.gd` | Spawn corpse from combatant death |
-| `systems/stealth/heat_tracker.gd` | Investigation timer, rediscovery bumps, Honor stub, HUD |
+| `systems/stealth/heat_tracker.gd` | Investigation timer, rediscovery bumps, Honor stub, HUD · **also** `note_raid_*` for cattle-lane watchmen |
 | `systems/stealth/bog_hide_stub.gd` | Deprecated marker (use `bog_zone.gd`) |
 
 ## FULL bog body-drag loop
@@ -73,6 +73,9 @@ Combat inputs unchanged (LMB/RMB hatchet, Q cycle, etc.) — blocked while dragg
 
 FULL proof shots: `/workspace/riocht-builds/screenshots/bog-full/`  
 (capture: `tools/capture_bog_full_screenshots.gd`)
+
+Cattle-raid watchmen (south lane) reuse this HeatTracker via `systems/raid/raid_heat_bridge.gd` —
+see [`systems/raid/README.md`](../raid/README.md). One shared heat meter for the F5 demo.
 
 ## Out of scope (even FULL)
 

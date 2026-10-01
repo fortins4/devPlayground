@@ -1,7 +1,9 @@
-[gd_scene load_steps=16 format=3 uid="uid://cq8riochtraidlane01"]
+[gd_scene load_steps=18 format=3 uid="uid://cq8riochtraidlane01"]
 
 [ext_resource type="Script" path="res://scripts/world/raid/cattle_raid_director.gd" id="1_dir"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtraidcow01" path="res://scenes/world/raid/raid_cow.tscn" id="2_cow"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtsentry01" path="res://scenes/characters/npcs/sentry.tscn" id="3_sentry"]
+[ext_resource type="Script" path="res://systems/raid/raid_heat_bridge.gd" id="4_bridge"]
 
 [sub_resource type="StandardMaterial3D" id="Mat_ground"]
 albedo_color = Color(0.36, 0.44, 0.28, 1)
@@ -181,3 +183,28 @@ text = "E  Start cattle raid"
 billboard = 1
 font_size = 30
 modulate = Color(1, 0.92, 0.55, 1)
+
+[node name="Watchmen" type="Node3D" parent="."]
+
+[node name="WatchmanPens" parent="Watchmen" instance=ExtResource("3_sentry")]
+transform = Transform3D(0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, 0.707107, -3.2, 0.1, 1.2)
+
+[node name="WatchmanMid" parent="Watchmen" instance=ExtResource("3_sentry")]
+transform = Transform3D(0.34202, 0, 0.939693, 0, 1, 0, -0.939693, 0, 0.34202, -11.5, 0.1, -4.5)
+
+[node name="WatchmanHome" parent="Watchmen" instance=ExtResource("3_sentry")]
+transform = Transform3D(-0.173648, 0, 0.984808, 0, 1, 0, -0.984808, 0, -0.173648, -17.5, 0.1, -12.5)
+
+[node name="WatchmenLabel" type="Label3D" parent="Watchmen"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11.5, 3.0, -4.5)
+text = "Watchmen on the drove
+Stay out of LOS / crouch"
+billboard = 1
+font_size = 26
+modulate = Color(0.75, 0.8, 0.95, 1)
+
+[node name="RaidHeatBridge" type="Node" parent="."]
+script = ExtResource("4_bridge")
+fail_on_hot_heat = true
+fail_heat_threshold = 85.0
+pressure_warn_threshold = 50.0
