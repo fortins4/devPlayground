@@ -9,6 +9,7 @@ extends Node
 signal attitude_changed(faction_id: StringName, value: float)
 signal need_changed(faction_id: StringName, need_id: StringName)
 signal quest_stub_generated(faction_id: StringName, quest: Dictionary)
+signal relationship_changed(from_id: StringName, to_id: StringName, edge: Dictionary)
 
 const FACTION_IDS: Array[StringName] = [
 	&"ui_chennselaig",
@@ -29,10 +30,34 @@ const LEINSTER_ACTIVE: Array[StringName] = [
 	&"norse_wexford_waterford",
 ]
 
+## Directed relationship edge kinds (faction↔faction, not player attitude).
+const REL_ALLIANCE: StringName = &"alliance"
+const REL_HOSTILITY: StringName = &"hostility"
+const REL_OBLIGATION: StringName = &"obligation"
+const REL_PATRONAGE: StringName = &"patronage"
+const REL_RIVALRY: StringName = &"rivalry"
+const REL_TRADE: StringName = &"trade"
+const REL_KINSHIP: StringName = &"kinship"
+const REL_FEUD: StringName = &"feud"
+
+const RELATIONSHIP_KINDS: Array[StringName] = [
+	REL_ALLIANCE,
+	REL_HOSTILITY,
+	REL_OBLIGATION,
+	REL_PATRONAGE,
+	REL_RIVALRY,
+	REL_TRADE,
+	REL_KINSHIP,
+	REL_FEUD,
+]
+
 ## Attitude toward the player: -100 hostile … +100 allied.
 var attitudes: Dictionary = {}
 ## faction_id → { display_name, goals: Array, needs: Array, resources: Dictionary, ... }
 var profiles: Dictionary = {}
+## Directed edges: Array of { from, to, kind, strength (−100…+100), note }.
+## Multiple kinds allowed between the same pair (e.g. alliance + obligation).
+var relationship_edges: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -40,6 +65,7 @@ func _ready() -> void:
 		attitudes[id] = 0.0
 	_seed_profiles()
 	_seed_leinster_attitudes()
+	_seed_relationship_graph()
 
 
 func _seed_profiles() -> void:
@@ -239,3 +265,221 @@ func _quest_title(faction_id: StringName, need_id: Variant) -> String:
 func _display_name(faction_id: StringName) -> String:
 	var profile: Dictionary = profiles.get(faction_id, {})
 	return str(profile.get("display_name", String(faction_id)))
+
+
+
+# --- Faction↔faction relationship graph --------------------------------------
+
+## Seed historically flavoured directed edges. Leinster-active pairs are denser;
+## full roster gets sparse scaffolding so later regions inherit the graph.
+func _seed_relationship_graph() -> void:
+	relationship_edges.clear()
+	# Diarmait invited Strongbow's adventurers — alliance with land-for-service debt.
+	_add_edge_raw(&"ui_chennselaig", &"anglo_normans", REL_ALLIANCE, 55.0,
+		"Diarmait seeks Norman arms to retake Leinster.")
+	_add_edge_raw(&"anglo_normans", &"ui_chennselaig", REL_OBLIGATION, 45.0,
+		"Landing terms: land and marriage claims owed for service.")
+	# Coastal Norse towns are early Norman targets.
+	_add_edge_raw(&"anglo_normans", &"norse_wexford_waterford", REL_HOSTILITY, 70.0,
+		"Wexford and Waterford are the beachhead prizes.")
+	_add_edge_raw(&"norse_wexford_waterford", &"anglo_normans", REL_HOSTILITY, 65.0,
+		"Harbor towns brace against the landing.")
+	# Diarmait vs Ruaidrí (exile / High Kingship feud).
+	_add_edge_raw(&"ui_chennselaig", &"high_kingship", REL_RIVALRY, 50.0,
+		"Exile feud with Ruaidrí / Connacht overlordship.")
+	_add_edge_raw(&"high_kingship", &"ui_chennselaig", REL_HOSTILITY, 60.0,
+		"High Kingship treats Diarmait's restoration as rebellion.")
+	_add_edge_raw(&"high_kingship", &"anglo_normans", REL_HOSTILITY, 45.0,
+		"Foreign adventurers threaten Irish overlordship.")
+	# Norse kin/trade across the Irish Sea towns.
+	_add_edge_raw(&"norse_dublin", &"norse_wexford_waterford", REL_KINSHIP, 40.0,
+		"Shared Norse-Gaelic coastal identity.")
+	_add_edge_raw(&"norse_wexford_waterford", &"norse_dublin", REL_TRADE, 35.0,
+		"Cattle and harbor goods along the east coast.")
+	# Baronial patronage under Henry II (latent until 1171 pressure).
+	_add_edge_raw(&"anglo_normans", &"english_crown", REL_PATRONAGE, 30.0,
+		"Adventurers still owe fealty to Henry II.")
+	_add_edge_raw(&"english_crown", &"anglo_normans", REL_PATRONAGE, 50.0,
+		"Crown expects to rein in over-mighty barons.")
+	# Soft Church / local scaffolding.
+	_add_edge_raw(&"church", &"ui_chennselaig", REL_OBLIGATION, 20.0,
+		"Sanctuary and reform politics in Leinster.")
+	_add_edge_raw(&"local_clans", &"ui_chennselaig", REL_KINSHIP, 25.0,
+		"Túatha kinship under shifting kingship claims.")
+	_add_edge_raw(&"ui_chennselaig", &"norse_wexford_waterford", REL_RIVALRY, 25.0,
+		"Coastal dues and cattle-trade friction.")
+	_add_edge_raw(&"fian", &"local_clans", REL_FEUD, 30.0,
+		"Outlaw bands prey on túatha herds.")
+	_add_edge_raw(&"local_clans", &"fian", REL_HOSTILITY, 35.0,
+		"Clan reprisals against fían raiders.")
+
+
+func _add_edge_raw(
+	from_id: StringName,
+	to_id: StringName,
+	kind: StringName,
+	strength: float,
+	note: String = ""
+) -> void:
+	relationship_edges.append({
+		"from": from_id,
+		"to": to_id,
+		"kind": kind,
+		"strength": clampf(strength, -100.0, 100.0),
+		"note": note,
+	})
+
+
+func _edge_matches(
+	edge: Dictionary,
+	from_id: StringName,
+	to_id: StringName,
+	kind: StringName
+) -> bool:
+	if from_id != &"" and edge.get("from") != from_id:
+		return false
+	if to_id != &"" and edge.get("to") != to_id:
+		return false
+	if kind != &"" and edge.get("kind") != kind:
+		return false
+	return true
+
+
+## Upsert a directed edge (match on from+to+kind). Emits relationship_changed.
+func set_relationship(
+	from_id: StringName,
+	to_id: StringName,
+	kind: StringName,
+	strength: float,
+	note: String = ""
+) -> Dictionary:
+	if from_id not in FACTION_IDS or to_id not in FACTION_IDS:
+		push_warning("Factions.set_relationship: unknown faction id")
+		return {}
+	if kind not in RELATIONSHIP_KINDS:
+		push_warning("Factions.set_relationship: unknown kind %s" % String(kind))
+		return {}
+	var clamped := clampf(strength, -100.0, 100.0)
+	for i in relationship_edges.size():
+		var edge: Dictionary = relationship_edges[i]
+		if _edge_matches(edge, from_id, to_id, kind):
+			edge["strength"] = clamped
+			if note != "":
+				edge["note"] = note
+			relationship_edges[i] = edge
+			relationship_changed.emit(from_id, to_id, edge)
+			return edge
+	var created := {
+		"from": from_id,
+		"to": to_id,
+		"kind": kind,
+		"strength": clamped,
+		"note": note,
+	}
+	relationship_edges.append(created)
+	relationship_changed.emit(from_id, to_id, created)
+	return created
+
+
+func modify_relationship_strength(
+	from_id: StringName,
+	to_id: StringName,
+	kind: StringName,
+	delta: float
+) -> Dictionary:
+	var edge := get_relationship(from_id, to_id, kind)
+	var current := float(edge.get("strength", 0.0)) if not edge.is_empty() else 0.0
+	var note := str(edge.get("note", "")) if not edge.is_empty() else ""
+	return set_relationship(from_id, to_id, kind, current + delta, note)
+
+
+## First matching edge (optional kind filter). Empty Dictionary if none.
+func get_relationship(
+	from_id: StringName,
+	to_id: StringName,
+	kind: StringName = &""
+) -> Dictionary:
+	for edge in relationship_edges:
+		if _edge_matches(edge, from_id, to_id, kind):
+			return edge.duplicate(true)
+	return {}
+
+
+## Filter edges by optional from / to / kind (&"" = any).
+func list_relationships(
+	from_id: StringName = &"",
+	to_id: StringName = &"",
+	kind: StringName = &""
+) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for edge in relationship_edges:
+		if _edge_matches(edge, from_id, to_id, kind):
+			out.append(edge.duplicate(true))
+	return out
+
+
+## Edges touching a faction as either endpoint.
+func list_relationships_involving(faction_id: StringName) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for edge in relationship_edges:
+		if edge.get("from") == faction_id or edge.get("to") == faction_id:
+			out.append(edge.duplicate(true))
+	return out
+
+
+func has_relationship(
+	from_id: StringName,
+	to_id: StringName,
+	kind: StringName = &"",
+	min_strength: float = 0.0
+) -> bool:
+	for edge in list_relationships(from_id, to_id, kind):
+		if absf(float(edge.get("strength", 0.0))) >= min_strength:
+			return true
+	return false
+
+
+func are_allied(a: StringName, b: StringName, min_strength: float = 25.0) -> bool:
+	return (
+		has_relationship(a, b, REL_ALLIANCE, min_strength)
+		or has_relationship(b, a, REL_ALLIANCE, min_strength)
+	)
+
+
+func are_hostile(a: StringName, b: StringName, min_strength: float = 25.0) -> bool:
+	return (
+		has_relationship(a, b, REL_HOSTILITY, min_strength)
+		or has_relationship(b, a, REL_HOSTILITY, min_strength)
+		or has_relationship(a, b, REL_FEUD, min_strength)
+		or has_relationship(b, a, REL_FEUD, min_strength)
+	)
+
+
+## Leinster-slice pairs (both endpoints in LEINSTER_ACTIVE).
+func list_leinster_relationships() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for edge in relationship_edges:
+		var fr: StringName = edge.get("from")
+		var to: StringName = edge.get("to")
+		if fr in LEINSTER_ACTIVE and to in LEINSTER_ACTIVE:
+			out.append(edge.duplicate(true))
+	return out
+
+
+func relationship_count() -> int:
+	return relationship_edges.size()
+
+
+func to_relationship_debug_dict() -> Dictionary:
+	var by_kind: Dictionary = {}
+	for kind in RELATIONSHIP_KINDS:
+		by_kind[String(kind)] = 0
+	for edge in relationship_edges:
+		var k := String(edge.get("kind", &""))
+		by_kind[k] = int(by_kind.get(k, 0)) + 1
+	return {
+		"edge_count": relationship_edges.size(),
+		"by_kind": by_kind,
+		"leinster_edges": list_leinster_relationships(),
+		"edges": list_relationships(),
+	}
