@@ -1,0 +1,43 @@
+[gd_scene load_steps=2 format=3 uid="uid://cq8riochthlthdbg01"]
+
+[ext_resource type="Script" path="res://scripts/ui/health_debug_hud.gd" id="1_dbg"]
+
+[node name="HealthDebugHUD" type="CanvasLayer"]
+layer = 24
+script = ExtResource("1_dbg")
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchors_preset = 0
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 0.0
+anchor_bottom = 0.0
+offset_left = 8.0
+offset_top = 350.0
+offset_right = 440.0
+offset_bottom = 620.0
+grow_horizontal = 1
+theme_override_constants/margin_left = 0
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 0
+theme_override_constants/margin_bottom = 0
+
+[node name="Panel" type="PanelContainer" parent="Margin"]
+layout_mode = 2
+visible = false
+
+[node name="Margin" type="MarginContainer" parent="Margin/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="Label" type="Label" parent="Margin/Panel/Margin"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.92, 0.78, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.8)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 13
+text = "CharacterHealth vitals debug (V)"
+autowrap_mode = 3
