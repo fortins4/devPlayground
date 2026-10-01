@@ -7,7 +7,7 @@ extends Node
 ## linger; low ones fade. Emitters: WorldClock event resolve, Honor swings,
 ## Faction attitude / relationship-graph / cattle-raid heat / sanctuary-breach
 ## swings — see systems/rumors/README.md. Optional light reverse: high-priority faction-tagged
-## rumors can nudge attitudes.
+## rumors can nudge attitudes; HIGH+ prestige/honor-tagged rumors can lightly nudge Honor.
 
 signal rumor_added(rumor_id: StringName)
 signal rumor_expired(rumor_id: StringName)
@@ -61,7 +61,7 @@ var active_rumors: Array[Dictionary] = []
 var recently_expired: Array[StringName] = []
 const MAX_RECENTLY_EXPIRED: int = 8
 
-## Tag vocabulary for diplomatic / faction / raid-heat / sanctuary coupling
+## Tag vocabulary for diplomatic / faction / raid-heat / sanctuary / prestige coupling
 ## (see systems/rumors/README.md).
 const TAG_ATTITUDE: StringName = &"attitude"
 const TAG_GRAPH: StringName = &"graph"
@@ -71,6 +71,9 @@ const TAG_RETALIATION: StringName = &"retaliation"
 const TAG_CHURCH: StringName = &"church"
 const TAG_SANCTUARY: StringName = &"sanctuary"
 const TAG_BREACH: StringName = &"breach"
+const TAG_HONOR: StringName = &"honor"
+const TAG_PRESTIGE: StringName = &"prestige"
+const TAG_ENECH: StringName = &"enech"
 const TAG_DIRECTION_WARMER: StringName = &"direction:warmer"
 const TAG_DIRECTION_COLDER: StringName = &"direction:colder"
 const TAG_FACTION_PREFIX: String = "faction:"
@@ -83,10 +86,20 @@ const FACTION_NUDGE_SKIP_SOURCES: Array[StringName] = [
 	&"faction", &"faction_graph", &"raid", &"sanctuary_breach",
 ]
 
+## Light reverse coupling: HIGH+ prestige/honor-tagged rumors may nudge Honor.
+## Skipped for sources that Honor / raid / sanctuary themselves seed (avoids loops).
+const HONOR_NUDGE_MIN_PRIORITY: int = PRIORITY_HIGH
+const HONOR_NUDGE_AMOUNT: float = 1.5
+const HONOR_NUDGE_SKIP_SOURCES: Array[StringName] = [
+	&"honor", &"raid", &"sanctuary_breach",
+]
+
 ## When true, Rumors debug HUD may poll get_debug_text() cheaply.
 var debug_visible: bool = false
 ## Gate for reverse attitude nudge (Lead can flip off if noisy).
 var faction_nudge_enabled: bool = true
+## Gate for reverse Honor / prestige nudge (Lead can flip off if noisy).
+var honor_nudge_enabled: bool = true
 
 
 func _ready() -> void:
@@ -240,7 +253,7 @@ func rumor_severity(rumor: Dictionary) -> int:
 ## Pass decay_days <= 0 to use DEFAULT_DECAY_DAYS_BY_PRIORITY for the priority.
 ## age_days resets to 0 on refresh (word is fresh again).
 ## tags: optional StringName list (e.g. faction:*, direction:*, graph, attitude, raid, heat,
-## church, sanctuary, breach).
+## church, sanctuary, breach, honor, prestige, enech).
 func add_rumor(
 	rumor_id: StringName,
 	text: String,
@@ -283,6 +296,7 @@ func add_rumor(
 	_sort_by_priority()
 	rumor_added.emit(rumor_id)
 	_maybe_nudge_factions_from_rumor(entry)
+	_maybe_nudge_honor_from_rumor(entry)
 
 
 func mark_heard(rumor_id: StringName) -> bool:
@@ -390,6 +404,45 @@ func filter_by_faction(faction_id: StringName, min_priority: int = 0) -> Array[D
 	return filter_rumors(min_priority, &"", false, false, faction_tag(faction_id))
 
 
+## Active rumors carrying prestige / honor / enech tags (any of the three).
+## min_priority: inclusive floor (0 = any). Prefer PRIORITY_HIGH for prestige-relevant bus.
+func filter_by_prestige(min_priority: int = 0) -> Array[Dictionary]:
+	_sort_by_priority()
+	var out: Array[Dictionary] = []
+	for rumor in active_rumors:
+		if min_priority > 0 and int(rumor.get("priority", PRIORITY_NORMAL)) < min_priority:
+			continue
+		if not rumor_has_prestige_tag(rumor):
+			continue
+		out.append(rumor.duplicate(true))
+	return out
+
+
+## True when a rumor carries honor, prestige, or enech.
+func rumor_has_prestige_tag(rumor: Dictionary) -> bool:
+	return (
+		rumor_has_tag(rumor, TAG_HONOR)
+		or rumor_has_tag(rumor, TAG_PRESTIGE)
+		or rumor_has_tag(rumor, TAG_ENECH)
+	)
+
+
+## Public tag builder — prestige vocabulary (+ direction + optional faction).
+## Mirrors Honor.build_honor_rumor_tags / CattleRaidOutcomes.build_raid_heat_tags.
+func build_prestige_tags(
+	warmer: bool = true,
+	faction_id: StringName = &"",
+	include_enech: bool = true
+) -> Array:
+	var tags: Array = [TAG_HONOR, TAG_PRESTIGE]
+	if include_enech:
+		tags.append(TAG_ENECH)
+	tags.append(TAG_DIRECTION_WARMER if warmer else TAG_DIRECTION_COLDER)
+	if faction_id != &"":
+		tags.append(faction_tag(faction_id))
+	return tags
+
+
 ## Active rumors at or above a severity/priority floor (inclusive). Alias of filter_rumors.
 func filter_by_severity(min_severity: int = SEVERITY_LOW) -> Array[Dictionary]:
 	return filter_rumors(clamp_severity(min_severity))
@@ -459,19 +512,23 @@ func seed_demo_rumors() -> void:
 		PRIORITY_NORMAL,
 		0
 	)
+	# HIGH/CRITICAL demos carry prestige vocabulary so filter_by_prestige lights up.
+	# No direction:* here — avoids reverse Honor/faction nudges on M seed (use / for live swing).
 	add_rumor(
 		&"demo_church_bell",
 		"Word of sanctuary: the monastery will shelter the desperate — for a price in penance.",
 		&"demo",
 		PRIORITY_HIGH,
-		0
+		0,
+		[TAG_HONOR, TAG_PRESTIGE, TAG_ENECH, TAG_CHURCH, faction_tag(&"church")]
 	)
 	add_rumor(
 		&"demo_bannow_landing_echo",
 		"Couriers still carry word of the strangers' landing — the beachhead rumor will not die quickly.",
 		&"demo",
 		PRIORITY_CRITICAL,
-		0
+		0,
+		[TAG_PRESTIGE, TAG_HONOR, faction_tag(&"anglo_normans")]
 	)
 
 
@@ -498,6 +555,8 @@ func to_debug_dict() -> Dictionary:
 		"active_count": count_active(),
 		"debug_visible": debug_visible,
 		"faction_nudge_enabled": faction_nudge_enabled,
+		"honor_nudge_enabled": honor_nudge_enabled,
+		"prestige_count": filter_by_prestige().size(),
 		"severity_counts": severity_counts(),
 		"decay_table": decay_table(),
 		"top": top,
@@ -513,7 +572,7 @@ func get_debug_text() -> String:
 	lines.append("=== Rumors bus debug ===")
 	var counts := severity_counts()
 	lines.append(
-		"Active: %d   Day: %d   (N toggle · M seed · , decay · . diplomatic)" % [
+		"Active: %d   Day: %d   (N toggle · M seed · , decay · . diplomatic · / prestige)" % [
 			count_active(), _day_stamp(),
 		]
 	)
@@ -629,6 +688,42 @@ func probe_decay(seed_if_empty: bool = false) -> Dictionary:
 	}
 
 
+## Remote / F5 probe — prestige/honor tags, HIGH+ filter, optional Honor demo swing.
+## seed_swing: when true, calls Honor.demo_seed_prestige_swing() first (clears nothing).
+func probe_prestige(seed_swing: bool = false) -> Dictionary:
+	var swing: Dictionary = {}
+	if seed_swing and Honor != null and Honor.has_method("demo_seed_prestige_swing"):
+		swing = Honor.demo_seed_prestige_swing()
+	var prestige_rows := _debug_rows(filter_by_prestige())
+	var high_prestige := _debug_rows(filter_by_prestige(PRIORITY_HIGH))
+	var thresholds: Dictionary = {}
+	if Honor != null and Honor.has_method("get_rumor_honor_thresholds"):
+		thresholds = Honor.get_rumor_honor_thresholds()
+	var skip_sources: Array = []
+	for s in HONOR_NUDGE_SKIP_SOURCES:
+		skip_sources.append(String(s))
+	return {
+		"ok": true,
+		"day": _day_stamp(),
+		"active_count": count_active(),
+		"prestige_count": prestige_rows.size(),
+		"high_prestige_count": high_prestige.size(),
+		"honor_nudge_enabled": honor_nudge_enabled,
+		"honor_nudge_amount": HONOR_NUDGE_AMOUNT,
+		"honor_nudge_min_priority": HONOR_NUDGE_MIN_PRIORITY,
+		"honor_nudge_skip_sources": skip_sources,
+		"rumor_honor_thresholds": thresholds,
+		"prestige": prestige_rows,
+		"high_prestige": high_prestige,
+		"demo_swing": swing,
+		"loop_guard": {
+			"honor_source_skipped": true,
+			"modify_honor_seed_rumor_false_on_nudge": true,
+			"note": "Honor→Rumors uses source=honor (skipped). Reverse uses seed_rumor=false.",
+		},
+	}
+
+
 func _copy_slice(source: Array, limit: int) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	var n := mini(maxi(0, limit), source.size())
@@ -736,6 +831,37 @@ func _maybe_nudge_factions_from_rumor(rumor: Dictionary) -> void:
 		# seed_rumor=false — nudge stays below attitude rumor threshold anyway,
 		# but keep the path silent so Lead can raise nudge later without loops.
 		Factions.modify_attitude(fid, delta, false)
+
+
+## Optional reverse: HIGH+ prestige/honor-tagged rumor lightly nudges Honor.
+## Gated; skips Honor-/raid-/sanctuary-seeded sources so honor → rumor cannot loop.
+## Uses Honor.modify_honor(..., seed_rumor=false). Overall when no faction:* tag;
+## otherwise per tagged faction (small overall drift still applies inside modify_honor).
+func _maybe_nudge_honor_from_rumor(rumor: Dictionary) -> void:
+	if not honor_nudge_enabled:
+		return
+	if Honor == null:
+		return
+	var priority := int(rumor.get("priority", PRIORITY_NORMAL))
+	if priority < HONOR_NUDGE_MIN_PRIORITY:
+		return
+	var source: StringName = rumor.get("source_event", &"")
+	if source in HONOR_NUDGE_SKIP_SOURCES:
+		return
+	var tags: Array = rumor.get("tags", [])
+	if not rumor_has_prestige_tag(rumor):
+		return
+	var direction := direction_from_tags(tags)
+	if direction == &"":
+		return
+	var delta := HONOR_NUDGE_AMOUNT if direction == TAG_DIRECTION_WARMER else -HONOR_NUDGE_AMOUNT
+	var faction_ids := faction_ids_from_tags(tags)
+	# seed_rumor=false — reverse path must not re-seed prestige rumors (loop guard).
+	if faction_ids.is_empty():
+		Honor.modify_honor(delta, &"", false)
+	else:
+		for fid in faction_ids:
+			Honor.modify_honor(delta, fid, false)
 
 
 func _day_stamp() -> int:

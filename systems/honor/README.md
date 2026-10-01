@@ -9,6 +9,7 @@ Brehon-law honor / reputation. Runtime API: `scripts/autoload/honor.gd` (autoloa
 | [`law_dialogue_samples.gd`](law_dialogue_samples.gd) (`class_name LawDialogueSamples`) | Authored multi-dispute packs + **unlocked-lines** query API |
 | `scenes/ui/honor_debug_hud.tscn` | F5 greybox panel (instanced on `scenes/main/main.tscn`) |
 | `tools/probe_honor_law_dialogue.gd` | Headless / remote unlock probe |
+| `tools/probe_rumors_honor_prestige.gd` | Headless / remote Rumors ↔ prestige tags probe |
 
 ## Law / dialogue gates
 
@@ -24,7 +25,28 @@ Brehon-law honor / reputation. Runtime API: `scripts/autoload/honor.gd` (autoloa
 
 Thresholds (slice defaults): `ERAIC_MIN_OVERALL=40`, `SANCTUARY_MIN_CHURCH=30`, `SANCTUARY_MIN_OVERALL=35`.
 
-Significant honor swings (`|delta| >= RUMOR_HONOR_THRESHOLD`) emit rumors via the Rumors bus.
+Significant honor swings (`|delta| >= RUMOR_HONOR_THRESHOLD`) emit **prestige-tagged**
+rumors via the Rumors bus (`honor` / `prestige` / `enech` + `direction:*` + optional
+`faction:<id>`). `|delta| >= RUMOR_HONOR_HIGH_THRESHOLD` elevates to **PRIORITY_HIGH**.
+
+| Const | Default | Role |
+|---|---|---|
+| `RUMOR_HONOR_THRESHOLD` | **8** | Floor that seeds a tagged rumor |
+| `RUMOR_HONOR_HIGH_THRESHOLD` | **15** | Elevates to HIGH (prestige-relevant) |
+| `RUMOR_HONOR_DECAY_DAYS` | **7** | NORMAL lifetime |
+| `RUMOR_HONOR_HIGH_DECAY_DAYS` | **12** | HIGH lifetime |
+
+`Honor.modify_honor(amount, faction_id := &"", seed_rumor := true)` — pass
+`seed_rumor=false` to mute (used by Rumors reverse Honor nudge; avoids loops).
+
+| API | Meaning |
+|---|---|
+| `Honor.build_honor_rumor_tags(faction_id, amount)` | Tag array for prestige coupling |
+| `Honor.get_rumor_honor_thresholds()` | Threshold / decay snapshot |
+| `Honor.honor_warrants_rumor(amount)` / `honor_warrants_high_rumor(amount)` | Gate helpers |
+| `Honor.demo_seed_prestige_swing()` | F5 / remote: overall +16, church −16 → HIGH tagged rumors |
+
+See [systems/rumors/README.md](../rumors/README.md) § Tags / reverse Honor nudge.
 
 Sanctuary **sites** (Glendalough / Clonmacnoise) live in [`systems/sanctuary/`](../sanctuary/) —
 `SanctuaryLocations.can_claim` / `try_claim` reuse `Honor.can_claim_sanctuary()` and Church faction `&"church"`.
@@ -146,6 +168,22 @@ Keys: **H** toggle · **[** / **]** overall −5 / +5 · **;** / **'** church �
 **E** éraic · **R** sanctuary · **D** cycle dispute · **F** dump unlock probe.
 
 Timeline debug remains on **T** / **Y** / **U** (top-right); Honor panel uses top-left.
+
+### Prestige ↔ Rumors (F5 / Remote)
+
+1. F5 main scene → **N** (Rumors panel) → **/** — `Honor.demo_seed_prestige_swing()`.
+2. Confirm HIGH lines with `{honor,prestige,enech,direction:*}` (church row also `faction:church`).
+3. Or Remote:
+
+```gdscript
+print(Honor.demo_seed_prestige_swing())
+print(Rumors.probe_prestige(true))
+print(Rumors.filter_by_prestige(Rumors.PRIORITY_HIGH))
+print(Honor.get_rumor_honor_thresholds())
+```
+
+Headless: `godot --headless --path . --script res://tools/probe_rumors_honor_prestige.gd`
+→ expect `PROBE_RUMORS_HONOR_PRESTIGE_OK`.
 
 ### Remote / Debugger (no HUD)
 
