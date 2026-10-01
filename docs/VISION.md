@@ -32,7 +32,7 @@ An open-world, historically grounded action-adventure set in **Ireland, 1169–1
 ## Core Pillars
 1. **Living History:** Factions act on a historical timeline independent of the player. Events happen offscreen, rumors spread, and the map changes.
 2. **Meaningful Influence:** Player actions change local and regional outcomes: battles, alliances, survivors, ownership of land, and how people remember you.
-3. **Grounded, Weighty Combat:** Gaelic warfare (spears, axes, javelins, light armor, ambush) against armored Norman knights and crossbowmen. Terrain matters: bogs and forests favor the Gael.
+3. **Grounded Combat & Stealth:** Gaelic warfare (spears, axes, javelins, light armor, ambush) against armored Norman knights and crossbowmen. Terrain matters: bogs and forests favor the Gael. Stealth is first-class — avoid patrols, set ambushes, and **hide bodies in the bog** to delay discovery and manage heat.
 4. **Honor & Law (Enech):** Brehon law gives consistent rules for every interaction: hospitality, sanctuary, honor-price (éraic). Honor is both reputation and currency.
 5. **A Personal Story in a Big World:** The authored protagonist anchors the emotion. The sandbox supplies the scale.
 6. **Growing Band & Skirmish Strategy:** Recruit warriors over time into Cian's band. Numbers and readiness build the confidence to ambush Anglo-Norman forces and win minor skirmishes — strategy and party power matter alongside personal combat. Major battles are rare, timeline-tied events that can reshape the story — not the everyday fight loop.
@@ -67,7 +67,8 @@ A persistent base the player rebuilds after the opening tragedy. Recruit smiths,
 | System | Description |
 |---|---|
 | Combat | Stamina-based and directional, with thrown spears, shield breaks, and terrain modifiers |
-| Stealth & Raiding | Night cattle raids with watchmen, dogs, fog, and escape routes |
+| Stealth & Raiding | Crouch/cover, noise, vision cones; night cattle raids with watchmen, dogs, fog, escape routes |
+| Bog disposal | Hide bodies in peat bogs to delay discovery and reduce honor / patrol heat |
 | Honor (Enech) | Reputation per faction and overall. Gates dialogue, alliances, and law options |
 | Brehon Law | Resolve disputes with an honor-price instead of bloodshed. Breaking the law has consequences |
 | Economy | Cattle are the main currency, plus trade goods in Norse towns |
