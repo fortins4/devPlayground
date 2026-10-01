@@ -1,10 +1,12 @@
 extends Node
 ## FULL patrol heat: delayed investigation, rediscovery bumps, optional Honor stub.
+## Polish: clearer investigate telegraph, live countdown UI, sentry walk-to-body hooks.
 ## Hidden corpses skip discovery; unhidden bodies raise heat (once after delay, then repeats).
 
 signal heat_changed(heat: float, reason: StringName)
 signal body_discovered(corpse: Node3D, sentry: Node3D)
 signal investigation_started(corpse: Node3D, sentry: Node3D)
+signal investigation_progress(corpse: Node3D, remaining: float, total: float)
 signal honor_stub_applied(delta: float, reason: StringName)
 signal raid_spotted(sentry: Node3D, heat_after: float)
 signal raid_alarm(heat_after: float)
@@ -14,7 +16,8 @@ signal raid_alarm(heat_after: float)
 @export var rediscovery_bump: float = 12.0
 @export var hidden_relief: float = 10.0
 @export var scan_interval: float = 0.35
-@export var investigation_delay: float = 1.6
+## Tuned 1.6 → 2.0 so walk-to-body + [? INVESTIGATING] telegraph reads before bump.
+@export var investigation_delay: float = 2.0
 @export var rediscovery_interval: float = 4.0
 @export var discovery_view_distance: float = 12.0
 @export var discovery_half_angle_deg: float = 48.0
@@ -34,13 +37,17 @@ var _scan_cd: float = 0.0
 var _discovered: Dictionary = {}  # instance_id -> true (first formal discovery)
 var _investigating: Dictionary = {}  # instance_id -> remaining seconds
 var _investigate_sentry: Dictionary = {}  # instance_id -> sentry
+var _investigate_total: Dictionary = {}  # instance_id -> starting delay
 var _rediscover_cd: Dictionary = {}  # instance_id -> cooldown remaining
 var _hud_label: Label
 var _banner: Label
+var _progress_label: Label
+var _progress_bar: ProgressBar
 var _world_label: Label3D
 var _banner_tween: Tween
 var _raid_spot_cd: Dictionary = {}  # sentry instance_id -> cooldown remaining
 var _raid_alarm_raised: bool = false
+var _hud_tick: float = 0.0
 
 
 func _ready() -> void:
@@ -54,6 +61,12 @@ func _physics_process(delta: float) -> void:
 	_tick_investigations(delta)
 	_tick_rediscovery_cds(delta)
 	_tick_raid_spot_cds(delta)
+	_hud_tick -= delta
+	if _hud_tick <= 0.0:
+		_hud_tick = 0.12
+		if not _investigating.is_empty():
+			_refresh_hud("investigating")
+			_refresh_progress_ui()
 	_scan_cd -= delta
 	if _scan_cd > 0.0:
 		return
@@ -63,6 +76,19 @@ func _physics_process(delta: float) -> void:
 
 func get_heat() -> float:
 	return heat
+
+
+func get_active_investigation_count() -> int:
+	return _investigating.size()
+
+
+func get_primary_investigation_remaining() -> float:
+	if _investigating.is_empty():
+		return 0.0
+	var best := 9999.0
+	for id in _investigating.keys():
+		best = minf(best, float(_investigating[id]))
+	return best if best < 9990.0 else 0.0
 
 
 func bump(amount: float, reason: StringName = &"bump") -> void:
@@ -77,11 +103,13 @@ func note_body_hidden(corpse: Node3D) -> void:
 	bump(-hidden_relief, &"bog_hide")
 	if corpse:
 		var id := corpse.get_instance_id()
-		_investigating.erase(id)
-		_investigate_sentry.erase(id)
+		_cancel_investigation(id, true)
 		_rediscover_cd.erase(id)
+		if corpse.has_method("set_investigation"):
+			corpse.call("set_investigation", false, 0.0)
 	_flash_banner("Body CONCEALED — heat eased", Color(0.45, 0.8, 0.5))
 	_apply_honor(honor_on_hide, &"bog_hide")
+	_hide_progress_ui()
 
 
 func was_discovered(corpse: Node3D) -> bool:
@@ -100,18 +128,32 @@ func _tick_investigations(delta: float) -> void:
 	var done: Array = []
 	for id in _investigating.keys():
 		_investigating[id] = float(_investigating[id]) - delta
-		if float(_investigating[id]) <= 0.0:
+		var remaining := float(_investigating[id])
+		var corpse := instance_from_id(id) as Node3D
+		var sentry: Node3D = _investigate_sentry.get(id) as Node3D
+		var total := float(_investigate_total.get(id, investigation_delay))
+		if corpse and is_instance_valid(corpse) and corpse.has_method("set_investigation"):
+			corpse.call("set_investigation", true, maxf(0.0, remaining))
+		if sentry and is_instance_valid(sentry) and sentry.has_method("update_body_investigate"):
+			sentry.call("update_body_investigate", maxf(0.0, remaining))
+		investigation_progress.emit(corpse, maxf(0.0, remaining), total)
+		if remaining <= 0.0:
 			done.append(id)
 	for id in done:
 		var corpse := instance_from_id(id) as Node3D
 		var sentry: Node3D = _investigate_sentry.get(id) as Node3D
 		_investigating.erase(id)
 		_investigate_sentry.erase(id)
+		_investigate_total.erase(id)
 		if corpse == null or not is_instance_valid(corpse):
 			continue
 		if corpse.has_method("is_hidden") and bool(corpse.call("is_hidden")):
+			if corpse.has_method("set_investigation"):
+				corpse.call("set_investigation", false, 0.0)
 			continue
 		_confirm_discovery(corpse, sentry)
+	if _investigating.is_empty():
+		_hide_progress_ui()
 
 
 func _tick_rediscovery_cds(delta: float) -> void:
@@ -139,17 +181,26 @@ func _scan_discoveries() -> void:
 		if seeing_sentry == null:
 			# Lost LOS during investigation — cancel pending.
 			if _investigating.has(id) and not _discovered.has(id):
-				_investigating.erase(id)
-				_investigate_sentry.erase(id)
+				_cancel_investigation(id, true)
+				if corpse.has_method("set_investigation"):
+					corpse.call("set_investigation", false, 0.0)
+				_flash_banner("Investigation broken — LOS lost", Color(0.7, 0.75, 0.55))
+				_refresh_hud("investigate_cancel")
 			continue
 		if not _discovered.has(id):
 			if not _investigating.has(id):
 				_investigating[id] = investigation_delay
 				_investigate_sentry[id] = seeing_sentry
+				_investigate_total[id] = investigation_delay
 				investigation_started.emit(corpse, seeing_sentry)
 				_nudge_sentry_suspicious(seeing_sentry)
-				_flash_banner("Sentry investigating body…", Color(0.95, 0.8, 0.35))
+				if seeing_sentry.has_method("begin_body_investigate"):
+					seeing_sentry.call("begin_body_investigate", corpse, investigation_delay)
+				if corpse.has_method("set_investigation"):
+					corpse.call("set_investigation", true, investigation_delay)
+				_flash_banner("Sentry investigating body… %.1fs" % investigation_delay, Color(0.95, 0.8, 0.35))
 				_refresh_hud("investigating")
+				_refresh_progress_ui()
 			continue
 		# Already discovered: repeatable bumps while still visible.
 		if float(_rediscover_cd.get(id, 0.0)) <= 0.0:
@@ -162,18 +213,34 @@ func _scan_discoveries() -> void:
 			_apply_honor(honor_on_discover * 0.5, &"body_seen_again")
 
 
+func _cancel_investigation(id: int, return_sentry: bool) -> void:
+	var sentry: Node3D = _investigate_sentry.get(id) as Node3D
+	_investigating.erase(id)
+	_investigate_sentry.erase(id)
+	_investigate_total.erase(id)
+	if return_sentry and sentry and is_instance_valid(sentry) and sentry.has_method("cancel_body_investigate"):
+		sentry.call("cancel_body_investigate")
+	if _investigating.is_empty():
+		_hide_progress_ui()
+
+
 func _confirm_discovery(corpse: Node3D, sentry: Node3D) -> void:
 	var id := corpse.get_instance_id()
 	_discovered[id] = true
 	_rediscover_cd[id] = rediscovery_interval
+	if corpse.has_method("set_investigation"):
+		corpse.call("set_investigation", false, 0.0)
 	bump(discover_bump, &"body_seen")
 	body_discovered.emit(corpse, sentry)
 	if sentry:
 		_nudge_sentry_alert(sentry)
+		if sentry.has_method("confirm_body_discovered"):
+			sentry.call("confirm_body_discovered")
 	if corpse.has_method("mark_discovered"):
 		corpse.call("mark_discovered")
 	_flash_banner("BODY DISCOVERED — heat +%d" % int(discover_bump), Color(0.98, 0.3, 0.2))
 	_apply_honor(honor_on_discover, &"body_seen")
+	_hide_progress_ui()
 
 
 
@@ -364,9 +431,26 @@ func _ensure_hud() -> void:
 	_hud_label.position = Vector2(16, 14)
 	_hud_label.add_theme_font_size_override("font_size", 22)
 	layer.add_child(_hud_label)
+	_progress_label = Label.new()
+	_progress_label.name = "InvestigateProgressLabel"
+	_progress_label.position = Vector2(16, 52)
+	_progress_label.add_theme_font_size_override("font_size", 18)
+	_progress_label.add_theme_color_override("font_color", Color(0.95, 0.85, 0.35))
+	_progress_label.visible = false
+	layer.add_child(_progress_label)
+	_progress_bar = ProgressBar.new()
+	_progress_bar.name = "InvestigateProgressBar"
+	_progress_bar.position = Vector2(16, 76)
+	_progress_bar.custom_minimum_size = Vector2(260, 16)
+	_progress_bar.size = Vector2(260, 16)
+	_progress_bar.max_value = 1.0
+	_progress_bar.value = 0.0
+	_progress_bar.show_percentage = false
+	_progress_bar.visible = false
+	layer.add_child(_progress_bar)
 	_banner = Label.new()
 	_banner.name = "HeatBanner"
-	_banner.position = Vector2(16, 78)
+	_banner.position = Vector2(16, 102)
 	_banner.add_theme_font_size_override("font_size", 26)
 	_banner.visible = false
 	layer.add_child(_banner)
@@ -406,6 +490,34 @@ func _flash_banner(text: String, color: Color) -> void:
 	)
 
 
+func _refresh_progress_ui() -> void:
+	if _progress_bar == null or _progress_label == null:
+		return
+	if _investigating.is_empty():
+		_hide_progress_ui()
+		return
+	var remaining := get_primary_investigation_remaining()
+	var total := investigation_delay
+	for id in _investigate_total.keys():
+		total = float(_investigate_total[id])
+		break
+	var frac := 0.0
+	if total > 0.001:
+		frac = 1.0 - clampf(remaining / total, 0.0, 1.0)
+	_progress_label.visible = true
+	_progress_bar.visible = true
+	_progress_label.text = "INVESTIGATING body — %.1f / %.1fs" % [remaining, total]
+	_progress_bar.max_value = 1.0
+	_progress_bar.value = frac
+
+
+func _hide_progress_ui() -> void:
+	if _progress_label:
+		_progress_label.visible = false
+	if _progress_bar:
+		_progress_bar.visible = false
+
+
 func _refresh_hud(reason: String) -> void:
 	var tier := "calm"
 	var color := Color(0.65, 0.85, 0.6)
@@ -421,10 +533,11 @@ func _refresh_hud(reason: String) -> void:
 	var inv_n := _investigating.size()
 	var text := "Heat %d / %d  [%s]" % [int(heat), int(max_heat), tier]
 	if inv_n > 0:
-		text += "  · investigating×%d" % inv_n
+		var rem := get_primary_investigation_remaining()
+		text += "  · investigating %.1fs" % rem
 	if _raid_alarm_raised:
 		text += "  · RAID ALARM"
-	if reason != "" and reason != "boot":
+	if reason != "" and reason != "boot" and reason != "investigating":
 		text += "\n(%s)" % reason
 	if _hud_label:
 		_hud_label.text = text

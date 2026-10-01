@@ -1,8 +1,12 @@
 extends CharacterBody3D
-## Stationary watchman greybox: detection by default. Optional raid-combat chase/ATTACK
-## when RaidHeatBridge crosses the hot-heat threshold (raid stays completable).
+## Stationary watchman greybox: detection by default. Walks to bodies during
+## investigation polish. Optional raid-combat chase/ATTACK when RaidHeatBridge
+## crosses the hot-heat threshold (raid stays completable).
 
 const MOVE_SPEED := 2.55
+const INVESTIGATE_SPEED := 2.05
+const INVESTIGATE_STOP_DIST := 2.2
+const RETURN_SPEED := 1.85
 const ATTACK_RANGE := 1.95
 const ATTACK_COOLDOWN := 1.75
 const AGGRO_RANGE := 28.0
@@ -12,6 +16,7 @@ const AGGRO_RANGE := 28.0
 
 var _player: Node3D
 var _rest_yaw: float = 0.0
+var _rest_position: Vector3 = Vector3.ZERO
 var _look_tween: Tween
 var _raid_combat: bool = false
 var _combat: Node = null
@@ -19,13 +24,72 @@ var _attack_cd: float = 0.0
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _warn_label: Label3D
 
+## Body investigation (stealth polish)
+var _investigate_target: Node3D = null
+var _investigate_remaining: float = 0.0
+var _returning_to_post: bool = false
+var _investigate_label: Label3D
+var _telegraph_pulse: float = 0.0
+
 
 func _ready() -> void:
 	_rest_yaw = rotation.y
+	_rest_position = global_position
 	add_to_group("sentry")
 	if sensor and sensor.has_signal("awareness_changed"):
 		sensor.awareness_changed.connect(_on_awareness_changed)
 	_player = get_tree().get_first_node_in_group("player") as Node3D
+	_ensure_investigate_label()
+
+
+func begin_body_investigate(corpse: Node3D, remaining: float = -1.0) -> void:
+	## HeatTracker: start walk-to-body + telegraph while the delay ticks.
+	if _raid_combat or corpse == null or not is_instance_valid(corpse):
+		return
+	_investigate_target = corpse
+	_returning_to_post = false
+	if remaining >= 0.0:
+		_investigate_remaining = remaining
+	_telegraph_pulse = 0.0
+	_ensure_investigate_label()
+	_refresh_investigate_label()
+
+
+func update_body_investigate(remaining: float) -> void:
+	if _investigate_target == null:
+		return
+	_investigate_remaining = remaining
+	_refresh_investigate_label()
+
+
+func cancel_body_investigate() -> void:
+	## Lost LOS mid-investigate — abort and amble back toward post.
+	_investigate_target = null
+	_investigate_remaining = 0.0
+	_returning_to_post = true
+	if _investigate_label:
+		_investigate_label.visible = false
+
+
+func confirm_body_discovered() -> void:
+	## Investigation timer elapsed → ALERT stay near body briefly, then idle alert.
+	_investigate_target = null
+	_investigate_remaining = 0.0
+	_returning_to_post = false
+	if _investigate_label:
+		_investigate_label.text = "[!] BODY FOUND"
+		_investigate_label.modulate = Color(0.98, 0.28, 0.18)
+		_investigate_label.visible = true
+		var tw := create_tween()
+		tw.tween_interval(1.4)
+		tw.tween_callback(func():
+			if _investigate_label and _investigate_target == null and not _raid_combat:
+				_investigate_label.visible = false
+		)
+
+
+func is_investigating_body() -> bool:
+	return _investigate_target != null and is_instance_valid(_investigate_target)
 
 
 func enter_raid_combat() -> void:
@@ -33,6 +97,10 @@ func enter_raid_combat() -> void:
 	if _raid_combat:
 		return
 	_raid_combat = true
+	_investigate_target = null
+	_returning_to_post = false
+	if _investigate_label:
+		_investigate_label.visible = false
 	_ensure_combat()
 	_attack_cd = 0.35
 	if sensor and sensor.has_method("force_awareness"):
@@ -64,13 +132,31 @@ func _physics_process(delta: float) -> void:
 		_raid_combat_tick(delta)
 		return
 
+	if not is_on_floor():
+		velocity.y -= _gravity * delta
+	else:
+		velocity.y = 0.0
+
+	if _investigate_target != null and is_instance_valid(_investigate_target):
+		_investigate_tick(delta)
+		move_and_slide()
+		return
+
+	if _returning_to_post:
+		_return_to_post_tick(delta)
+		move_and_slide()
+		return
+
+	velocity.x = move_toward(velocity.x, 0.0, INVESTIGATE_SPEED * 6.0 * delta)
+	velocity.z = move_toward(velocity.z, 0.0, INVESTIGATE_SPEED * 6.0 * delta)
+	move_and_slide()
+
 	if sensor == null:
 		return
 	var aw = sensor.get("awareness")
-	# Soft face last-known / player when suspicious or alert.
 	if aw == null:
 		return
-	# DetectionSensor.Awareness: UNAWARE=0 SUSPICIOUS=1 ALERT=2
+	# Soft face last-known / player when suspicious or alert.
 	if int(aw) >= 1 and _player:
 		var to_p := _player.global_position - global_position
 		to_p.y = 0.0
@@ -79,6 +165,50 @@ func _physics_process(delta: float) -> void:
 			rotation.y = lerp_angle(rotation.y, target_yaw, 2.2 * delta)
 	elif int(aw) == 0:
 		rotation.y = lerp_angle(rotation.y, _rest_yaw, 1.2 * delta)
+
+
+func _investigate_tick(delta: float) -> void:
+	_telegraph_pulse += delta
+	var to_body := _investigate_target.global_position - global_position
+	to_body.y = 0.0
+	var dist := to_body.length()
+	var dir := to_body.normalized() if dist > 0.05 else Vector3.FORWARD
+	if dist > 0.05:
+		var target_yaw := atan2(-dir.x, -dir.z)
+		rotation.y = lerp_angle(rotation.y, target_yaw, 5.5 * delta)
+
+	if dist > INVESTIGATE_STOP_DIST:
+		velocity.x = dir.x * INVESTIGATE_SPEED
+		velocity.z = dir.z * INVESTIGATE_SPEED
+	else:
+		# Hold stand-off: look / lean in place (telegraph readable).
+		velocity.x = move_toward(velocity.x, 0.0, INVESTIGATE_SPEED * 8.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, INVESTIGATE_SPEED * 8.0 * delta)
+		# Subtle head bob via visual pitch-ish scale pulse (greybox read).
+		if visual:
+			var bob := 1.0 + sin(_telegraph_pulse * 6.0) * 0.015
+			visual.scale = Vector3(bob, 1.0, bob)
+
+	_refresh_investigate_label()
+
+
+func _return_to_post_tick(delta: float) -> void:
+	var to_rest := _rest_position - global_position
+	to_rest.y = 0.0
+	var dist := to_rest.length()
+	if dist < 0.35:
+		_returning_to_post = false
+		velocity.x = 0.0
+		velocity.z = 0.0
+		rotation.y = lerp_angle(rotation.y, _rest_yaw, 3.0 * delta)
+		if visual:
+			visual.scale = Vector3.ONE
+		return
+	var dir := to_rest.normalized()
+	var target_yaw := atan2(-dir.x, -dir.z)
+	rotation.y = lerp_angle(rotation.y, target_yaw, 4.0 * delta)
+	velocity.x = dir.x * RETURN_SPEED
+	velocity.z = dir.z * RETURN_SPEED
 
 
 func _raid_combat_tick(delta: float) -> void:
@@ -204,6 +334,38 @@ func _ensure_warn_label() -> void:
 	add_child(_warn_label)
 
 
+func _ensure_investigate_label() -> void:
+	if _investigate_label and is_instance_valid(_investigate_label):
+		return
+	_investigate_label = get_node_or_null("InvestigateTelegraph") as Label3D
+	if _investigate_label:
+		return
+	_investigate_label = Label3D.new()
+	_investigate_label.name = "InvestigateTelegraph"
+	_investigate_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_investigate_label.font_size = 36
+	_investigate_label.outline_size = 8
+	_investigate_label.outline_modulate = Color(0.08, 0.06, 0.02, 0.9)
+	_investigate_label.position = Vector3(0.0, 2.75, 0.0)
+	_investigate_label.visible = false
+	add_child(_investigate_label)
+
+
+func _refresh_investigate_label() -> void:
+	if _investigate_label == null:
+		return
+	if _investigate_target == null or not is_instance_valid(_investigate_target):
+		if not _raid_combat:
+			# Keep BODY FOUND flash handled elsewhere; hide idle.
+			pass
+		return
+	var secs := maxf(0.0, _investigate_remaining)
+	var pulse := 0.72 + 0.28 * (0.5 + 0.5 * sin(_telegraph_pulse * 7.5))
+	_investigate_label.visible = true
+	_investigate_label.text = "[?] INVESTIGATING\n%.1fs" % secs
+	_investigate_label.modulate = Color(0.98, 0.86, 0.28, pulse)
+
+
 func _on_awareness_changed(_prev: int, next: int) -> void:
 	if visual == null:
 		return
@@ -220,6 +382,9 @@ func _on_awareness_changed(_prev: int, next: int) -> void:
 	var sm := mat as StandardMaterial3D
 	if _raid_combat:
 		sm.albedo_color = Color(0.85, 0.12, 0.1)
+		return
+	if _investigate_target != null:
+		sm.albedo_color = Color(0.72, 0.58, 0.18)
 		return
 	match next:
 		1:
