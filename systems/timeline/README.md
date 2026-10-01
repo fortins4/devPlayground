@@ -40,6 +40,16 @@ summary + survivor / coastal flavor).
 
 Design source: `docs/SCOPE.md` (lock one shared EventOutcome schema before content multiplies).
 
+### Travel → calendar
+
+Region travel spends the same day counter via [`TravelGate`](../traversal/travel_gate.gd)
+(`systems/traversal/`). `TravelGate.commit_travel` calls `WorldClock.advance_day(n)`
+for the horse/foot day cost from [`TravelDistances`](../traversal/travel_distances.gd),
+then updates `Game.current_region`. Multi-day trips therefore resolve overdue
+timeline events, faction need ticks, rumor decay, and cattle economy along the road.
+F5: Travel panel **G** / **B** (see traversal README); Timeline panel **T** / **Y**.
+
+
 ---
 
 ## Seeded events

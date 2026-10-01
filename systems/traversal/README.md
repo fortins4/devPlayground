@@ -6,34 +6,111 @@ Overland region graph for Leinster → Ireland. Design: [`docs/MAP_SCALE.md`](..
 | Piece | Role |
 |---|---|
 | [`travel_distances.gd`](travel_distances.gd) (`class_name TravelDistances`) | Region ids, horse/foot day matrix, shortest path |
-| `Game.current_region` | Live region id (seeds `&"leinster"`) |
+| [`travel_gate.gd`](travel_gate.gd) (`class_name TravelGate`) | Preview / request / commit travel → `WorldClock` + `Game.current_region` |
+| `Game.current_region` | Live region id (seeds `&"leinster"`); `Game.set_current_region` / `region_changed` |
+| `scenes/ui/travel_debug_hud.tscn` | F5 greybox panel (instanced on `scenes/main/main.tscn`) |
 
-No scene loads here — callers advance `WorldClock` and swap regions themselves.
+No scene loads here — the gate advances the living calendar and updates the
+session region id. Greybox / streaming swaps stay caller-owned.
 
 Church sanctuary sites that hang off these region ids: [`systems/sanctuary/`](../sanctuary/) (`glendalough` → `wicklow_glendalough`, `clonmacnoise` → `clonmacnoise`).
 
-## API
+Calendar / event resolve that travel days can trigger: [`systems/timeline/`](../timeline/) (`WorldClock.advance_day`).
+
+## API — distances
 
 ```gdscript
 TravelDistances.horse_days(&"leinster", &"dublin")     # 2
 TravelDistances.foot_days(&"leinster", &"dublin")      # 4
 TravelDistances.list_connections(&"leinster")          # neighbour rows
-TravelDistances.shortest_horse_path(&"leinster", &"connacht")
+TravelDistances.shortest_path(&"leinster", &"connacht", &"horse")
+TravelDistances.shortest_horse_path(&"leinster", &"connacht")  # wrapper
 print(TravelDistances.get_debug_text())
 ```
 
 Days are **calendar days** on the living clock when the player commits a travel
 gate. Local greybox meters are separate (see MAP_SCALE).
 
+## API — travel gate
+
+```gdscript
+# Preview / request (no clock change)
+var preview := TravelGate.preview_travel(&"leinster", &"dublin")
+# preview.ok / preview.days / preview.path / preview.reason
+
+var req := TravelGate.request_travel(&"dublin")  # from Game.current_region
+TravelGate.can_travel(&"leinster", &"dublin")
+
+# Commit: WorldClock.advance_day(days) then Game.set_current_region(to)
+var result := TravelGate.commit_travel(&"dublin")  # horse, path allowed
+# result.day_before / result.day_after / result.summary
+
+# Gate knobs (slice stubs)
+TravelGate.expedition_day_budget = 3   # -1 unlimited; over → insufficient_days
+TravelGate.direct_edges_only = true    # no multi-hop; missing edge → blocked_edge
+```
+
+### Gate reasons (fail closed)
+
+| Reason | When |
+|---|---|
+| `same_region` | origin == destination |
+| `unknown_region` | id not in `REGION_IDS` |
+| `blocked_edge` | `direct_edges_only` (or `allow_path=false`) and no stub edge |
+| `unreachable` | no path on the region graph |
+| `insufficient_days` | `expedition_day_budget >= 0` and cost exceeds it |
+| `missing_clock` / `missing_game` | autoload missing on commit |
+
+Same-day edges (`days == 0`, e.g. clonmacnoise → shannon on horse) still change
+`Game.current_region` but do **not** call `advance_day`.
+
+Multi-day commits call `WorldClock.advance_day(n)` once per day so factions /
+needs / rumors / cattle ticks and overdue timeline events resolve along the road
+(see timeline README day-advance semantics).
+
 ## Slice stance
 
 - Only `leinster` is an authored roam region in the vertical slice.
 - Other ids exist so UI / timeline / rumors can talk about destinations and so
   event spacing (Bannow → ports → marriage → Dublin) stays honest against travel cost.
+- Travel gate does **not** load other region scenes yet — region id + calendar only.
+
+## F5 test path (Travel gate debug)
+
+1. Open `project.godot` in **Godot 4.4+** and press **F5** (main scene).
+2. Press **G** — Travel gate panel (bottom-right). Confirm:
+   - `Region: leinster`
+   - `WorldClock day: 0`
+   - Destinations list includes `dublin` at 2 horse-days
+3. Press **K** until dest is `dublin`, confirm preview `ok=true days=2`.
+4. Press **B** — commits travel:
+   - `Game.current_region` → `dublin`
+   - WorldClock advances to day **2** (and Bannow resolves on the first advance)
+5. Press **T** — Timeline panel should show `Day: 2` and Bannow resolved.
+6. Optional gate probes (Remote / Debugger):
+   ```gdscript
+   print(TravelGate.preview_travel(&"dublin", &"dublin"))           # same_region
+   TravelGate.direct_edges_only = true
+   print(TravelGate.preview_travel(&"leinster", &"connacht", &"horse", false))  # blocked_edge
+   TravelGate.direct_edges_only = false
+   TravelGate.expedition_day_budget = 1
+   print(TravelGate.request_travel(&"munster_fringe"))              # insufficient_days if from leinster (3)
+   TravelGate.expedition_day_budget = -1
+   print(TravelGate.commit_travel(&"wicklow_glendalough"))
+   print(TravelGate.to_debug_dict())
+   ```
+7. Press **F** to toggle foot mode; **J** / **K** cycle destinations; **G** hide.
+
+Keys: **G** toggle · **J** / **K** cycle dest · **F** horse/foot · **B** commit.
+
+Timeline debug remains **T** / **Y** / **U** / **I** / **O** (top-right).
 
 ## Remote probe
 
 ```gdscript
 print(TravelDistances.to_debug_dict())
 print(TravelDistances.list_connections(&"dublin", &"foot"))
+print(TravelGate.request_travel(&"wexford_waterford"))
+print(TravelGate.commit_travel(&"wexford_waterford"))
+print(TravelGate.to_debug_dict())
 ```

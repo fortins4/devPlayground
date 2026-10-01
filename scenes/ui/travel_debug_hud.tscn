@@ -1,0 +1,44 @@
+[gd_scene load_steps=2 format=3 uid="uid://cq8riochttravdbg01"]
+
+[ext_resource type="Script" path="res://scripts/ui/travel_debug_hud.gd" id="1_dbg"]
+
+[node name="TravelDebugHUD" type="CanvasLayer"]
+layer = 23
+script = ExtResource("1_dbg")
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -440.0
+offset_top = -360.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/margin_left = 0
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 0
+theme_override_constants/margin_bottom = 0
+
+[node name="Panel" type="PanelContainer" parent="Margin"]
+layout_mode = 2
+visible = false
+
+[node name="Margin" type="MarginContainer" parent="Margin/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="Label" type="Label" parent="Margin/Panel/Margin"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.88, 0.95, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.8)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 13
+text = "Travel gate debug (G)"
+autowrap_mode = 3

@@ -3,6 +3,7 @@ extends Node
 
 signal game_started
 signal prologue_finished
+signal region_changed(region_id: StringName)
 
 enum GamePhase { BOOT, PROLOGUE, OPEN_WORLD }
 
@@ -23,6 +24,14 @@ func enter_prologue() -> void:
 func finish_prologue() -> void:
 	phase = GamePhase.OPEN_WORLD
 	prologue_finished.emit()
+
+
+
+func set_current_region(region_id: StringName) -> void:
+	if current_region == region_id:
+		return
+	current_region = region_id
+	region_changed.emit(region_id)
 
 
 func _ensure_default_input() -> void:
