@@ -8,7 +8,7 @@ This folder ships:
 
 | Piece | Role |
 |---|---|
-| `cattle_raid_outcomes.gd` (`class_name CattleRaidOutcomes`) | Loot via `gain_cattle`, goods, band deltas, Honor/Factions heat, retaliation **data** hooks |
+| `cattle_raid_outcomes.gd` (`class_name CattleRaidOutcomes`) | Loot via `gain_cattle`, goods, band deltas, Honor/Factions heat, retaliation **data** hooks, **heat → tagged Rumors** |
 | `../economy/cattle_economy.gd` | Owns a `raid_outcomes` instance + facade (`resolve_raid_success` / `resolve_raid_failure`) |
 | `../../scripts/world/raid/cattle_raid_director.gd` | F5 greybox state machine (phases + E start + deliver) |
 | `../../scripts/world/raid/raid_cow.gd` | Placeholder cattle (idle wander → driven follow) |
@@ -131,6 +131,8 @@ Greybox lane uses `local_clan_herd` and passes delivered head count into `resolv
 | `mercy_active` | First `MERCY_SUCCESS_COUNT` (2) successes per victim are softer |
 | `raid_count_on_victim` | Running success tally for that faction |
 | `day` | `WorldClock.day` when available |
+| `heat_magnitude` | `\|honor_overall\| + \|honor_victim\| × 0.25` when heat applied |
+| `rumor_seeded` / `rumor_id` | Whether resolve auto-seeded a tagged raid-heat rumor |
 
 Failure outcomes add `cattle_lost` and set `success: false` / `reason: raid_failed`.
 
@@ -152,6 +154,79 @@ DISPLAY=:1 /workspace/tools/Godot_v4.4.1-stable_linux.x86_64 --path . --script r
 ```
 
 ---
+
+
+---
+
+## Cattle-raid heat → Rumors (tagged)
+
+When `resolve_raid_success` / `resolve_raid_failure` apply **significant** honor /
+attitude heat (or retaliation escalates past mercy), the resolve path auto-seeds
+a tagged Rumors entry. Callers need no second call — same pattern as
+Factions attitude/graph → Rumors.
+
+### Thresholds (`CattleRaidOutcomes`)
+
+| Const | Value | Seeds when |
+|---|---|---|
+| `RUMOR_HEAT_ATTITUDE_THRESHOLD` | **10.0** | `\|attitude_delta\|` ≥ 10 (same floor as `Factions.RUMOR_ATTITUDE_THRESHOLD`) |
+| `RUMOR_HEAT_HONOR_THRESHOLD` | **8.0** | `honor_heat_magnitude` = `\|overall\| + \|victim\| × 0.25` ≥ 8 |
+| `RUMOR_HEAT_RETALIATION_SEVERITY` | **0.5** | Past mercy window **and** retaliation `severity` ≥ 0.5 |
+
+Mercy-window successes (first `MERCY_SUCCESS_COUNT` = 2 per victim) soft-scale
+heat below these floors for most targets — so the **first soft raids stay quiet**
+on the bus; the **third+** (full heat / escalation) light up tagged rumors.
+
+Failure heat (attitude −4, light honor) is normally **below** threshold — no
+spam on bungled nights unless severity somehow escalates.
+
+### Tags / source
+
+| Tag | Meaning |
+|---|---|
+| `raid` | Cattle-raid sourced (`Rumors.TAG_RAID`) |
+| `heat` | Diplomatic / honor heat swing (`Rumors.TAG_HEAT`) |
+| `faction:<victim>` | Victim roster id |
+| `direction:colder` | Raids chill relations |
+| `retaliation` | Present when past mercy (escalated) |
+
+- `source_event`: `&"raid"`
+- Priority: **HIGH** when escalated (or attitude ≥ 1.5× threshold); else **NORMAL**
+- Lifetime: 8d (10d escalated)
+- When the raid path seeds, `Factions.modify_attitude(..., seed_rumor=false)` so
+  the bus does not also post a plain `attitude` rumor for the same swing.
+- `&"raid"` is in `Rumors.FACTION_NUDGE_SKIP_SOURCES` (no reverse attitude double-dip).
+
+Outcome dict adds: `rumor_seeded`, `rumor_id`, `heat_magnitude`.
+
+```gdscript
+cattle.resolve_raid_success(&"local_clan_herd")  # mercy ×2 — usually no raid rumor
+cattle.resolve_raid_success(&"local_clan_herd")
+var hot: Dictionary = cattle.resolve_raid_success(&"local_clan_herd")  # heat → rumor
+print(hot.get("rumor_seeded"), hot.get("rumor_id"), hot.get("heat_magnitude"))
+print(Rumors.filter_rumors(0, &"raid"))
+print(Rumors.filter_by_faction(&"local_clans"))
+print(cattle.get_raid_rumor_heat_thresholds())
+```
+
+### F5 notes (no Godot binary in this ticket)
+
+1. F5 main → drive a cattle raid south (**E** at pens → home pad) — first deliver
+   is usually mercy (check HUD / outcome; Rumors **N** may stay quiet for raid tags).
+2. Retry the same victim pens twice more past mercy — third success should seed a
+   tagged line on the Rumors bus (**N**): look for `{raid,heat,faction:local_clans,direction:colder,retaliation}`.
+3. Or remote / debugger without the lane:
+
+```gdscript
+var cattle := get_tree().get_first_node_in_group("ringfort").get_node("CattleEconomy")
+cattle.raid_outcomes.reset_heat_tracking()
+for i in 3:
+	var o: Dictionary = cattle.resolve_raid_success(&"local_clan_herd", 5)
+	print(i, " seeded=", o.get("rumor_seeded"), " att=", o.get("attitude_delta"), " mag=", o.get("heat_magnitude"))
+print(Rumors.get_debug_text())
+```
+
+4. Confirm `spawn_rumor=false` skips seeding; `apply_heat=false` also skips.
 
 ## Out of scope (still)
 

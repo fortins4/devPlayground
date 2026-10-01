@@ -4,7 +4,8 @@ extends Node
 ##
 ## Slice: herd + pens + daily tick + Norse Wexford/Waterford trade contact.
 ## Cattle-raid outcomes: `resolve_raid_success` / `resolve_raid_failure` via
-## `raid_outcomes` (systems/raid/cattle_raid_outcomes.gd).
+## `raid_outcomes` (systems/raid/cattle_raid_outcomes.gd). Big heat swings
+## auto-seed tagged Rumors (raid/heat/faction) inside those resolve paths.
 ## Not an autoload — ringfort / Game / sim owner instantiates and owns this node.
 ## Prefer explicit `apply_daily_tick()`; optionally `subscribe_world_clock()`.
 ##
@@ -530,6 +531,18 @@ func get_raid_retaliation_hook(
 	return raid_outcomes.build_retaliation_hook(
 		victim_faction, kind, count, cattle_taken, mercy
 	)
+
+
+## Documented raid→Rumors heat thresholds (attitude / honor / retaliation severity).
+func get_raid_rumor_heat_thresholds() -> Dictionary:
+	_wire_raid_outcomes()
+	return raid_outcomes.get_rumor_heat_thresholds()
+
+
+## Tag vocabulary preview for a victim (raid / heat / faction:* / direction:colder).
+func build_raid_heat_rumor_tags(victim_faction: StringName, escalated: bool = false) -> Array:
+	_wire_raid_outcomes()
+	return raid_outcomes.build_raid_heat_tags(victim_faction, escalated)
 
 
 # --- Norse trade -------------------------------------------------------------

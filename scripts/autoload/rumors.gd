@@ -3,7 +3,7 @@ extends Node
 ##
 ## Priority (high→low sort) + decay (age vs lifetime) keep the bus useful
 ## (docs/SCOPE.md). Emitters: WorldClock event resolve, Honor swings,
-## Faction attitude / relationship-graph swings — see systems/rumors/README.md.
+## Faction attitude / relationship-graph / cattle-raid heat swings — see systems/rumors/README.md.
 ## Optional light reverse: high-priority faction-tagged rumors can nudge attitudes.
 
 signal rumor_added(rumor_id: StringName)
@@ -33,9 +33,12 @@ var active_rumors: Array[Dictionary] = []
 var recently_expired: Array[StringName] = []
 const MAX_RECENTLY_EXPIRED: int = 8
 
-## Tag vocabulary for diplomatic / faction coupling (see systems/rumors/README.md).
+## Tag vocabulary for diplomatic / faction / raid-heat coupling (see systems/rumors/README.md).
 const TAG_ATTITUDE: StringName = &"attitude"
 const TAG_GRAPH: StringName = &"graph"
+const TAG_RAID: StringName = &"raid"
+const TAG_HEAT: StringName = &"heat"
+const TAG_RETALIATION: StringName = &"retaliation"
 const TAG_DIRECTION_WARMER: StringName = &"direction:warmer"
 const TAG_DIRECTION_COLDER: StringName = &"direction:colder"
 const TAG_FACTION_PREFIX: String = "faction:"
@@ -44,7 +47,7 @@ const TAG_FACTION_PREFIX: String = "faction:"
 ## Skipped for sources that Factions itself seeds (avoids feedback loops).
 const FACTION_NUDGE_MIN_PRIORITY: int = PRIORITY_HIGH
 const FACTION_NUDGE_AMOUNT: float = 2.0
-const FACTION_NUDGE_SKIP_SOURCES: Array[StringName] = [&"faction", &"faction_graph"]
+const FACTION_NUDGE_SKIP_SOURCES: Array[StringName] = [&"faction", &"faction_graph", &"raid"]
 
 ## When true, Rumors debug HUD may poll get_debug_text() cheaply.
 var debug_visible: bool = false
@@ -125,7 +128,7 @@ func days_remaining(rumor: Dictionary) -> int:
 
 ## Add or refresh a rumor. Higher priority wins on refresh; decay_days is lifetime.
 ## age_days resets to 0 on refresh (word is fresh again).
-## tags: optional StringName list (e.g. faction:*, direction:warmer/colder, graph, attitude).
+## tags: optional StringName list (e.g. faction:*, direction:warmer/colder, graph, attitude, raid, heat).
 func add_rumor(
 	rumor_id: StringName,
 	text: String,

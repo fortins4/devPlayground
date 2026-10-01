@@ -93,9 +93,11 @@ print(Rumors.get_debug_text())
 | **Honor** (`Honor._maybe_rumor_honor`) | `\|delta\| >= RUMOR_HONOR_THRESHOLD` | NORMAL, 7d · source `&"honor"` | — |
 | **Factions attitude** (`Factions.modify_attitude`) | `\|delta\| >= RUMOR_ATTITUDE_THRESHOLD` (10) | NORMAL, 5d · source `&"faction"` | `attitude`, `faction:<id>`, `direction:warmer\|colder` |
 | **Factions graph** (`set_relationship` / `modify_relationship_strength`) | `\|strength delta\| >= RUMOR_GRAPH_DELTA_THRESHOLD` (15) | NORMAL (HIGH if \|Δ\|≥30), 6d · source `&"faction_graph"` | `graph`, both `faction:<id>`, `direction:*`, `kind:<rel>` |
+| **Cattle-raid heat** (`CattleRaidOutcomes.resolve_success` / `resolve_failure`) | `\|attitude\| ≥ 10` **or** honor heat mag ≥ 8 **or** (past mercy **and** retaliation severity ≥ 0.5) | NORMAL (HIGH if escalated), 8–10d · source `&"raid"` | `raid`, `heat`, `faction:<victim>`, `direction:colder`, optional `retaliation` |
 
-Callers only touch Factions APIs — rumor seeding is automatic. See
-[systems/factions/README.md](../factions/README.md) for thresholds and direction rules.
+Callers only touch Factions / CattleEconomy resolve APIs — rumor seeding is automatic. See
+[systems/factions/README.md](../factions/README.md) and
+[systems/raid/README.md](../raid/README.md) for thresholds and direction rules.
 
 ---
 
@@ -107,6 +109,9 @@ Optional `tags` array on each rumor dict (also accepted by `add_rumor(..., tags)
 |---|---|
 | `attitude` | Seeded from player-attitude swing |
 | `graph` | Seeded from faction↔faction edge swing |
+| `raid` | Seeded from cattle-raid economy heat (`Rumors.TAG_RAID`) |
+| `heat` | Honor / attitude heat swing from a raid (`Rumors.TAG_HEAT`) |
+| `retaliation` | Escalated raid heat past mercy (`Rumors.TAG_RETALIATION`) |
 | `faction:<id>` | Involves roster id (one or two) |
 | `direction:warmer` / `direction:colder` | Diplomatic direction |
 | `kind:<rel>` | Graph edge kind (`alliance`, `hostility`, …) |
@@ -124,7 +129,7 @@ When `Rumors.faction_nudge_enabled` (default **true**):
 
 - Priority ≥ `FACTION_NUDGE_MIN_PRIORITY` (**HIGH**)
 - At least one `faction:<id>` tag **and** a `direction:warmer|colder` tag
-- Source **not** in `{faction, faction_graph}` (avoids feedback loops)
+- Source **not** in `{faction, faction_graph, raid}` (avoids feedback loops)
 
 → applies `±FACTION_NUDGE_AMOUNT` (**2.0**) via `Factions.modify_attitude(..., seed_rumor=false)`.
 Nudge runs only on **first add** of that rumor id (refresh does not re-nudge).
@@ -147,7 +152,10 @@ dedicated bus panel that does **not** sit on top of Honor (top-left) or Timeline
 5. **,** — `tick_decay(1)` once (watch `left=` / Expired lately).
 6. Or **Y** (Timeline) to resolve Bannow and fill CRITICAL/HIGH rumors via the
    timeline emit hook; **N** panel mirrors the bus.
-7. **N** again to hide.
+7. Cattle-raid heat: deliver the south greybox drove **past mercy** (3rd success
+   on the same victim) — bus should show `{raid,heat,faction:*,direction:colder,retaliation}`.
+   See [systems/raid/README.md](../raid/README.md) F5 notes / thresholds.
+8. **N** again to hide.
 
 Keys: **N** toggle · **M** seed demo · **.** diplomatic swing · **,** decay tick.
 
