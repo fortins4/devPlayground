@@ -366,10 +366,17 @@ func try_recruit_option(
 
 
 func _default_faction_attitudes() -> Dictionary:
-	# Autoload may be absent in headless / isolated tests.
-	if Factions == null:
+	# Resolve Factions via tree so --script / isolated tests still compile.
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
 		return {}
-	return Factions.attitudes.duplicate(true)
+	var factions := tree.root.get_node_or_null("Factions")
+	if factions == null:
+		return {}
+	var attitudes = factions.get("attitudes")
+	if typeof(attitudes) != TYPE_DICTIONARY:
+		return {}
+	return attitudes.duplicate(true)
 
 # --- Norse trade -------------------------------------------------------------
 

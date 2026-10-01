@@ -7,7 +7,7 @@ Cattle as primary wealth. Band upkeep lives alongside for later recruitment.
 | `cattle_economy.gd` (`class_name CattleEconomy`) | Herd, pens, daily tick, Norse trade (`norse_wexford_waterford`), band facade |
 | `band_upkeep.gd` (`class_name BandUpkeep`) | Band size / morale / readiness, cattle cost, skirmish confidence |
 
-**Ownership:** not an autoload. Ringfort / Game / sim owner instantiates a `CattleEconomy` node. Prefer **explicit** `apply_daily_tick()` so Game keeps control of when the day resolves. Optional `subscribe_world_clock()` auto-applies on `WorldClock.day_advanced` if you want hands-off wiring.
+**Ownership:** not an autoload. Ringfort / Game / sim owner instantiates a `CattleEconomy` node. Ringfort greybox (`scenes/world/ringfort/`) owns one for muster/recruit in F5. Prefer **explicit** `apply_daily_tick()` so Game keeps control of when the day resolves. Optional `subscribe_world_clock()` auto-applies on `WorldClock.day_advanced` if you want hands-off wiring.
 
 Norse trade contact id stays **`norse_wexford_waterford`** (same coastal actor as Factions).
 

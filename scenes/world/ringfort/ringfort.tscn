@@ -1,0 +1,253 @@
+[gd_scene load_steps=18 format=3 uid="uid://cq8riochtringfort01"]
+
+[ext_resource type="Script" path="res://scripts/world/ringfort/ringfort_area.gd" id="1_area"]
+[ext_resource type="Script" path="res://systems/economy/cattle_economy.gd" id="2_cattle"]
+[ext_resource type="Script" path="res://scripts/band/band_runtime.gd" id="3_runtime"]
+[ext_resource type="Script" path="res://scripts/world/ringfort/muster_point.gd" id="4_muster"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_earth"]
+albedo_color = Color(0.4, 0.34, 0.24, 1)
+roughness = 0.95
+
+[sub_resource type="StandardMaterial3D" id="Mat_floor"]
+albedo_color = Color(0.32, 0.4, 0.26, 1)
+roughness = 0.92
+
+[sub_resource type="StandardMaterial3D" id="Mat_stone"]
+albedo_color = Color(0.55, 0.52, 0.45, 1)
+roughness = 0.88
+
+[sub_resource type="StandardMaterial3D" id="Mat_wood"]
+albedo_color = Color(0.36, 0.26, 0.16, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="Mat_pen"]
+albedo_color = Color(0.3, 0.38, 0.22, 1)
+roughness = 0.95
+
+[sub_resource type="CylinderMesh" id="Mesh_floor"]
+top_radius = 11.0
+bottom_radius = 11.0
+height = 0.2
+radial_segments = 24
+
+[sub_resource type="CylinderShape3D" id="Shape_floor"]
+radius = 11.0
+height = 0.2
+
+[sub_resource type="BoxMesh" id="Mesh_bank"]
+size = Vector3(3.2, 1.4, 1.1)
+
+[sub_resource type="BoxShape3D" id="Shape_bank"]
+size = Vector3(3.2, 1.4, 1.1)
+
+[sub_resource type="CylinderMesh" id="Mesh_muster"]
+top_radius = 0.55
+bottom_radius = 0.7
+height = 0.55
+radial_segments = 10
+
+[sub_resource type="CylinderShape3D" id="Shape_muster_area"]
+radius = 3.2
+height = 2.4
+
+[sub_resource type="BoxMesh" id="Mesh_pen_rail"]
+size = Vector3(4.5, 0.9, 0.18)
+
+[sub_resource type="BoxMesh" id="Mesh_hut"]
+size = Vector3(3.2, 2.2, 3.0)
+
+[node name="Ringfort" type="Node3D" groups=["ringfort"]]
+script = ExtResource("1_area")
+
+[node name="CattleEconomy" type="Node" parent="."]
+script = ExtResource("2_cattle")
+
+[node name="BandRuntime" type="Node" parent="."]
+script = ExtResource("3_runtime")
+
+[node name="Floor" type="StaticBody3D" parent="."]
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("Mesh_floor")
+surface_material_override/0 = SubResource("Mat_floor")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("Shape_floor")
+
+[node name="Bank" type="Node3D" parent="."]
+
+[node name="Seg0" type="StaticBody3D" parent="Bank"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, -10.2)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Bank/Seg0"]
+mesh = SubResource("Mesh_bank")
+surface_material_override/0 = SubResource("Mat_earth")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Bank/Seg0"]
+shape = SubResource("Shape_bank")
+
+[node name="Seg1" type="StaticBody3D" parent="Bank"]
+transform = Transform3D(0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, 0.707107, 7.2, 0.7, -7.2)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Bank/Seg1"]
+mesh = SubResource("Mesh_bank")
+surface_material_override/0 = SubResource("Mat_earth")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Bank/Seg1"]
+shape = SubResource("Shape_bank")
+
+
+[node name="Seg3" type="StaticBody3D" parent="Bank"]
+transform = Transform3D(-0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, -0.707107, 7.2, 0.7, 7.2)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Bank/Seg3"]
+mesh = SubResource("Mesh_bank")
+surface_material_override/0 = SubResource("Mat_earth")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Bank/Seg3"]
+shape = SubResource("Shape_bank")
+
+[node name="Seg4" type="StaticBody3D" parent="Bank"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0.7, 10.2)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Bank/Seg4"]
+mesh = SubResource("Mesh_bank")
+surface_material_override/0 = SubResource("Mat_earth")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Bank/Seg4"]
+shape = SubResource("Shape_bank")
+
+[node name="Seg5" type="StaticBody3D" parent="Bank"]
+transform = Transform3D(-0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, -0.707107, -7.2, 0.7, 7.2)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Bank/Seg5"]
+mesh = SubResource("Mesh_bank")
+surface_material_override/0 = SubResource("Mat_earth")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Bank/Seg5"]
+shape = SubResource("Shape_bank")
+
+[node name="Seg6" type="StaticBody3D" parent="Bank"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -10.2, 0.7, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Bank/Seg6"]
+mesh = SubResource("Mesh_bank")
+surface_material_override/0 = SubResource("Mat_earth")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Bank/Seg6"]
+shape = SubResource("Shape_bank")
+
+[node name="Seg7" type="StaticBody3D" parent="Bank"]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, -7.2, 0.7, -7.2)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Bank/Seg7"]
+mesh = SubResource("Mesh_bank")
+surface_material_override/0 = SubResource("Mat_earth")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Bank/Seg7"]
+shape = SubResource("Shape_bank")
+
+[node name="GateGap" type="Node3D" parent="Bank"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 10.2, 0, 0)
+
+[node name="GatePostL" type="MeshInstance3D" parent="Bank/GateGap"]
+transform = Transform3D(0.2, 0, 0, 0, 0.85, 0, 0, 0, 0.2, -2.4, 1.0, 0)
+mesh = SubResource("Mesh_hut")
+surface_material_override/0 = SubResource("Mat_wood")
+
+[node name="GatePostR" type="MeshInstance3D" parent="Bank/GateGap"]
+transform = Transform3D(0.2, 0, 0, 0, 0.85, 0, 0, 0, 0.2, 2.4, 1.0, 0)
+mesh = SubResource("Mesh_hut")
+surface_material_override/0 = SubResource("Mat_wood")
+
+[node name="Hut" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.5, 1.1, -4.5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Hut"]
+mesh = SubResource("Mesh_hut")
+surface_material_override/0 = SubResource("Mat_wood")
+
+[node name="CattlePens" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.5, 0, -4.0)
+
+[node name="RailN" type="MeshInstance3D" parent="CattlePens"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, -2.0)
+mesh = SubResource("Mesh_pen_rail")
+surface_material_override/0 = SubResource("Mat_pen")
+
+[node name="RailS" type="MeshInstance3D" parent="CattlePens"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 2.0)
+mesh = SubResource("Mesh_pen_rail")
+surface_material_override/0 = SubResource("Mat_pen")
+
+[node name="RailE" type="MeshInstance3D" parent="CattlePens"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 2.2, 0.45, 0)
+mesh = SubResource("Mesh_pen_rail")
+surface_material_override/0 = SubResource("Mat_pen")
+
+[node name="RailW" type="MeshInstance3D" parent="CattlePens"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -2.2, 0.45, 0)
+mesh = SubResource("Mesh_pen_rail")
+surface_material_override/0 = SubResource("Mat_pen")
+
+[node name="MusterPoint" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 2.5)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("4_muster")
+
+[node name="Stone" type="MeshInstance3D" parent="MusterPoint"]
+mesh = SubResource("Mesh_muster")
+surface_material_override/0 = SubResource("Mat_stone")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MusterPoint"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("Shape_muster_area")
+
+[node name="PromptLabel" type="Label3D" parent="MusterPoint"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.4, 0)
+visible = false
+text = "E  Muster kerne"
+billboard = 1
+font_size = 36
+modulate = Color(0.95, 0.88, 0.55, 1)
+
+[node name="TitleLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.2, 0)
+text = "Ringfort — home muster"
+billboard = 1
+font_size = 42
+modulate = Color(0.85, 0.8, 0.6, 1)
+
+[node name="BandCountLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, 2.5)
+text = "Band 0/3 · FOLLOW"
+billboard = 1
+font_size = 34
+modulate = Color(0.9, 0.75, 0.45, 1)
+
+[node name="StatusLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.0, 2.5)
+text = "Cattle —"
+billboard = 1
+font_size = 26
+modulate = Color(0.7, 0.78, 0.65, 1)

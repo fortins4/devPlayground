@@ -1,0 +1,63 @@
+[gd_scene load_steps=8 format=3 uid="uid://cq8riochtbandwar01"]
+
+[ext_resource type="Script" path="res://scripts/characters/npcs/band_warrior.gd" id="1_warrior"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape_body"]
+radius = 0.34
+height = 1.65
+
+[sub_resource type="StandardMaterial3D" id="Mat_tunic"]
+albedo_color = Color(0.38, 0.28, 0.2, 1)
+roughness = 0.92
+
+[sub_resource type="StandardMaterial3D" id="Mat_skin"]
+albedo_color = Color(0.82, 0.66, 0.54, 1)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="Mat_spear"]
+albedo_color = Color(0.45, 0.4, 0.32, 1)
+roughness = 0.8
+
+[sub_resource type="CapsuleMesh" id="Mesh_body"]
+radius = 0.34
+height = 1.65
+
+[sub_resource type="SphereMesh" id="Mesh_head"]
+radius = 0.15
+height = 0.3
+
+[sub_resource type="BoxMesh" id="Mesh_spear"]
+size = Vector3(0.05, 1.4, 0.05)
+
+[node name="BandWarrior" type="CharacterBody3D" groups=["band_warrior"]]
+collision_layer = 0
+collision_mask = 1
+script = ExtResource("1_warrior")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.82, 0)
+shape = SubResource("CapsuleShape_body")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="Body" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.82, 0)
+mesh = SubResource("Mesh_body")
+surface_material_override/0 = SubResource("Mat_tunic")
+
+[node name="Head" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
+mesh = SubResource("Mesh_head")
+surface_material_override/0 = SubResource("Mat_skin")
+
+[node name="Spear" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(0.92, 0, 0.39, 0, 1, 0, -0.39, 0, 0.92, 0.28, 1.05, 0.05)
+mesh = SubResource("Mesh_spear")
+surface_material_override/0 = SubResource("Mat_spear")
+
+[node name="NameLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.15, 0)
+text = "Kerne"
+billboard = 1
+font_size = 28
+modulate = Color(0.85, 0.78, 0.55, 1)
