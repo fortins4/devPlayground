@@ -35,10 +35,15 @@ No starting sword or shield. `CombatSystem.enable_block` stays off until shield 
 - **Health** + `died` signal
 - **Hit detection** via sibling `Hitbox` Area3D (short-lived monitoring during active frames)
 - **Teams** (`team` export): same team does not hurt each other
-- Signals: `attack_performed`, `hit_landed`, `stamina_changed`, `health_changed`, `weapon_changed`, `died` (`blocked` reserved for later shield)
+- Signals: `attack_performed`, `hit_landed`, `damage_taken`, `stamina_changed`, `health_changed`, `weapon_changed`, `died` (`blocked` reserved for later shield)
+- **Hit feedback** (greybox): hurt-mesh flash, knockback impulse (`consume_knockback()`), floating damage numbers, brief hit-stop on connect. Player also gets a light screen punch.
 
 Wire under a `CharacterBody3D` with optional `Hitbox`, `Hurtbox`, and `WeaponVisual` (children named `Hatchet`, `Knife`, `Goad`).
 
+## Dummy counter
+
+`dummy_fighter` telegraphs every swing (weapon cock + warm tint + `!` / `...` Label3D), then releases a weak light hatchet. Taking a hit in range triggers a reactive counter telegraph (shorter). Hitting the dummy during telegraph staggers/cancels — learnable timing, still beatable.
+
 ## Test
 
-Open `scenes/main/main.tscn` (F5). A dummy fighter stands a few meters ahead — swing the hatchet, swap weapons, sprint, and watch HP/STA on the HUD.
+Open `scenes/main/main.tscn` (F5). A dummy fighter stands a few meters ahead — swing the hatchet, swap weapons, sprint, and watch HP/STA on the HUD. Confirm flash + damage numbers on hit, and dummy telegraph before counters.

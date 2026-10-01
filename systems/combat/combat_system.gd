@@ -6,6 +6,7 @@ extends Node
 
 signal attack_performed(attacker: Node, kind: StringName, weapon: StringName)
 signal hit_landed(attacker: Node, target: Node, damage: float, kind: StringName)
+signal damage_taken(amount: float, from: Node)
 signal stamina_changed(current: float, maximum: float)
 signal health_changed(current: float, maximum: float)
 signal blocked(defender: Node, attacker: Node, mitigated: float)
@@ -27,6 +28,13 @@ const WEAPON_NAMES := {
 @export var team: int = 0 ## 0 = player allies, 1 = hostiles
 @export var starting_weapon: Weapon = Weapon.HATCHET
 @export var enable_block: bool = false ## Shield later; off for cattle-farm starter kit
+@export var enable_hit_feedback: bool = true
+@export var hurt_flash_secs: float = 0.14
+@export var knockback_light: float = 2.8
+@export var knockback_heavy: float = 4.6
+@export var hit_stop_light: float = 0.045
+@export var hit_stop_heavy: float = 0.075
+@export var show_damage_numbers: bool = true
 
 var health: float = 100.0
 var stamina: float = 100.0
@@ -45,6 +53,10 @@ var _weapon_visual: Node3D
 var _weapon_rest_transform: Transform3D
 var _swing_tween: Tween
 var _last_attack_kind: StringName = &"light"
+var knockback_vel: Vector3 = Vector3.ZERO
+var _hurt_flash_tween: Tween
+var _hit_stop_running: bool = false
+var _mesh_overlays: Array[MeshInstance3D] = []
 
 # Per-weapon attack profiles: light / heavy
 const PROFILES := {
@@ -93,6 +105,11 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if knockback_vel.length_squared() > 0.0001:
+		knockback_vel = knockback_vel.move_toward(Vector3.ZERO, 28.0 * delta)
+	else:
+		knockback_vel = Vector3.ZERO
+
 	if is_dead:
 		return
 
@@ -204,6 +221,9 @@ func apply_damage(amount: float, from: Node = null, frontal: bool = true) -> flo
 			return 0.0
 	health = maxf(0.0, health - amount)
 	health_changed.emit(health, max_health)
+	damage_taken.emit(amount, from)
+	if enable_hit_feedback:
+		_play_hurt_feedback(amount, from)
 	if health <= 0.0:
 		_die()
 	return amount
@@ -289,6 +309,8 @@ func _try_damage_target(target: Node, damage: float, kind: StringName) -> void:
 	var dealt := other.apply_damage(damage, _owner_body, facing_ok)
 	if dealt > 0.0:
 		hit_landed.emit(_owner_body, other.get_parent(), dealt, kind)
+		if enable_hit_feedback:
+			_play_hit_confirm(kind)
 
 
 func _is_frontal(other: CombatSystem) -> bool:
@@ -444,3 +466,133 @@ func reset_weapon_pose() -> void:
 		_swing_tween.kill()
 	if _weapon_visual:
 		_weapon_visual.transform = _weapon_rest_transform
+
+func consume_knockback() -> Vector3:
+	## Character controllers should add this to velocity each physics frame.
+	var v := knockback_vel
+	knockback_vel = Vector3.ZERO
+	return v
+
+
+func peek_knockback() -> Vector3:
+	return knockback_vel
+
+
+func _play_hurt_feedback(amount: float, from: Node) -> void:
+	_flash_hurt_meshes()
+	_apply_knockback_from(from, amount)
+	if show_damage_numbers:
+		_spawn_damage_number(amount)
+
+
+func _play_hit_confirm(kind: StringName) -> void:
+	# Brief hit-stop so contact reads; ignore_time_scale timer restores scale.
+	if _hit_stop_running:
+		return
+	var dur := hit_stop_heavy if kind == &"heavy" else hit_stop_light
+	if dur <= 0.0:
+		return
+	_hit_stop_running = true
+	var prev := Engine.time_scale
+	Engine.time_scale = 0.08 if kind == &"heavy" else 0.12
+	await get_tree().create_timer(dur, true, false, true).timeout
+	Engine.time_scale = prev if prev > 0.01 else 1.0
+	_hit_stop_running = false
+
+
+func _flash_hurt_meshes() -> void:
+	if _hurt_flash_tween and _hurt_flash_tween.is_valid():
+		_hurt_flash_tween.kill()
+	_clear_hurt_flash()
+	var meshes := _collect_visual_meshes()
+	if meshes.is_empty():
+		return
+	var flash := StandardMaterial3D.new()
+	flash.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flash.albedo_color = Color(1.0, 0.45, 0.35, 0.85)
+	flash.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	for mesh in meshes:
+		mesh.material_overlay = flash
+		_mesh_overlays.append(mesh)
+	_hurt_flash_tween = create_tween()
+	_hurt_flash_tween.tween_interval(hurt_flash_secs)
+	_hurt_flash_tween.tween_callback(_clear_hurt_flash)
+
+
+func _clear_hurt_flash() -> void:
+	for mesh in _mesh_overlays:
+		if is_instance_valid(mesh):
+			mesh.material_overlay = null
+	_mesh_overlays.clear()
+
+
+func _collect_visual_meshes() -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	if _owner_body == null:
+		return out
+	var visual := _owner_body.get_node_or_null("Visual")
+	if visual == null:
+		return out
+	_gather_meshes(visual, out)
+	return out
+
+
+func _gather_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
+	if node is MeshInstance3D:
+		out.append(node as MeshInstance3D)
+	for child in node.get_children():
+		_gather_meshes(child, out)
+
+
+func _apply_knockback_from(from: Node, amount: float) -> void:
+	if _owner_body == null:
+		return
+	var origin := _owner_body.global_position
+	var src_pos := origin + Vector3(0.0, 0.0, 1.0)
+	if from is Node3D:
+		src_pos = (from as Node3D).global_position
+	var dir := origin - src_pos
+	dir.y = 0.0
+	if dir.length_squared() < 0.0001:
+		dir = -_owner_body.global_transform.basis.z
+		dir.y = 0.0
+	dir = dir.normalized()
+	var strength := knockback_light
+	if amount >= 22.0:
+		strength = knockback_heavy
+	elif amount >= 16.0:
+		strength = lerpf(knockback_light, knockback_heavy, 0.5)
+	# Scale slightly by damage so lights nudge, heavies shove.
+	strength *= clampf(amount / 14.0, 0.7, 1.35)
+	knockback_vel += dir * strength + Vector3(0.0, 1.1, 0.0) * (0.35 if amount >= 22.0 else 0.15)
+
+
+func _spawn_damage_number(amount: float) -> void:
+	if _owner_body == null:
+		return
+	var label := Label3D.new()
+	label.text = "%d" % int(round(amount))
+	label.font_size = 48
+	label.modulate = Color(1.0, 0.85, 0.35, 1.0)
+	label.outline_modulate = Color(0.1, 0.05, 0.0, 1.0)
+	label.outline_size = 8
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.pixel_size = 0.0045
+	var parent_node: Node = _owner_body.get_parent()
+	var anchor := _owner_body.global_position + Vector3(
+		randf_range(-0.15, 0.15), 1.55, randf_range(-0.1, 0.1)
+	)
+	if parent_node:
+		parent_node.add_child(label)
+	else:
+		_owner_body.add_child(label)
+	label.global_position = anchor
+	var tw := label.create_tween()
+	var end_pos := label.global_position + Vector3(0.0, 0.85, 0.0)
+	tw.set_parallel(true)
+	tw.tween_property(label, "global_position", end_pos, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(label, "modulate:a", 0.0, 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tw.set_parallel(false)
+	tw.tween_callback(label.queue_free)
+

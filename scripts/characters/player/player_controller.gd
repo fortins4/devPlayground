@@ -17,14 +17,20 @@ var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _jump_buffered: bool = false
 var _arm_base_transform: Transform3D
 var _arm_tween: Tween
+var _camera_base_pos: Vector3
+var _punch_tween: Tween
 
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if right_arm:
 		_arm_base_transform = right_arm.transform
+	if camera:
+		_camera_base_pos = camera.position
 	if combat:
 		combat.attack_performed.connect(_on_attack_performed)
+		combat.hit_landed.connect(_on_hit_landed)
+		combat.damage_taken.connect(_on_damage_taken)
 		combat.died.connect(_on_died)
 
 
@@ -94,6 +100,10 @@ func _physics_process(delta: float) -> void:
 	velocity.x = horiz.x
 	velocity.z = horiz.z
 
+	if combat:
+		var kb: Vector3 = combat.consume_knockback()
+		velocity += kb
+
 	move_and_slide()
 	_update_arm_swing(delta)
 
@@ -152,6 +162,29 @@ func _update_arm_swing(_delta: float) -> void:
 		return
 	if combat and combat.is_attacking:
 		return
+
+
+func _on_hit_landed(_attacker: Node, _target: Node, damage: float, kind: StringName) -> void:
+	# Screen punch on connecting hits (reads better with hit-stop from CombatSystem).
+	var amp := 0.055 if kind == &"heavy" else 0.03
+	amp *= clampf(damage / 14.0, 0.75, 1.4)
+	_screen_punch(amp)
+
+
+func _on_damage_taken(amount: float, _from: Node) -> void:
+	_screen_punch(0.07 if amount >= 12.0 else 0.045)
+
+
+func _screen_punch(amount: float) -> void:
+	if camera == null:
+		return
+	if _punch_tween and _punch_tween.is_valid():
+		_punch_tween.kill()
+		camera.position = _camera_base_pos
+	var kick := Vector3(randf_range(-amount, amount), amount * 0.65, amount * 0.35)
+	_punch_tween = create_tween()
+	_punch_tween.tween_property(camera, "position", _camera_base_pos + kick, 0.035).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_punch_tween.tween_property(camera, "position", _camera_base_pos, 0.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 func _on_died(_victim: Node) -> void:
