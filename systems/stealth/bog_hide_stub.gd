@@ -1,19 +1,13 @@
 extends Area3D
-## Light stub for the SCOPE bog body-hide pillar. Full drag/hide deferred.
-## Press Interact near this volume later; for now it just labels the wetland greybox.
-
-@export var label_text: String = "Bog (hide body — stub)"
-
-var _label: Label3D
-
+## DEPRECATED stub — replaced by bog_zone.gd for the body-hide prototype.
+## Kept so old scene refs fail loudly toward the new script. Prefer BogZone.
 
 func _ready() -> void:
-	monitoring = false
-	monitorable = false
-	_label = Label3D.new()
-	_label.text = label_text
-	_label.position = Vector3(0.0, 1.2, 0.0)
-	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_label.font_size = 28
-	_label.modulate = Color(0.45, 0.55, 0.4)
-	add_child(_label)
+	push_warning("bog_hide_stub is deprecated; use systems/stealth/bog_zone.gd")
+	var label := Label3D.new()
+	label.text = "Bog stub (deprecated)"
+	label.position = Vector3(0.0, 1.2, 0.0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.font_size = 24
+	label.modulate = Color(0.6, 0.4, 0.3)
+	add_child(label)

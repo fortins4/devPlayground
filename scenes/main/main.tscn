@@ -1,4 +1,4 @@
-[gd_scene load_steps=22 format=3 uid="uid://cq8riochtmain0001"]
+[gd_scene load_steps=28 format=3 uid="uid://cq8riochtmain0001"]
 
 [ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtdummy01" path="res://scenes/characters/npcs/dummy_fighter.tscn" id="2_dummy"]
@@ -7,7 +7,9 @@
 [ext_resource type="PackedScene" uid="uid://cq8riochthonrdbg01" path="res://scenes/ui/honor_debug_hud.tscn" id="5_honor_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtrumdbg01" path="res://scenes/ui/rumors_debug_hud.tscn" id="6_rumors_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtsentry01" path="res://scenes/characters/npcs/sentry.tscn" id="7_sentry"]
-[ext_resource type="Script" path="res://systems/stealth/bog_hide_stub.gd" id="8_bog"]
+[ext_resource type="Script" path="res://systems/stealth/bog_zone.gd" id="8_bog"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtcorpse01" path="res://scenes/characters/npcs/draggable_corpse.tscn" id="11_corpse"]
+[ext_resource type="Script" path="res://systems/stealth/heat_tracker.gd" id="12_heat"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtleinst01" path="res://scenes/world/regions/leinster/leinster_region.tscn" id="9_leinster"]
 
 [ext_resource type="PackedScene" uid="uid://cq8riochtringfort01" path="res://scenes/world/ringfort/ringfort.tscn" id="9_ringfort"]
@@ -61,6 +63,19 @@ size = Vector3(2.4, 0.06, 8.0)
 [sub_resource type="BoxMesh" id="BoxMesh_sign"]
 size = Vector3(0.35, 1.8, 0.35)
 
+[sub_resource type="BoxShape3D" id="BoxShape_bog"]
+size = Vector3(7.5, 1.2, 5.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_bog_ne"]
+size = Vector3(6.0, 0.1, 5.0)
+
+[sub_resource type="BoxShape3D" id="BoxShape_bog_ne"]
+size = Vector3(6.0, 1.2, 5.0)
+
+[sub_resource type="StandardMaterial3D" id="Mat_bog_ne"]
+albedo_color = Color(0.16, 0.26, 0.15, 1)
+roughness = 1.0
+
 [node name="Main" type="Node3D"]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
@@ -109,21 +124,72 @@ shape = SubResource("BoxShape_cover")
 [node name="Sentry" parent="StealthLane" instance=ExtResource("7_sentry")]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 4.5, 0.1, 0)
 
-[node name="BogStub" type="Area3D" parent="StealthLane"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.5, 0.05, -1)
+[node name="BogZone" type="Area3D" parent="StealthLane"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.2, 0.05, 3.5)
+collision_layer = 0
+collision_mask = 6
+monitoring = true
+monitorable = false
 script = ExtResource("8_bog")
+label_text = "Bog — hold-drag · release to hide"
+hide_sink_depth = 1.35
+hide_duration = 1.4
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="StealthLane/BogStub"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StealthLane/BogZone"]
 mesh = SubResource("BoxMesh_bog")
 surface_material_override/0 = SubResource("Mat_bog")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StealthLane/BogZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+shape = SubResource("BoxShape_bog")
+
+[node name="DraggableCorpse" parent="StealthLane" instance=ExtResource("11_corpse")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.8, 0.15, 3.2)
 
 [node name="LaneLabel" type="Label3D" parent="StealthLane"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.2, 0)
 text = "Stealth lane →
-Ctrl/C crouch · cover crates · sentry"
+Ctrl/C crouch · Hold E drag → bog"
 billboard = 1
 font_size = 32
 modulate = Color(0.75, 0.85, 0.7, 1)
+
+[node name="HeatTracker" type="Node" parent="."]
+script = ExtResource("12_heat")
+discover_bump = 28.0
+rediscovery_bump = 12.0
+hidden_relief = 10.0
+investigation_delay = 1.6
+rediscovery_interval = 4.0
+honor_on_discover = -4.0
+honor_on_hide = 1.5
+
+[node name="BogPocketNE" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0.05, -8)
+collision_layer = 0
+collision_mask = 6
+monitoring = true
+monitorable = false
+script = ExtResource("8_bog")
+label_text = "NE bog pocket (wetland)"
+hide_sink_depth = 1.35
+hide_duration = 1.4
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="BogPocketNE"]
+mesh = SubResource("BoxMesh_bog_ne")
+surface_material_override/0 = SubResource("Mat_bog_ne")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BogPocketNE"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+shape = SubResource("BoxShape_bog_ne")
+
+[node name="NELabel" type="Label3D" parent="BogPocketNE"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.4, 0)
+text = "NE bog pocket
+(from spawn: +X −Z)"
+billboard = 1
+font_size = 30
+modulate = Color(0.55, 0.7, 0.5, 1)
 
 [node name="CombatHUD" parent="." instance=ExtResource("3_hud")]
 
