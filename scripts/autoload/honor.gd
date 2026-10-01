@@ -18,6 +18,11 @@ const SANCTUARY_MIN_OVERALL: float = 35.0
 ## Delta magnitude that spawns a rumor (avoid spam on tiny ticks).
 const RUMOR_HONOR_THRESHOLD: float = 8.0
 
+## When true, Honor debug HUD may poll `get_debug_text()` cheaply.
+var debug_visible: bool = false
+## Last law-gate sample result (set by LawGateSample / debug HUD).
+var last_law_result: Dictionary = {}
+
 
 func _ready() -> void:
 	_ensure_faction_table()
@@ -97,3 +102,66 @@ func day_stamp() -> int:
 	if WorldClock:
 		return WorldClock.day
 	return 0
+
+
+func toggle_debug_visible() -> bool:
+	debug_visible = not debug_visible
+	return debug_visible
+
+
+func set_debug_visible(visible: bool) -> void:
+	debug_visible = visible
+
+
+func to_debug_dict() -> Dictionary:
+	_ensure_faction_table()
+	var options: Array = []
+	for opt in available_law_options():
+		options.append(String(opt))
+	return {
+		"overall": overall,
+		"church": get_honor(&"church"),
+		"eraic_min": ERAIC_MIN_OVERALL,
+		"sanctuary_min_church": SANCTUARY_MIN_CHURCH,
+		"sanctuary_min_overall": SANCTUARY_MIN_OVERALL,
+		"can_choose_eraic": can_choose_eraic(),
+		"can_claim_sanctuary": can_claim_sanctuary(),
+		"available_law_options": options,
+		"debug_visible": debug_visible,
+		"last_law_result": last_law_result.duplicate(true),
+	}
+
+
+func get_debug_text() -> String:
+	var d := to_debug_dict()
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("=== Honor / law-gate debug ===")
+	lines.append(
+		"Overall: %.1f   Church: %.1f   (H toggle · [ / ] overall ±5 · ; / ' church ±5)" % [
+			float(d["overall"]), float(d["church"]),
+		]
+	)
+	lines.append(
+		"Gates: eraic=%s (min %.0f)  sanctuary=%s (church≥%.0f or overall≥%.0f)" % [
+			str(d["can_choose_eraic"]),
+			float(d["eraic_min"]),
+			str(d["can_claim_sanctuary"]),
+			float(d["sanctuary_min_church"]),
+			float(d["sanctuary_min_overall"]),
+		]
+	)
+	var opts: Array = d["available_law_options"]
+	if opts.is_empty():
+		lines.append("Open options: (none — raise enech)")
+	else:
+		lines.append("Open options: %s" % ", ".join(PackedStringArray(opts)))
+	lines.append("E attempt éraic · R attempt sanctuary (refuge)")
+	if not last_law_result.is_empty():
+		lines.append(
+			"Last: ok=%s option=%s  %s" % [
+				str(last_law_result.get("ok", false)),
+				str(last_law_result.get("option", "")),
+				str(last_law_result.get("summary", "")),
+			]
+		)
+	return "\n".join(lines)
