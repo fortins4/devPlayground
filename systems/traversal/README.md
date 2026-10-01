@@ -9,6 +9,8 @@ Overland region graph for Leinster → Ireland. Design: [`docs/MAP_SCALE.md`](..
 
 No scene loads here — callers advance `WorldClock` and swap regions themselves.
 
+Church sanctuary sites that hang off these region ids: [`systems/sanctuary/`](../sanctuary/) (`glendalough` → `wicklow_glendalough`, `clonmacnoise` → `clonmacnoise`).
+
 ## API
 
 ```gdscript

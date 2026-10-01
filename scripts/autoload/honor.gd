@@ -71,6 +71,12 @@ func can_claim_sanctuary() -> bool:
 	return get_honor(&"church") >= SANCTUARY_MIN_CHURCH or overall >= SANCTUARY_MIN_OVERALL
 
 
+## Site-aware claim: known SanctuaryLocations id + can_claim_sanctuary().
+## Sites: systems/sanctuary/sanctuary_locations.gd (Glendalough / Clonmacnoise).
+func can_claim_sanctuary_at(site_id: StringName) -> bool:
+	return SanctuaryLocations.can_claim(site_id)
+
+
 ## Dialogue / UI helper — which law options are currently open.
 func available_law_options() -> Array[StringName]:
 	var options: Array[StringName] = []
@@ -118,6 +124,9 @@ func to_debug_dict() -> Dictionary:
 	var options: Array = []
 	for opt in available_law_options():
 		options.append(String(opt))
+	var sanctuary_ids: Array = []
+	for sid in SanctuaryLocations.list_site_ids():
+		sanctuary_ids.append(String(sid))
 	return {
 		"overall": overall,
 		"church": get_honor(&"church"),
@@ -126,6 +135,7 @@ func to_debug_dict() -> Dictionary:
 		"sanctuary_min_overall": SANCTUARY_MIN_OVERALL,
 		"can_choose_eraic": can_choose_eraic(),
 		"can_claim_sanctuary": can_claim_sanctuary(),
+		"sanctuary_site_ids": sanctuary_ids,
 		"available_law_options": options,
 		"debug_visible": debug_visible,
 		"last_law_result": last_law_result.duplicate(true),
