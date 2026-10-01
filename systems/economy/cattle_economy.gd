@@ -3,6 +3,8 @@ extends Node
 ## Cattle as primary wealth + herd/band daily upkeep for Godot gameplay.
 ##
 ## Slice: herd + pens + daily tick + Norse Wexford/Waterford trade contact.
+## Cattle-raid outcomes: `resolve_raid_success` / `resolve_raid_failure` via
+## `raid_outcomes` (systems/raid/cattle_raid_outcomes.gd).
 ## Not an autoload — ringfort / Game / sim owner instantiates and owns this node.
 ## Prefer explicit `apply_daily_tick()`; optionally `subscribe_world_clock()`.
 ##
@@ -19,6 +21,11 @@ signal cattle_lost(amount: int, reason: StringName)
 ## Forwarded from BandUpkeep for UI that only holds CattleEconomy.
 signal band_changed(size: int, morale: float, readiness: float)
 signal band_upkeep_failed(shortfall_cattle: int)
+## Forwarded from CattleRaidOutcomes (raid loot / heat / retaliation).
+signal raid_resolved(outcome: Dictionary)
+signal raid_loot_applied(cattle_gained: int, goods: Dictionary)
+signal raid_honor_heat_applied(victim_faction: StringName, honor_delta: float, attitude_delta: float)
+signal raid_retaliation_queued(hook: Dictionary)
 
 ## Current herd headcount (primary wealth).
 var herd_size: int = 12
@@ -36,6 +43,8 @@ var norse_trade_unlocked: bool = true
 
 ## Band upkeep + recruitment data hooks (no gameplay UI here).
 var band: BandUpkeep = BandUpkeep.new()
+## Cattle-raid loot / upkeep / honor-heat resolver (systems/raid/).
+var raid_outcomes: CattleRaidOutcomes = CattleRaidOutcomes.new()
 
 var _clock_subscribed: Node = null
 var _last_tick_day: int = -1
@@ -46,6 +55,7 @@ func _ready() -> void:
 		band.band_changed.connect(_on_band_changed)
 	if not band.upkeep_failed.is_connected(_on_band_upkeep_failed):
 		band.upkeep_failed.connect(_on_band_upkeep_failed)
+	_wire_raid_outcomes()
 
 
 func _exit_tree() -> void:
@@ -58,6 +68,35 @@ func _on_band_changed(size: int, morale: float, readiness: float) -> void:
 
 func _on_band_upkeep_failed(shortfall: int) -> void:
 	band_upkeep_failed.emit(shortfall)
+
+
+func _wire_raid_outcomes() -> void:
+	if raid_outcomes == null:
+		raid_outcomes = CattleRaidOutcomes.new()
+	if not raid_outcomes.raid_resolved.is_connected(_on_raid_resolved):
+		raid_outcomes.raid_resolved.connect(_on_raid_resolved)
+	if not raid_outcomes.loot_applied.is_connected(_on_raid_loot_applied):
+		raid_outcomes.loot_applied.connect(_on_raid_loot_applied)
+	if not raid_outcomes.honor_heat_applied.is_connected(_on_raid_honor_heat):
+		raid_outcomes.honor_heat_applied.connect(_on_raid_honor_heat)
+	if not raid_outcomes.retaliation_queued.is_connected(_on_raid_retaliation):
+		raid_outcomes.retaliation_queued.connect(_on_raid_retaliation)
+
+
+func _on_raid_resolved(outcome: Dictionary) -> void:
+	raid_resolved.emit(outcome)
+
+
+func _on_raid_loot_applied(cattle_gained: int, goods: Dictionary) -> void:
+	raid_loot_applied.emit(cattle_gained, goods)
+
+
+func _on_raid_honor_heat(victim: StringName, honor_delta: float, attitude_delta: float) -> void:
+	raid_honor_heat_applied.emit(victim, honor_delta, attitude_delta)
+
+
+func _on_raid_retaliation(hook: Dictionary) -> void:
+	raid_retaliation_queued.emit(hook)
 
 
 # --- Herd / pens -------------------------------------------------------------
@@ -378,6 +417,61 @@ func _default_faction_attitudes() -> Dictionary:
 		return {}
 	return attitudes.duplicate(true)
 
+# --- Cattle-raid outcomes (loot / upkeep / honor heat) ------------------------
+
+func list_raid_targets() -> Array[Dictionary]:
+	return raid_outcomes.list_targets()
+
+
+func get_raid_target(target_id: StringName) -> Dictionary:
+	return raid_outcomes.get_target(target_id)
+
+
+func preview_raid_success(target_id: StringName, cattle_override: int = -1) -> Dictionary:
+	return raid_outcomes.preview_success(self, target_id, cattle_override)
+
+
+## Primary Godot entry after a successful night raid mission.
+## Returns outcome Dictionary (loot, upkeep snapshot, heat, retaliation hook).
+func resolve_raid_success(
+	target_id: StringName,
+	cattle_override: int = -1,
+	apply_heat: bool = true,
+	apply_band: bool = true,
+	spawn_rumor: bool = true
+) -> Dictionary:
+	_wire_raid_outcomes()
+	return raid_outcomes.resolve_success(
+		self, target_id, cattle_override, apply_heat, apply_band, spawn_rumor
+	)
+
+
+## Optional: resolve a failed raid (cattle loss / band hit / lighter heat).
+func resolve_raid_failure(
+	target_id: StringName,
+	cattle_lost_override: int = -1,
+	apply_heat: bool = true,
+	apply_band: bool = true,
+	spawn_rumor: bool = true
+) -> Dictionary:
+	_wire_raid_outcomes()
+	return raid_outcomes.resolve_failure(
+		self, target_id, cattle_lost_override, apply_heat, apply_band, spawn_rumor
+	)
+
+
+func get_raid_retaliation_hook(
+	victim_faction: StringName,
+	kind: StringName = &"counter_raid",
+	cattle_taken: int = 0
+) -> Dictionary:
+	var count := raid_outcomes.get_success_count(victim_faction)
+	var mercy := raid_outcomes.is_mercy_active(victim_faction)
+	return raid_outcomes.build_retaliation_hook(
+		victim_faction, kind, count, cattle_taken, mercy
+	)
+
+
 # --- Norse trade -------------------------------------------------------------
 
 ## Simple trade stub: cattle_delta < 0 sells cattle for goods; > 0 buys cattle.
@@ -422,4 +516,5 @@ func to_debug_dict() -> Dictionary:
 		"last_tick_day": _last_tick_day,
 		"band": band.to_debug_dict(),
 		"recruit_pool_size": band.RECRUIT_POOL.size(),
+		"raid_outcomes": raid_outcomes.to_debug_dict() if raid_outcomes else {},
 	}
