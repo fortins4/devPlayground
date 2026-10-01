@@ -7,6 +7,8 @@ extends CanvasLayer
 ##   U — force-resolve Bannow Bay (skips calendar)
 ##   I — force-resolve Wexford/Waterford struggle (skips calendar)
 ##   O — force-resolve Aífe/Strongbow marriage (skips calendar)
+##   Z — force-resolve Dublin approaches (skips calendar)
+##   X — force-resolve Dublin siege (skips calendar)
 ##   P — Factions.demo_need_pressure_surge(5)  (need tick without calendar events)
 ##   / — Factions.probe_quest_stubs()  (sync board + sample pick_up; Q is cycle_weapon)
 
@@ -61,6 +63,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_O:
 				if WorldClock:
 					WorldClock.force_resolve(&"aife_strongbow_marriage")
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_Z:
+				if WorldClock:
+					WorldClock.force_resolve(&"dublin_approaches")
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_X:
+				if WorldClock:
+					WorldClock.force_resolve(&"dublin_siege")
 					_refresh()
 				get_viewport().set_input_as_handled()
 			KEY_P:
