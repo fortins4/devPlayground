@@ -1,0 +1,141 @@
+[gd_scene load_steps=16 format=3 uid="uid://cq8riochthorse001"]
+
+[ext_resource type="Script" path="res://scripts/characters/horse/horse_controller.gd" id="1_horse"]
+
+[sub_resource type="BoxShape3D" id="Shape_body"]
+size = Vector3(0.7, 1.15, 1.85)
+
+[sub_resource type="StandardMaterial3D" id="Mat_coat"]
+albedo_color = Color(0.42, 0.26, 0.14, 1)
+roughness = 0.88
+
+[sub_resource type="StandardMaterial3D" id="Mat_mane"]
+albedo_color = Color(0.12, 0.08, 0.05, 1)
+roughness = 0.95
+
+[sub_resource type="StandardMaterial3D" id="Mat_hoof"]
+albedo_color = Color(0.18, 0.14, 0.1, 1)
+roughness = 0.7
+
+[sub_resource type="StandardMaterial3D" id="Mat_blanket"]
+albedo_color = Color(0.35, 0.38, 0.28, 1)
+roughness = 0.92
+
+[sub_resource type="BoxMesh" id="Mesh_body"]
+size = Vector3(0.55, 0.65, 1.55)
+
+[sub_resource type="BoxMesh" id="Mesh_chest"]
+size = Vector3(0.58, 0.55, 0.45)
+
+[sub_resource type="BoxMesh" id="Mesh_neck"]
+size = Vector3(0.28, 0.55, 0.35)
+
+[sub_resource type="BoxMesh" id="Mesh_head"]
+size = Vector3(0.28, 0.28, 0.48)
+
+[sub_resource type="BoxMesh" id="Mesh_mane"]
+size = Vector3(0.12, 0.35, 0.55)
+
+[sub_resource type="CylinderMesh" id="Mesh_leg"]
+top_radius = 0.07
+bottom_radius = 0.08
+height = 0.72
+radial_segments = 8
+
+[sub_resource type="BoxMesh" id="Mesh_blanket"]
+size = Vector3(0.62, 0.08, 0.7)
+
+[sub_resource type="SphereShape3D" id="Shape_zone"]
+radius = 2.4
+
+[node name="Horse" type="CharacterBody3D" groups=["horse"]]
+collision_layer = 1
+collision_mask = 1
+floor_stop_on_slope = true
+script = ExtResource("1_horse")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+shape = SubResource("Shape_body")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="Body" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.05, 0)
+mesh = SubResource("Mesh_body")
+surface_material_override/0 = SubResource("Mat_coat")
+
+[node name="Chest" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, -0.7)
+mesh = SubResource("Mesh_chest")
+surface_material_override/0 = SubResource("Mat_coat")
+
+[node name="Neck" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0.34202, 0.939693, 0, 0, 0, 1, 0, 1.45, -0.95)
+mesh = SubResource("Mesh_neck")
+surface_material_override/0 = SubResource("Mat_coat")
+
+[node name="Head" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 0.965926, 0.258819, 0, -0.258819, 0.965926, 0, 1.78, -1.25)
+mesh = SubResource("Mesh_head")
+surface_material_override/0 = SubResource("Mat_coat")
+
+[node name="Mane" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0.258819, 0.965926, 0, 0, 0, 1, 0, 1.55, -0.85)
+mesh = SubResource("Mesh_mane")
+surface_material_override/0 = SubResource("Mat_mane")
+
+[node name="Blanket" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.38, 0.05)
+mesh = SubResource("Mesh_blanket")
+surface_material_override/0 = SubResource("Mat_blanket")
+
+[node name="LegFL" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.18, 0.36, -0.45)
+mesh = SubResource("Mesh_leg")
+surface_material_override/0 = SubResource("Mat_coat")
+
+[node name="LegFR" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.18, 0.36, -0.45)
+mesh = SubResource("Mesh_leg")
+surface_material_override/0 = SubResource("Mat_coat")
+
+[node name="LegBL" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.18, 0.36, 0.5)
+mesh = SubResource("Mesh_leg")
+surface_material_override/0 = SubResource("Mat_coat")
+
+[node name="LegBR" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.18, 0.36, 0.5)
+mesh = SubResource("Mesh_leg")
+surface_material_override/0 = SubResource("Mat_coat")
+
+
+[node name="MountSeat" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.35, 0.05)
+
+[node name="MountZone" type="Area3D" parent="."]
+collision_layer = 0
+collision_mask = 2
+monitoring = true
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MountZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("Shape_zone")
+
+[node name="PromptLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.35, 0)
+visible = false
+billboard = 1
+text = "E  Mount horse"
+font_size = 28
+modulate = Color(0.92, 0.86, 0.55, 1)
+
+[node name="StatusLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.55, 0)
+visible = false
+billboard = 1
+text = "Mounted · E dismount · Shift gallop"
+font_size = 26
+modulate = Color(0.75, 0.88, 0.65, 1)

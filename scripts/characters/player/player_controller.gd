@@ -50,6 +50,10 @@ const DRAG_STAMINA_PER_SEC := 11.0
 var dragging_body: Node3D = null
 var drag_stamina_exhausted: bool = false
 
+## Horse traversal (greybox mount).
+var is_mounted: bool = false
+var mounted_horse: Node3D = null
+
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -72,7 +76,12 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
+		if is_mounted and mounted_horse and is_instance_valid(mounted_horse):
+			# Yaw the horse; keep rider facing saddle-forward.
+			mounted_horse.rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
+			rotation = Vector3.ZERO
+		else:
+			rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
 		pivot.rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
 		pivot.rotation.x = clampf(pivot.rotation.x, deg_to_rad(-60.0), deg_to_rad(45.0))
 
@@ -90,6 +99,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if dragging_body != null and is_instance_valid(dragging_body):
 		return
 
+	# No melee while mounted — dismount to fight (slice rule).
+	if is_mounted:
+		return
+
 	if event.is_action_pressed("attack_light"):
 		combat.try_attack(&"light")
 	elif event.is_action_pressed("attack_heavy"):
@@ -105,6 +118,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if is_mounted:
+		# Horse owns locomotion; keep residual velocity cleared.
+		velocity = Vector3.ZERO
+		_noise_level = 0.35  # mounted presence — audible but not sprint-loud
+		return
+
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 
@@ -303,7 +322,7 @@ func _on_died(_victim: Node) -> void:
 
 
 func begin_drag(body: Node3D) -> void:
-	if body == null:
+	if body == null or is_mounted:
 		return
 	dragging_body = body
 	drag_stamina_exhausted = false
@@ -352,3 +371,32 @@ func _update_drag_stamina(delta: float) -> void:
 		combat.stamina = maxf(0.0, combat.stamina - cost)
 	combat.stamina_changed.emit(combat.stamina, combat.max_stamina)
 
+
+## --- Horse mount API (called by HorseController) ---
+
+func is_mounted_on_horse() -> bool:
+	return is_mounted
+
+
+func prepare_for_mount(horse: Node3D) -> void:
+	# Drop any corpse drag before seating.
+	if is_dragging():
+		end_drag()
+	is_mounted = true
+	mounted_horse = horse
+	is_crouching = false
+	_crouch_blend = 0.0
+	velocity = Vector3.ZERO
+	_jump_buffered = false
+	# Snap crouch visuals back to stand while seated.
+	_apply_crouch_visual(1.0)
+
+
+func clear_mount() -> void:
+	is_mounted = false
+	mounted_horse = null
+	velocity = Vector3.ZERO
+
+
+func set_mounted_velocity_zero() -> void:
+	velocity = Vector3.ZERO
