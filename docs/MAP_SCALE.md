@@ -3,6 +3,9 @@
 Design note for greybox → full Ireland. Companion to `docs/SCOPE.md` (regions &
 traversal) and `docs/VISION.md`. Runtime stubs: `systems/traversal/`.
 
+**Region layout viz** (inventory + ASCII/mermaid map picture): [`docs/MAP_REGIONS.md`](MAP_REGIONS.md).
+This file owns scale math and travel days; MAP_REGIONS owns relative geography.
+
 Status: **draft** (2026-10-01). Numbers are playable fiction calibrated to
 history, not a GIS reconstruction.
 
@@ -172,6 +175,7 @@ Shannon as spine = special gate type (boat) when currach ships.
 |---|---|
 | [`systems/traversal/travel_distances.gd`](../systems/traversal/travel_distances.gd) | Region ids, day matrix, foot/horse lookup |
 | [`systems/traversal/README.md`](../systems/traversal/README.md) | API + F5/remote probe notes |
+| [`docs/MAP_REGIONS.md`](MAP_REGIONS.md) | Region inventory + layout diagrams (complements this scale doc) |
 
 `Game.current_region` already seeds `&"leinster"`. Callers (map UI, camp rest,
 debug) should read distances from `TravelDistances` — do not hardcode days in UI.
