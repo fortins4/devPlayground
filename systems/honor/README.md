@@ -5,9 +5,10 @@ Brehon-law honor / reputation. Runtime API: `scripts/autoload/honor.gd` (autoloa
 | Piece | Role |
 |---|---|
 | `scripts/autoload/honor.gd` | Per-faction + overall standing; law gates; rumor on big swings |
-| [`law_gate_sample.gd`](law_gate_sample.gd) (`class_name LawGateSample`) | Runtime sample beat for one dispute (`cattle_trespass_brehon`) |
-| [`law_dialogue_samples.gd`](law_dialogue_samples.gd) (`class_name LawDialogueSamples`) | Authored multi-dispute dialogue content Godot can drive via the same gates |
+| [`law_gate_sample.gd`](law_gate_sample.gd) (`class_name LawGateSample`) | F5 single-dispute runner (cycles `LawDialogueSamples` packs) |
+| [`law_dialogue_samples.gd`](law_dialogue_samples.gd) (`class_name LawDialogueSamples`) | Authored multi-dispute packs + **unlocked-lines** query API |
 | `scenes/ui/honor_debug_hud.tscn` | F5 greybox panel (instanced on `scenes/main/main.tscn`) |
+| `tools/probe_honor_law_dialogue.gd` | Headless / remote unlock probe |
 
 ## Law / dialogue gates
 
@@ -27,6 +28,50 @@ Sanctuary **sites** (Glendalough / Clonmacnoise) live in [`systems/sanctuary/`](
 
 ---
 
+## Unlocked-lines query API (dialogue directors)
+
+Primary contract for “which lines unlock under current Honor?” — polish on top of
+the existing éraic / sanctuary gates (not a full dialogue rewrite).
+
+| API | Returns |
+|---|---|
+| `LawDialogueSamples.list_unlocked_lines(id, faction := &"")` | `Array[Dictionary]` rows: `id`, `speaker`, `text`, `kind` (`opener`/`flavor`/`option`/`closed`), optional `option` / `gate_kind` |
+| `LawDialogueSamples.list_unlocked_line_ids(id, faction := &"")` | `Array[StringName]` — UI keys / filter |
+| `LawDialogueSamples.list_open_options(id, faction := &"")` | Open law options for that dispute (`eraic`, `sanctuary`) |
+| `LawDialogueSamples.query_unlocked(id := &"", faction := &"")` | One dispute detail **or** full catalog when `id` empty |
+| `LawDialogueSamples.probe_unlocked(...)` | Alias of `query_unlocked` for F5 / remote docs |
+| `LawDialogueSamples.build_dialogue(id, faction := &"")` | UI payload; includes `unlocked_line_ids` + `lines` |
+| `LawDialogueSamples.choose_option(id, &"eraic"\|&"sanctuary", faction := &"")` | Resolve; fails closed when gate shut |
+
+`LawGateSample.list_unlocked_lines()` / `probe_gates()` bridge the same shapes for the
+active F5 dispute (`cycle_dispute` walks the pack list).
+
+### Line kinds
+
+| Kind | When unlocked |
+|---|---|
+| `opener` | Always (dispute prompt) |
+| `flavor` | Honor threshold (`faction_min`/`max`, `overall_min`/`max`, `church_min`/`max`) — esteem ≥70 / contempt ≤35 |
+| `option` | Honor law gate open (`option_eraic`, `option_sanctuary`) |
+| `closed` | All law gates shut |
+
+```gdscript
+# Which lines unlock right now?
+print(LawDialogueSamples.list_unlocked_line_ids(&"norse_harbor_theft"))
+print(LawDialogueSamples.list_unlocked_lines(&"blood_feud_mediation"))
+
+# Catalog every dispute under current Honor (remote / director dashboard)
+print(LawDialogueSamples.probe_unlocked())
+print(LawDialogueSamples.probe_unlocked(&"church_tithe_arrears"))
+
+# Build UI balloon, then resolve a choice
+var dlg := LawDialogueSamples.build_dialogue(&"norman_safe_conduct")
+# dlg.unlocked_line_ids / dlg.lines / dlg.sample_options
+var result := LawDialogueSamples.choose_option(&"norman_safe_conduct", &"eraic")
+```
+
+---
+
 ## Sample: gated dispute path
 
 `LawGateSample` is **not** an autoload. Instance it (debug HUD does this for F5) or call from a dialogue owner:
@@ -36,89 +81,88 @@ var sample := LawGateSample.new()
 add_child(sample)
 
 var probe: Dictionary = sample.probe_gates()
-# probe.available_law_options / probe.lines — feed a dialogue UI
+# probe.unlocked_line_ids / probe.lines / probe.available_law_options
 
-var eraic: Dictionary = sample.choose_eraic()       # fails closed if gate shut
+sample.cycle_dispute(1)   # next LawDialogueSamples pack
+var eraic: Dictionary = sample.choose_eraic()
 var sanctuary: Dictionary = sample.choose_sanctuary()
-# or: sample.choose_option(&"eraic") / sample.choose_option(&"sanctuary")
 ```
 
-Sample dispute id: `cattle_trespass_brehon` (neighbour fence / cattle trespass).  
-Success paths apply a small positive honor ripple; failures return `ok=false` and leave standing unchanged.
+Default dispute id: `cattle_trespass_brehon`. Success paths apply per-pack honor
+deltas; failures return `ok=false` and leave standing unchanged.
 
 ---
 
 ## Dialogue content samples
 
-[`law_dialogue_samples.gd`](law_dialogue_samples.gd) holds **authored** dispute packs that
-reuse the same Honor gates (`éraic` / `sanctuary`). Dialogue UI / Godot owners should:
-
-1. Pick a dispute id from `LawDialogueSamples.list_dispute_ids()`
-2. Call `LawDialogueSamples.build_dialogue(id)` → `lines` + open options
-3. On player choice, call `LawDialogueSamples.choose_option(id, &"eraic"|"sanctuary")`
-
 | Dispute id | Counterparty | Setting |
 |---|---|---|
-| `cattle_trespass_brehon` | `local_clans` | neighbour fence (same beat as `LawGateSample`) |
+| `cattle_trespass_brehon` | `local_clans` | neighbour fence |
 | `blood_feud_mediation` | `local_clans` | túath assembly green |
 | `norse_harbor_theft` | `norse_wexford_waterford` | Wexford quay |
 | `hospitality_breach` | `ui_chennselaig` | ringfort guest-hall |
+| `church_tithe_arrears` | `church` | monastery garth / tithe barn |
+| `norman_safe_conduct` | `anglo_normans` | Bannow camp / march road |
+| `fian_cattle_reave` | `fian` | woodland bothy / cattle path |
+| `dublin_market_slight` | `norse_dublin` | Dublin thing-mound / market |
 
-Gates fail closed when Honor standing is too low — same thresholds as
-`ERAIC_MIN_OVERALL` / `SANCTUARY_MIN_*`. Success paths apply the per-dispute
-`honor_on_eraic` / `honor_on_sanctuary` deltas and stamp `Honor.last_law_result`.
+Each pack ships opener + éraic/sanctuary option lines + esteem/contempt **flavor**
+lines gated by standing (not law gates). Writers add disputes to `DISPUTES` without
+touching the Honor autoload.
 
-```gdscript
-# List + build lines for a dialogue balloon / choice UI
-print(LawDialogueSamples.list_dispute_ids())
-var dlg := LawDialogueSamples.build_dialogue(&"blood_feud_mediation")
-# dlg.lines — opener + gated player options (or closed_line)
-var result := LawDialogueSamples.choose_option(&"blood_feud_mediation", &"eraic")
-# result.ok / result.summary / honor deltas
-```
-
-`LawGateSample` remains the F5 debug single-dispute runner; content packs live here
-so writers can add disputes without touching the autoload.
+Flavor floors (content defaults): `FLAVOR_ESTEEM_MIN=70`, `FLAVOR_CONTEMPT_MAX=35`.
 
 ---
 
-## F5 test path (Honor law-gate debug)
+## F5 test path (Honor law-gate + dialogue polish)
 
 1. Open `project.godot` in **Godot 4.4+** and press **F5** (main scene).
 2. Press **H** — Honor law-gate panel (top-left). Confirm seed standing:
-   - `Overall: 50.0`, `Church: 50.0` (faction table mirrors overall at boot)
+   - `Overall: 50.0`, `Church: 50.0`
    - `Gates: eraic=true  sanctuary=true`
    - `Open options: eraic, sanctuary`
-   - Sample dispute id `cattle_trespass_brehon` listed
-3. Press **E** — attempt éraic. Panel `Last:` should show `ok=true option=eraic` and a brief summary; overall/faction enech ticks up slightly.
-4. Press **R** — attempt sanctuary. `ok=true option=sanctuary`; church honor rises.
-5. Close the gates, then retry:
-   - **[** several times — drop overall below 40 (and below sanctuary overall floor)
+   - Active dispute id + **unlocked lines:** `opener, option_eraic, option_sanctuary`
+     (no esteem/contempt flavor at mid standing)
+3. Press **D** — cycle dispute packs; confirm counterparty / title / unlocked ids update.
+4. Press **E** — attempt éraic on the active pack. `Last: ok=true option=eraic`.
+5. Press **R** — attempt sanctuary. `ok=true option=sanctuary`; church honor rises.
+6. Close the gates, then retry:
+   - **[** several times — drop overall below 40
    - **;** several times — drop church honor
-   - Panel should show `eraic=false`, `sanctuary=false`, `Open options: (none …)`
-   - **E** / **R** now fail closed (`ok=false`) with refusal summaries
-6. Re-open with **]** (overall +5) and **'** (church +5), confirm options return.
-7. Remote / Debugger alternatives (no HUD):
-   ```gdscript
-   print(Honor.to_debug_dict())
-   print(Honor.available_law_options())
-   var s := LawGateSample.new()
-   print(s.probe_gates())
-   print(s.choose_eraic())
-   ```
-8. Press **H** again to hide the panel.
+   - Panel: `eraic=false`, `sanctuary=false`, unlocked includes `closed`, options locked
+   - **E** / **R** fail closed (`ok=false`)
+7. Esteem / contempt flavor:
+   - **]** until overall (or faction via play) ≥ 70 → esteem flavor id appears in unlocked
+   - **[** until ≤ 35 → contempt flavor id; esteem locks
+8. Press **F** — dump `LawDialogueSamples.probe_unlocked()` + active `probe_gates()` to Output.
+9. Press **H** again to hide the panel.
 
-Keys: **H** toggle · **[** / **]** overall −5 / +5 · **;** / **'** church −5 / +5 · **E** éraic · **R** sanctuary.
+Keys: **H** toggle · **[** / **]** overall −5 / +5 · **;** / **'** church −5 / +5 ·
+**E** éraic · **R** sanctuary · **D** cycle dispute · **F** dump unlock probe.
 
-Timeline debug remains on **T** / **Y** / **U** (top-right); Honor panel uses top-left so both can be open together.
+Timeline debug remains on **T** / **Y** / **U** (top-right); Honor panel uses top-left.
 
-Remote check for multi-dispute content (no HUD keys yet):
+### Remote / Debugger (no HUD)
 
 ```gdscript
-print(LawDialogueSamples.to_debug_dict())
-print(LawDialogueSamples.build_dialogue(&"norse_harbor_theft"))
-print(LawDialogueSamples.choose_option(&"hospitality_breach", &"sanctuary"))
+print(Honor.to_debug_dict())
+print(LawDialogueSamples.probe_unlocked())
+print(LawDialogueSamples.probe_unlocked(&"dublin_market_slight"))
+print(LawDialogueSamples.list_unlocked_line_ids(&"fian_cattle_reave"))
+print(LawDialogueSamples.build_dialogue(&"church_tithe_arrears"))
+var s := LawGateSample.new()
+print(s.probe_gates())
+print(s.list_unlocked_lines())
 ```
+
+### Headless probe script (when Godot binary available)
+
+```bash
+godot --headless --path . --script res://tools/probe_honor_law_dialogue.gd
+```
+
+Expect `PROBE_HONOR_LAW_OK` and unlocked/locked ids after the thin-enech pass.
+No Godot binary on agent boxes — use F5 + **F** / Remote paste instead.
 
 ---
 

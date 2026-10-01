@@ -7,6 +7,8 @@ extends CanvasLayer
 ##   ; / ' — church honor −5 / +5  (semicolon / apostrophe)
 ##   E — attempt sample éraic path
 ##   R — attempt sample sanctuary (refuge) path
+##   D — cycle LawDialogueSamples dispute pack (active sample)
+##   F — print probe_unlocked catalog to Output (remote-friendly)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -73,6 +75,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					_sample.choose_sanctuary()
 					_refresh()
 				get_viewport().set_input_as_handled()
+			KEY_D:
+				_ensure_sample()
+				if _sample:
+					_sample.cycle_dispute(1)
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_F:
+				_dump_probe()
+				get_viewport().set_input_as_handled()
 
 
 func _toggle() -> void:
@@ -102,6 +113,17 @@ func _ensure_sample() -> void:
 	add_child(_sample)
 
 
+func _dump_probe() -> void:
+	_ensure_sample()
+	var catalog := LawDialogueSamples.probe_unlocked()
+	print("=== LawDialogueSamples.probe_unlocked() ===")
+	print(catalog)
+	if _sample:
+		print("=== active LawGateSample.probe_gates() ===")
+		print(_sample.probe_gates())
+	print(LawDialogueSamples.get_debug_text())
+
+
 func _refresh() -> void:
 	if label == null:
 		return
@@ -110,16 +132,29 @@ func _refresh() -> void:
 		return
 	var text := Honor.get_debug_text()
 	if _sample:
+		var probe: Dictionary = _sample.probe_gates()
 		text += "\n--- sample dispute ---\n"
 		text += "id: %s  counterparty: %s\n" % [
-			String(_sample.get_dispute_id()),
-			String(_sample.counterparty_faction),
+			String(probe.get("dispute_id", _sample.get_dispute_id())),
+			String(probe.get("counterparty", _sample.counterparty_faction)),
 		]
-		text += "prompt: %s\n" % _sample.get_dispute_prompt()
+		if probe.has("title") and String(probe.get("title", "")) != "":
+			text += "title: %s\n" % String(probe["title"])
+		text += "prompt: %s\n" % String(probe.get("prompt", _sample.get_dispute_prompt()))
+		var unlocked: Array = probe.get("unlocked_line_ids", [])
+		if unlocked.is_empty():
+			text += "unlocked lines: (none)\n"
+		else:
+			text += "unlocked lines: %s\n" % ", ".join(PackedStringArray(unlocked))
+		var locked: Array = probe.get("locked_line_ids", [])
+		if not locked.is_empty():
+			text += "locked lines: %s\n" % ", ".join(PackedStringArray(locked))
 		var open := Honor.available_law_options()
 		if open.is_empty():
 			text += "dialogue: (no open law options)\n"
 		else:
 			for opt in open:
 				text += "dialogue option: [%s]\n" % String(opt)
+		text += "D cycle dispute · F dump probe_unlocked to Output\n"
+		text += "packs: %d  (LawDialogueSamples)\n" % LawDialogueSamples.list_dispute_ids().size()
 	label.text = text
