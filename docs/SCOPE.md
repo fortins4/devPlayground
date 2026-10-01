@@ -44,7 +44,7 @@ Ship criteria: a player can finish the greybox prologue, roam a small Leinster g
 
 | System | Slice target |
 |---|---|
-| Combat | Third-person stamina + directional attacks; spear / shield basics; terrain modifiers stubbed |
+| Combat | Third-person stamina + directional attacks; **hatchet** as starter weapon (cattle-farm kit); knife + staff/goad available; spear/shield later; terrain modifiers stubbed |
 | Honor (Enech) | Per-faction + overall reputation; gates at least dialogue tone and one law option |
 | Factions | **3 active** in Leinster (Uí Chennselaig, Anglo-Normans, local clans or Norse-Gaelic); attitudes −100…+100; basic needs → 1–2 dynamic quests |
 | Timeline | Calendar clock; **one** event: Bannow Bay landing; absent-player weighted historical resolve; present-player can shift variables (troops, morale, survivors) |
@@ -71,7 +71,8 @@ Everything below is the **intended** product if the slice succeeds. It expands s
 
 ### Narrative & structure
 
-- Fixed authored protagonist: **Cian** (placeholder) — young Gaelic man, traumatized by an Anglo-Norman raid on his village, forced into wilderness exile
+- Fixed authored protagonist: **Cian** (placeholder) — young Gaelic man from a **cattle-farming family**, traumatized by an Anglo-Norman raid on his village, forced into wilderness exile
+- **Starting kit:** knife, hatchet (primary), cattle goad/staff; spear unlocked later — not a starting sword/shield
 - Mandatory emotional prologue (raid + exile) → personal story is **player-driven** (what you make of it); no mandatory critical path
 - Living history 1169 → 1171 (Bannow Bay → Waterford → Aífe/Strongbow marriage → Siege of Dublin → Henry II arrival)
 - Main story **not** required to enjoy the sandbox

@@ -28,6 +28,8 @@ An open-world, historically grounded action-adventure set in **Ireland, 1169–1
 - The **opening sequence** is a tightly authored, emotional prologue built around that raid and exile. It ends in personal loss that gives him a reason to act, then opens the full world.
 - After the prologue, the personal story is **what you make of it** — optional threads the player can pursue at any pace, or not at all; no mandatory critical path.
 - The protagonist has a defined voice and personality, but the player controls choices, alliances, and methods.
+- **Background:** His dead family were **cattle farmers**. Early gear is herd/farm tools, not knight arms.
+- **Starting kit (slice):** knife, **hand-axe / hatchet** (primary early weapon), cattle goad/staff; a proper spear comes later via scavenge, craft, or recruitment life. No starting sword or shield.
 
 ## Core Pillars
 1. **Living History:** Factions act on a historical timeline independent of the player. Events happen offscreen, rumors spread, and the map changes.
@@ -66,7 +68,7 @@ A persistent base the player rebuilds after the opening tragedy. Recruit smiths,
 ## Key Systems
 | System | Description |
 |---|---|
-| Combat | Stamina-based and directional, with thrown spears, shield breaks, and terrain modifiers |
+| Combat | Stamina-based and directional; **hatchet-first** early kit, then spears/javelins; shield breaks and terrain modifiers as gear unlocks |
 | Stealth & Raiding | Crouch/cover, noise, vision cones; night cattle raids with watchmen, dogs, fog, escape routes |
 | Bog disposal | Hide bodies in peat bogs to delay discovery and reduce honor / patrol heat |
 | Honor (Enech) | Reputation per faction and overall. Gates dialogue, alliances, and law options |

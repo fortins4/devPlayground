@@ -1,6 +1,8 @@
-[gd_scene load_steps=8 format=3 uid="uid://cq8riochtmain0001"]
+[gd_scene load_steps=10 format=3 uid="uid://cq8riochtmain0001"]
 
 [ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="1_player"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtdummy01" path="res://scenes/characters/npcs/dummy_fighter.tscn" id="2_dummy"]
+[ext_resource type="PackedScene" uid="uid://cq8riochthud0001" path="res://scenes/ui/combat_hud.tscn" id="3_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.45, 0.55, 0.65, 1)
@@ -57,6 +59,11 @@ shape = SubResource("BoxShape3D_ground")
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
 
+[node name="DummyFighter" parent="." instance=ExtResource("2_dummy")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, -6)
+
 [node name="Landmark" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 1, -4)
 mesh = SubResource("BoxMesh_landmark")
+
+[node name="CombatHUD" parent="." instance=ExtResource("3_hud")]
