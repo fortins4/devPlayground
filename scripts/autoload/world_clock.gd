@@ -14,6 +14,9 @@ extends Node
 ##
 ## Listeners on `day_advanced` (auto): Rumors.tick_decay, Factions need-pressure
 ## tick (hunger/security). CattleEconomy may also subscribe when owned by a scene.
+##
+## Graph→timeline unlock stubs: Factions / GraphTimelineUnlocks gate content flags
+## + event ids from relationship thresholds (see systems/timeline/README.md).
 
 signal day_advanced(day: int)
 signal event_triggered(event_id: StringName)
@@ -842,14 +845,17 @@ func to_debug_dict() -> Dictionary:
 				"days_remaining": Rumors.days_remaining(rumor),
 			})
 	var needs: Dictionary = {}
+	var timeline_unlocks: Dictionary = {}
 	if Factions:
 		needs = Factions.to_needs_debug_dict()
+		timeline_unlocks = Factions.to_timeline_unlocks_debug_dict()
 	return {
 		"day": day,
 		"debug_visible": debug_visible,
 		"events": event_debug,
 		"leinster_attitudes": attitudes,
 		"leinster_needs": needs,
+		"timeline_unlocks": timeline_unlocks,
 		"top_rumors": rumors,
 		"recent_resolutions": recent_resolutions.duplicate(true),
 	}
@@ -882,7 +888,7 @@ func _append_event_debug_lines(lines: PackedStringArray, event_id: StringName, l
 func get_debug_text() -> String:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("=== WorldClock / living-history debug ===")
-	lines.append("Day: %d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage · Z Approaches · X Siege · P need surge · / quest stubs)" % day)
+	lines.append("Day: %d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage · Z Approaches · X Siege · P need surge · / quest stubs · J graph unlocks)" % day)
 	_append_event_debug_lines(lines, &"bannow_bay_landing", "Bannow")
 	_append_event_debug_lines(lines, &"wexford_waterford_struggle", "Wexford/Waterford")
 	_append_event_debug_lines(lines, &"aife_strongbow_marriage", "Aífe/Strongbow")
@@ -893,6 +899,7 @@ func get_debug_text() -> String:
 		for fid in Factions.LEINSTER_ACTIVE:
 			lines.append("  %s: %.1f" % [String(fid), Factions.get_attitude(fid)])
 		lines.append(Factions.get_needs_debug_text())
+		lines.append(Factions.get_timeline_unlocks_debug_text())
 	if Rumors:
 		var top := Rumors.get_top_rumors(4)
 		lines.append("Rumors (%d active):" % Rumors.count_active())

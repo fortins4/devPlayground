@@ -249,3 +249,40 @@ sources can apply ±2 attitude — see [systems/rumors/README.md](../rumors/READ
    - Hostility vs Norse Wexford/Waterford +18 → tagged graph rumor (`direction:colder`)
 3. Confirm panel lines show `{attitude,...}` / `{graph,...}` tag suffixes.
 4. Remote alternative: the `modify_attitude` / `modify_relationship_strength` calls above.
+
+
+---
+
+## Graph → timeline unlock stubs
+
+When relationship-graph edges cross authored thresholds, living-history **timeline
+event ids** and **content flags** unlock (or gate). Registry lives in
+[`GraphTimelineUnlocks`](../timeline/graph_timeline_unlocks.gd); live queries hang
+off this autoload so directors never need a second bus.
+
+Re-evaluates on every `relationship_changed` (including `set_relationship` /
+`modify_relationship_strength`). Boot seed edges open port / dynastic / Norse-coast /
+Bannow stubs; Dublin road stays closed until High Kingship→Anglo hostility ≥ 55.
+
+Full table + F5 path: [systems/timeline/README.md](../timeline/README.md#graph--timeline-unlock-stubs).
+
+### Query API
+
+```gdscript
+Factions.list_open_timeline_unlocks()
+Factions.list_unlocked_timeline_events()
+Factions.list_unlocked_content_flags()
+Factions.is_timeline_event_unlocked(&"wexford_waterford_struggle")
+Factions.is_content_flag_unlocked(&"dublin_road_intel")
+Factions.to_timeline_unlocks_debug_dict()
+Factions.demo_seed_graph_timeline_unlocks(true, false)  # F5 / Remote
+```
+
+Signal: `timeline_unlocks_changed(report)`.
+
+### F5 check (graph unlocks)
+
+1. F5 → **T** — confirm Graph→timeline unlocks block in the Timeline panel.
+2. **J** — `demo_seed_graph_timeline_unlocks()` opens `unlock_dublin_road`.
+3. Remote: `print(Factions.to_timeline_unlocks_debug_dict())` or
+   `godot --headless --path . --script res://tools/probe_graph_timeline_unlocks.gd`.
