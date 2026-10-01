@@ -77,6 +77,9 @@ func can_claim_sanctuary_at(site_id: StringName) -> bool:
 	return SanctuaryLocations.can_claim(site_id)
 
 
+## Band recruitment uses overall enech (0..100) via BandUpkeep.RECRUIT_POOL /
+## CattleEconomy — same scale as this autoload. See systems/economy/README.md.
+
 ## Dialogue / UI helper — which law options are currently open.
 func available_law_options() -> Array[StringName]:
 	var options: Array[StringName] = []

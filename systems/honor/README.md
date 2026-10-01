@@ -119,3 +119,26 @@ print(LawDialogueSamples.to_debug_dict())
 print(LawDialogueSamples.build_dialogue(&"norse_harbor_theft"))
 print(LawDialogueSamples.choose_option(&"hospitality_breach", &"sanctuary"))
 ```
+
+---
+
+## Band recruitment ↔ Honor gates
+
+Band who-can-join / cattle cost live on `BandUpkeep.RECRUIT_POOL` and the
+`CattleEconomy` facade — **same recruit API**, thresholds aligned to
+`Honor.overall` (0..100). See [`systems/economy/README.md`](../economy/README.md)
+§ Recruitment data hooks.
+
+| Behavior | Detail |
+|---|---|
+| Floor (`honor_min`) | Respectable spears / retainers need solid enech |
+| Ceiling (`honor_max`) | Fían outlaws only join when enech is thin (≤ 40) |
+| Cost tiers | Low enech can raise cattle cost; high enech can discount |
+| Facade default | `CattleEconomy.try_recruit_option(id)` resolves `Honor.get_honor()` |
+
+```gdscript
+print(Honor.get_honor())
+# From a CattleEconomy owner (ringfort):
+print(cattle.probe_recruit_honor_gates())
+print(cattle.probe_recruit_honor_gates(20.0))  # thin enech → fian open, retainer shut
+```
