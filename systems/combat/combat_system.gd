@@ -295,6 +295,23 @@ func _try_damage_target(target: Node, damage: float, kind: StringName) -> void:
 	var id := target.get_instance_id()
 	if _hit_this_swing.has(id):
 		return
+	# Cattle goad: impulse/steer raid cows (Hurtbox parent or body). Other weapons ignore herd.
+	var cattle := _resolve_raid_cattle(target)
+	if cattle != null:
+		_hit_this_swing[id] = true
+		_hit_this_swing[cattle.get_instance_id()] = true
+		if current_weapon == Weapon.GOAD and cattle.has_method("apply_goad"):
+			var fwd := Vector3.FORWARD
+			var from_pos := cattle.global_position
+			if _owner_body:
+				fwd = -_owner_body.global_transform.basis.z
+				from_pos = _owner_body.global_position
+			var strength := 1.55 if kind == &"heavy" else 1.0
+			cattle.call("apply_goad", from_pos, fwd, strength, kind)
+			hit_landed.emit(_owner_body, cattle, 0.0, kind)
+			if enable_hit_feedback:
+				_play_hit_confirm(kind)
+		return
 	var other: CombatSystem = _find_combat(target)
 	if other == null:
 		# Hurtbox parent may be the combatant
@@ -311,6 +328,18 @@ func _try_damage_target(target: Node, damage: float, kind: StringName) -> void:
 		hit_landed.emit(_owner_body, other.get_parent(), dealt, kind)
 		if enable_hit_feedback:
 			_play_hit_confirm(kind)
+
+
+func _resolve_raid_cattle(target: Node) -> Node3D:
+	if target == null:
+		return null
+	if target.is_in_group("raid_cattle") and target is Node3D:
+		return target as Node3D
+	if target is Area3D:
+		var parent := target.get_parent()
+		if parent and parent.is_in_group("raid_cattle") and parent is Node3D:
+			return parent as Node3D
+	return null
 
 
 func _is_frontal(other: CombatSystem) -> bool:

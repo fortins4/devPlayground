@@ -8,7 +8,7 @@ Stamina-based, directional melee for Ríocht’s cattle-farm starter kit.
 |---|---|---|
 | **Hatchet** (default) | Primary | Directional chop arcs; light jab-swing / heavy overhead |
 | **Knife** | Fast / low damage | Lower stamina cost, short reach |
-| **Cattle goad / staff** | Reach | Longer hitbox, moderate damage |
+| **Cattle goad / staff** | Reach + **drove** | Longer hitbox; on `raid_cattle` applies `apply_goad` impulse (no HP damage to herd) |
 | Spear / shield | **Later** | Not starting gear — unlock via scavenge / craft / life path |
 
 No starting sword or shield. `CombatSystem.enable_block` stays off until shield gear exists.
