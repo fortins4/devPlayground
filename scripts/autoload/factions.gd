@@ -1,10 +1,10 @@
 extends Node
 ## Faction registry, attitudes, goals/needs, and quest-generation stubs.
 ##
-## Slice (Leinster-active): Uí Chennselaig, Anglo-Normans, Norse-Gaelic.
-## Norse-Gaelic chosen as third because Bannow Bay → Wexford/Waterford pressure
-## and the cattle-economy Norse trade contact (see docs/SCOPE.md). Local clans
-## remain in the full roster but are inactive for slice quest generation.
+## Full roster (historically truer): Uí Chennselaig, Anglo-Normans, English crown,
+## High Kingship, Norse Dublin, Norse Wexford/Waterford, Church, local clans, fían.
+## Leinster slice ACTIVE (quest gen): ui_chennselaig, anglo_normans,
+## norse_wexford_waterford. english_crown stays inactive until late / 1171 pressure.
 
 signal attitude_changed(faction_id: StringName, value: float)
 signal need_changed(faction_id: StringName, need_id: StringName)
@@ -13,22 +13,25 @@ signal quest_stub_generated(faction_id: StringName, quest: Dictionary)
 const FACTION_IDS: Array[StringName] = [
 	&"ui_chennselaig",
 	&"anglo_normans",
+	&"english_crown",
 	&"high_kingship",
-	&"norse_gaelic",
+	&"norse_dublin",
+	&"norse_wexford_waterford",
 	&"church",
 	&"local_clans",
+	&"fian",
 ]
 
-## Vertical-slice active set in Leinster.
+## Vertical-slice active set in Leinster (quest generation only).
 const LEINSTER_ACTIVE: Array[StringName] = [
 	&"ui_chennselaig",
 	&"anglo_normans",
-	&"norse_gaelic",
+	&"norse_wexford_waterford",
 ]
 
 ## Attitude toward the player: -100 hostile … +100 allied.
 var attitudes: Dictionary = {}
-## faction_id → { display_name, goals: Array, needs: Array, resources: Dictionary }
+## faction_id → { display_name, goals: Array, needs: Array, resources: Dictionary, ... }
 var profiles: Dictionary = {}
 
 
@@ -41,7 +44,7 @@ func _ready() -> void:
 
 func _seed_profiles() -> void:
 	profiles[&"ui_chennselaig"] = {
-		"display_name": "Uí Chennselaig",
+		"display_name": "Uí Chennselaig / Diarmait",
 		"active_in_leinster": true,
 		"goals": [
 			&"retake_leinster",
@@ -55,7 +58,7 @@ func _seed_profiles() -> void:
 		"resources": {"cattle": 40, "warriors": 25, "silver": 10},
 	}
 	profiles[&"anglo_normans"] = {
-		"display_name": "Anglo-Normans",
+		"display_name": "Strongbow & adventurers",
 		"active_in_leinster": true,
 		"goals": [
 			&"gain_land",
@@ -68,8 +71,39 @@ func _seed_profiles() -> void:
 		],
 		"resources": {"troops": 30, "ships": 5, "silver": 40},
 	}
-	profiles[&"norse_gaelic"] = {
-		"display_name": "Norse-Gaelic towns",
+	# Inactive until late / 1171 pressure — registered for honor + attitude tables.
+	profiles[&"english_crown"] = {
+		"display_name": "Henry II / English crown",
+		"active_in_leinster": false,
+		"inactive_until_late": true,
+		"goals": [
+			&"control_barons",
+			&"claim_overlordship",
+		],
+		"needs": [],
+		"resources": {},
+	}
+	profiles[&"high_kingship"] = {
+		"display_name": "Ruaidrí / Connacht (High Kingship)",
+		"active_in_leinster": false,
+		"goals": [&"resist_invasion", &"hold_ireland"],
+		"needs": [],
+		"resources": {},
+	}
+	profiles[&"norse_dublin"] = {
+		"display_name": "Norse-Gaelic Dublin",
+		"active_in_leinster": false,
+		"goals": [
+			&"protect_trade",
+			&"hold_ath_cliath",
+			&"preserve_autonomy",
+		],
+		"needs": [],
+		"resources": {"ships": 20, "trade_goods": 40, "silver": 50},
+	}
+	# Slice coastal actor (replaces monolithic norse_gaelic for Leinster).
+	profiles[&"norse_wexford_waterford"] = {
+		"display_name": "Norse-Gaelic Wexford/Waterford",
 		"active_in_leinster": true,
 		"goals": [
 			&"protect_trade",
@@ -82,25 +116,24 @@ func _seed_profiles() -> void:
 		],
 		"resources": {"ships": 12, "trade_goods": 20, "silver": 35},
 	}
-	# Inactive in slice quest gen — roster stubs for later regions.
-	profiles[&"high_kingship"] = {
-		"display_name": "High Kingship",
-		"active_in_leinster": false,
-		"goals": [&"resist_invasion", &"hold_ireland"],
-		"needs": [],
-		"resources": {},
-	}
 	profiles[&"church"] = {
 		"display_name": "The Church",
 		"active_in_leinster": false,
-		"goals": [&"protect_monasteries", &"political_influence"],
+		"goals": [&"protect_monasteries", &"political_influence", &"reform"],
 		"needs": [],
 		"resources": {},
 	}
 	profiles[&"local_clans"] = {
-		"display_name": "Local clans / fían",
+		"display_name": "Local Leinster túatha / rival clans",
 		"active_in_leinster": false,
-		"goals": [&"survival", &"feuds", &"opportunity"],
+		"goals": [&"survival", &"feuds", &"shifting_loyalty"],
+		"needs": [],
+		"resources": {},
+	}
+	profiles[&"fian"] = {
+		"display_name": "Fían / outlaw bands",
+		"active_in_leinster": false,
+		"goals": [&"survival", &"opportunity", &"wilderness_raids"],
 		"needs": [],
 		"resources": {},
 	}
@@ -110,7 +143,13 @@ func _seed_leinster_attitudes() -> void:
 	# Cian is Gaelic cattle-stock: mild kinship with Uí Chennselaig, distrust of Normans.
 	attitudes[&"ui_chennselaig"] = 10.0
 	attitudes[&"anglo_normans"] = -25.0
-	attitudes[&"norse_gaelic"] = 0.0
+	attitudes[&"norse_wexford_waterford"] = 0.0
+	attitudes[&"english_crown"] = 0.0
+	attitudes[&"high_kingship"] = 5.0
+	attitudes[&"norse_dublin"] = 0.0
+	attitudes[&"church"] = 5.0
+	attitudes[&"local_clans"] = 0.0
+	attitudes[&"fian"] = -5.0
 
 
 func is_leinster_active(faction_id: StringName) -> bool:

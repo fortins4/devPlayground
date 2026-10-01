@@ -49,13 +49,16 @@ An open-world, historically grounded action-adventure set in **Ireland, 1169–1
 | Faction | Goals |
 |---|---|
 | Uí Chennselaig (Diarmait) | Retake Leinster, use Normans as allies |
-| Anglo-Normans (Strongbow) | Gain land and power in Ireland |
+| Anglo-Normans (Strongbow & co.) | Gain land and power in Ireland |
+| English crown (Henry II) | Control barons; claim overlordship (late pressure) |
 | High Kingship (Ruaidrí) | Hold Ireland together, resist the invaders |
-| Norse-Gaelic Towns (Dublin, Waterford, Wexford) | Protect trade and autonomy |
+| Norse-Gaelic Dublin | Protect trade and autonomy; siege flashpoint |
+| Norse-Gaelic Wexford / Waterford | Coastal trade; early Norman targets |
 | The Church | Reform, protect monasteries, political influence |
-| Local clans / outlaws (fían) | Survival, feuds, opportunity |
+| Local clans / túatha | Survival, feuds, shifting loyalty |
+| Fían / outlaw bands | Survival, opportunity (fits wilderness start) |
 
-Each faction has goals, resources, relationships, and an attitude toward the player. Factions create dynamic quests from their current needs.
+Each faction has goals, resources, relationships, and an attitude toward the player. Factions create dynamic quests from their current needs. Slice-active: Uí Chennselaig, Anglo-Normans, Norse-Gaelic Wexford/Waterford.
 
 ### Player Paths (Emergent, Not Classes)
 Warlord · Cattle Lord · Mercenary · Brehon/Fili influence · Outlaw · Pilgrim. Players drift between these naturally through their actions. Growing a warrior band is the through-line that lets Cian take the fight to the English in ambushes and skirmishes.

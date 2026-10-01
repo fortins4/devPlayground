@@ -1,7 +1,7 @@
 extends Node
 ## Cattle as primary wealth + herd upkeep. Band upkeep hooks live alongside.
 ##
-## Slice: herd + daily upkeep + one Norse town trade contact stub.
+## Slice: herd + daily upkeep + Norse Wexford/Waterford trade contact stub.
 ## Recruitment UI later — use `band` (BandUpkeep) for size/morale/readiness costs.
 
 signal herd_changed(count: int)
@@ -16,8 +16,8 @@ var pen_capacity: int = 40
 ## Cattle consumed by the herd itself per day (feed / loss).
 var herd_upkeep_per_10: float = 0.5
 
-## Norse town trade contact stub (Wexford / Waterford coast).
-var norse_trade_contact_id: StringName = &"wexford_norse_trader"
+## Norse coastal trade contact (slice actor: Wexford/Waterford faction).
+var norse_trade_contact_id: StringName = &"norse_wexford_waterford"
 var norse_trade_unlocked: bool = true
 
 ## Band upkeep API for later recruitment (no gameplay UI here).

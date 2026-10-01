@@ -132,13 +132,13 @@ func _broadcast_outcome(outcome: EventOutcome) -> void:
 			&"norman_foothold":
 				Factions.modify_attitude(&"anglo_normans", 8.0)
 				Factions.modify_attitude(&"ui_chennselaig", 4.0) # Diarmait invited them
-				Factions.modify_attitude(&"norse_gaelic", -12.0)
+				Factions.modify_attitude(&"norse_wexford_waterford", -12.0)
 			&"contested_landing":
 				Factions.modify_attitude(&"anglo_normans", 2.0)
-				Factions.modify_attitude(&"norse_gaelic", -4.0)
+				Factions.modify_attitude(&"norse_wexford_waterford", -4.0)
 			&"landing_checked":
 				Factions.modify_attitude(&"anglo_normans", -6.0)
-				Factions.modify_attitude(&"norse_gaelic", 6.0)
+				Factions.modify_attitude(&"norse_wexford_waterford", 6.0)
 				Factions.modify_attitude(&"ui_chennselaig", -2.0)
 	if Rumors:
 		Rumors.add_rumor(

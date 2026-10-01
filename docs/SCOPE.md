@@ -46,7 +46,7 @@ Ship criteria: a player can finish the greybox prologue, roam a small Leinster g
 |---|---|
 | Combat | Third-person stamina + directional attacks; spear / shield basics; terrain modifiers stubbed |
 | Honor (Enech) | Per-faction + overall reputation; gates at least dialogue tone and one law option |
-| Factions | **3 active** in Leinster (Uí Chennselaig, Anglo-Normans, local clans or Norse-Gaelic); attitudes −100…+100; basic needs → 1–2 dynamic quests |
+| Factions | **3 active** in Leinster (Uí Chennselaig, Anglo-Normans, Norse-Gaelic Wexford/Waterford); attitudes −100…+100; basic needs → 1–2 dynamic quests |
 | Timeline | Calendar clock; **one** event: Bannow Bay landing; absent-player weighted historical resolve; present-player can shift variables (troops, morale, survivors) |
 | Economy | Cattle as primary wealth; upkeep; simple trade stub in one Norse town contact |
 | Raid | Night cattle-raid loop: watchmen, dogs, fog, escape route |
@@ -97,9 +97,11 @@ Depth varies: Laigin and Dublin densest. Not every túath simulated.
 
 ### Factions (full roster)
 
-Uí Chennselaig · Anglo-Normans · High Kingship · Norse-Gaelic towns · Church · Local clans / fían outlaws
+Uí Chennselaig · Anglo-Normans · English crown (Henry II, late) · High Kingship (Ruaidrí) · Norse-Gaelic Dublin · Norse-Gaelic Wexford/Waterford · Church · Local clans / túatha · Fían / outlaw bands
 
-Each: goals, resources, relationship graph, attitude toward player, and quest generation from current needs. Slice’s 3 factions expand to the full set as regions open.
+IDs: `ui_chennselaig`, `anglo_normans`, `english_crown`, `high_kingship`, `norse_dublin`, `norse_wexford_waterford`, `church`, `local_clans`, `fian`.
+
+Each: goals, resources, relationship graph, attitude toward player, and quest generation from current needs. Slice’s 3 active factions expand to the full set as regions open; `english_crown` stays inactive until late / 1171 pressure.
 
 ### Historical events (intended schedule)
 
