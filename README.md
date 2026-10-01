@@ -1,2 +1,21 @@
-# devPlayground
-testing game dev capabilities
+# Ríocht
+
+Working title for an open-world, historically grounded action-adventure set in **Ireland, 1169–1171 AD**, built in **Godot 4 (Forward+)**.
+
+> *Ríocht* means "Kingdom" in Irish.
+
+## Quick start
+
+1. Install **Godot 4.4+**.
+2. Open `project.godot` in this repo.
+3. Press **F5** — greybox main scene with a placeholder player.
+4. See **[docs/SETUP.md](docs/SETUP.md)** for Terrain3D install and folder layout.
+5. Design bible: **[docs/VISION.md](docs/VISION.md)**.
+
+## Stack
+
+- Godot 4 Forward+ · GDScript · Terrain3D (local addon, not vendored)
+
+## Status
+
+Early scaffold: project layout, autoload stubs (honor, factions, timeline, rumors), and a runnable 3D greybox.

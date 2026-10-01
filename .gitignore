@@ -1,0 +1,25 @@
+# Godot 4
+.godot/
+*.translation
+
+# Import cache / binaries
+*.import
+export_presets.cfg
+export/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Builds & C#
+.mono/
+data_*/
+mono_crash.*.json
+
+# Terrain3D / GDExtension binaries (install locally; do not vendor)
+addons/terrain_3d/
+addons/terrain_3d/**
