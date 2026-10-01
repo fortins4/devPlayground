@@ -8,3 +8,4 @@ Playable F5 slice: victim pens → drive → home pens → economy resolve.
 | `raid_cow.tscn` | Placeholder cattle |
 
 Docs / controls: [`systems/raid/README.md`](../../../systems/raid/README.md).
+Past-mercy delivers auto-seed tagged Rumors (`raid`/`heat`/`faction:*`) — see that README.

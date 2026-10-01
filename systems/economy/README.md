@@ -6,7 +6,7 @@ Cattle as primary wealth. Band upkeep lives alongside for later recruitment.
 |---|---|
 | `cattle_economy.gd` (`class_name CattleEconomy`) | Herd, pens, daily tick, Norse trade (`norse_wexford_waterford`), band facade, **raid outcome facade** |
 | `band_upkeep.gd` (`class_name BandUpkeep`) | Band size / morale / readiness, cattle cost, skirmish confidence |
-| [`../raid/cattle_raid_outcomes.gd`](../raid/cattle_raid_outcomes.gd) | Cattle-raid loot / upkeep snapshot / honor heat / retaliation **data** |
+| [`../raid/cattle_raid_outcomes.gd`](../raid/cattle_raid_outcomes.gd) | Cattle-raid loot / upkeep snapshot / honor heat / retaliation **data** / **heat → tagged Rumors** |
 
 **Ownership:** not an autoload. Ringfort / Game / sim owner instantiates a `CattleEconomy` node. Ringfort greybox (`scenes/world/ringfort/`) owns one for muster/recruit in F5. Prefer **explicit** `apply_daily_tick()` so Game keeps control of when the day resolves. Optional `subscribe_world_clock()` auto-applies on `WorldClock.day_advanced` if you want hands-off wiring.
 
@@ -67,6 +67,13 @@ cattle.get_norse_trade_contact_id()    # &"norse_wexford_waterford"
 ### Signals (UI later)
 
 `herd_changed`, `pens_changed`, `upkeep_applied`, `daily_tick_applied`, `trade_completed`, `cattle_gained`, `cattle_lost`, `band_changed`, `band_upkeep_failed`, `raid_resolved`, `raid_loot_applied`, `raid_honor_heat_applied`, `raid_retaliation_queued`.
+
+### Cattle-raid heat → Rumors
+
+`resolve_raid_success` / `resolve_raid_failure` auto-seed tagged Rumors on big heat
+swings (thresholds on `CattleRaidOutcomes`; facade
+`get_raid_rumor_heat_thresholds()` / `build_raid_heat_rumor_tags()`). Details:
+[systems/raid/README.md](../raid/README.md#cattle-raid-heat--rumors-tagged).
 
 ---
 

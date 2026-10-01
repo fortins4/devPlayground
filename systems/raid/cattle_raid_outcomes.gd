@@ -5,6 +5,8 @@ extends RefCounted
 ## Godot calls resolve_success / resolve_failure after a raid mission resolves.
 ## Applies CattleEconomy.gain_cattle (pens-capped), optional goods, band deltas,
 ## Honor + Factions heat, and returns retaliation hooks as data (no AI).
+## Big heat swings (or escalated retaliation) auto-seed tagged Rumors
+## (raid / heat / faction:* / direction:colder) — see RUMOR_HEAT_* thresholds.
 ## Not stealth / bog / watchmen gameplay — those stay in mission scenes.
 ##
 ## Ownership: ringfort / Game / CattleEconomy may hold an instance. Prefer
@@ -36,6 +38,16 @@ const FAIL_CATTLE_LOSS_CHANCE_HEADS: int = 1
 ## Escalation: each success past mercy adds this to attitude / honor magnitude.
 const HEAT_ESCALATION_ATTITUDE: float = -4.0
 const HEAT_ESCALATION_HONOR: float = -2.0
+
+## Rumors heat coupling (mirrors Factions attitude/graph → tagged rumors).
+## Seed when |attitude_delta| >= this (same floor as Factions.RUMOR_ATTITUDE_THRESHOLD).
+const RUMOR_HEAT_ATTITUDE_THRESHOLD: float = 10.0
+## Or when honor_heat_magnitude() >= this (|overall| + |victim| * 0.25).
+const RUMOR_HEAT_HONOR_THRESHOLD: float = 8.0
+## Or when retaliation severity reaches this past the mercy window.
+const RUMOR_HEAT_RETALIATION_SEVERITY: float = 0.5
+const RUMOR_HEAT_DECAY_DAYS: int = 8
+const RUMOR_HEAT_ESCALATED_DECAY_DAYS: int = 10
 
 ## Slice raid targets (victim herds / pens). Schema:
 ##   id, display_name, victim_faction, base_cattle, cattle_variance,
@@ -202,9 +214,6 @@ func resolve_success(
 	var honor_overall := float(plan.get("honor_delta_overall", 0.0))
 	var honor_victim := float(plan.get("honor_delta_victim", 0.0))
 	var attitude_delta := float(plan.get("attitude_delta", 0.0))
-	if apply_heat:
-		_apply_honor_heat(victim, honor_overall, honor_victim, attitude_delta)
-		honor_heat_applied.emit(victim, honor_overall + honor_victim * 0.25, attitude_delta)
 
 	# --- Bookkeeping + retaliation hook ---------------------------------------
 	var prior_count := get_success_count(victim)
@@ -220,8 +229,26 @@ func resolve_success(
 	)
 	retaliation_queued.emit(retaliation.duplicate(true))
 
-	if spawn_rumor:
-		_spawn_raid_rumor(true, victim, cattle_gained, mercy)
+	# Heat → Rumors: gate before apply so we can silence Factions attitude seed
+	# when this path will emit the richer raid/heat tagged rumor.
+	var heat_mag := honor_heat_magnitude(honor_overall, honor_victim)
+	var will_seed_rumor := (
+		spawn_rumor
+		and apply_heat
+		and heat_warrants_rumor(attitude_delta, honor_overall, honor_victim, retaliation, mercy)
+	)
+	if apply_heat:
+		# seed_attitude_rumor=false when we own the bus entry (avoids duplicate).
+		_apply_honor_heat(
+			victim, honor_overall, honor_victim, attitude_delta, not will_seed_rumor
+		)
+		honor_heat_applied.emit(victim, honor_overall + honor_victim * 0.25, attitude_delta)
+
+	var rumor_id: StringName = &""
+	if will_seed_rumor:
+		rumor_id = _spawn_raid_heat_rumor(
+			true, victim, cattle_gained, mercy, attitude_delta, heat_mag, retaliation
+		)
 
 	var upkeep := _upkeep_snapshot(economy)
 	var outcome := {
@@ -248,6 +275,9 @@ func resolve_success(
 		"day": _day_stamp(),
 		"heat_applied": apply_heat,
 		"band_applied": apply_band,
+		"heat_magnitude": heat_mag if apply_heat else 0.0,
+		"rumor_seeded": rumor_id != &"",
+		"rumor_id": rumor_id,
 	}
 	last_outcome = outcome.duplicate(true)
 	raid_resolved.emit(outcome)
@@ -295,9 +325,6 @@ func resolve_failure(
 	var honor_victim := FAIL_HONOR_VICTIM
 	var attitude_delta := FAIL_ATTITUDE
 	# Failed raids do not escalate success_counts; still a whisper of heat.
-	if apply_heat:
-		_apply_honor_heat(victim, honor_overall, honor_victim, attitude_delta)
-		honor_heat_applied.emit(victim, honor_overall + honor_victim * 0.25, attitude_delta)
 
 	var mercy := is_mercy_active(victim)
 	var retaliation := build_retaliation_hook(
@@ -314,8 +341,23 @@ func resolve_failure(
 	retaliation["note"] = "Failed raid — patrol word spreads; delayed soft heat."
 	retaliation_queued.emit(retaliation.duplicate(true))
 
-	if spawn_rumor:
-		_spawn_raid_rumor(false, victim, cattle_lost, mercy)
+	var heat_mag := honor_heat_magnitude(honor_overall, honor_victim)
+	var will_seed_rumor := (
+		spawn_rumor
+		and apply_heat
+		and heat_warrants_rumor(attitude_delta, honor_overall, honor_victim, retaliation, mercy)
+	)
+	if apply_heat:
+		_apply_honor_heat(
+			victim, honor_overall, honor_victim, attitude_delta, not will_seed_rumor
+		)
+		honor_heat_applied.emit(victim, honor_overall + honor_victim * 0.25, attitude_delta)
+
+	var rumor_id: StringName = &""
+	if will_seed_rumor:
+		rumor_id = _spawn_raid_heat_rumor(
+			false, victim, cattle_lost, mercy, attitude_delta, heat_mag, retaliation
+		)
 
 	var outcome := {
 		"ok": true,
@@ -342,6 +384,9 @@ func resolve_failure(
 		"day": _day_stamp(),
 		"heat_applied": apply_heat,
 		"band_applied": apply_band,
+		"heat_magnitude": heat_mag if apply_heat else 0.0,
+		"rumor_seeded": rumor_id != &"",
+		"rumor_id": rumor_id,
 	}
 	last_outcome = outcome.duplicate(true)
 	raid_resolved.emit(outcome)
@@ -402,6 +447,9 @@ func to_debug_dict() -> Dictionary:
 		"mercy_success_count": MERCY_SUCCESS_COUNT,
 		"success_counts": counts,
 		"last_outcome": last_outcome.duplicate(true),
+		"rumor_heat_attitude_threshold": RUMOR_HEAT_ATTITUDE_THRESHOLD,
+		"rumor_heat_honor_threshold": RUMOR_HEAT_HONOR_THRESHOLD,
+		"rumor_heat_retaliation_severity": RUMOR_HEAT_RETALIATION_SEVERITY,
 	}
 
 
@@ -512,11 +560,65 @@ func _apply_band_deltas(economy: Object, morale_delta: float, readiness_delta: f
 		economy.band.modify_readiness(readiness_delta)
 
 
+## Combined honor heat used for rumor gating (matches honor_heat_applied emit formula).
+func honor_heat_magnitude(honor_overall: float, honor_victim: float) -> float:
+	return absf(honor_overall) + absf(honor_victim) * 0.25
+
+
+## True when attitude / honor heat or escalated retaliation crosses rumor thresholds.
+func heat_warrants_rumor(
+	attitude_delta: float,
+	honor_overall: float,
+	honor_victim: float,
+	retaliation: Dictionary = {},
+	mercy_active: bool = true
+) -> bool:
+	if absf(attitude_delta) >= RUMOR_HEAT_ATTITUDE_THRESHOLD:
+		return true
+	if honor_heat_magnitude(honor_overall, honor_victim) >= RUMOR_HEAT_HONOR_THRESHOLD:
+		return true
+	if not mercy_active:
+		var severity := float(retaliation.get("severity", 0.0))
+		if severity >= RUMOR_HEAT_RETALIATION_SEVERITY:
+			return true
+	return false
+
+
+## Public tag builder — raid / heat / victim faction / colder (+ retaliation if escalated).
+## Matches Rumors tag vocabulary (TAG_RAID / TAG_HEAT / faction:* / direction:*).
+func build_raid_heat_tags(
+	victim_faction: StringName,
+	escalated: bool = false
+) -> Array:
+	var tags: Array = [&"raid", &"heat"]
+	var rumors := _autoload("Rumors")
+	if victim_faction != &"":
+		if rumors != null and rumors.has_method("faction_tag"):
+			tags.append(rumors.call("faction_tag", victim_faction))
+		else:
+			tags.append(StringName("faction:%s" % String(victim_faction)))
+	tags.append(&"direction:colder")
+	if escalated:
+		tags.append(&"retaliation")
+	return tags
+
+
+func get_rumor_heat_thresholds() -> Dictionary:
+	return {
+		"attitude": RUMOR_HEAT_ATTITUDE_THRESHOLD,
+		"honor": RUMOR_HEAT_HONOR_THRESHOLD,
+		"retaliation_severity": RUMOR_HEAT_RETALIATION_SEVERITY,
+		"decay_days": RUMOR_HEAT_DECAY_DAYS,
+		"escalated_decay_days": RUMOR_HEAT_ESCALATED_DECAY_DAYS,
+	}
+
+
 func _apply_honor_heat(
 	victim: StringName,
 	honor_overall: float,
 	honor_victim: float,
-	attitude_delta: float
+	attitude_delta: float,
+	seed_attitude_rumor: bool = true
 ) -> void:
 	# Resolve via tree so --script / isolated stubs still compile without autoload globals.
 	var honor := _autoload("Honor")
@@ -527,7 +629,9 @@ func _apply_honor_heat(
 		if victim != &"" and honor_victim != 0.0 and honor.has_method("modify_honor"):
 			honor.call("modify_honor", honor_victim, victim)
 	if factions != null and victim != &"" and attitude_delta != 0.0 and factions.has_method("modify_attitude"):
-		factions.call("modify_attitude", victim, attitude_delta)
+		# Third arg: Factions.modify_attitude(..., seed_rumor). Silence when raid path
+		# seeds the richer tagged rumor so the bus does not double-post.
+		factions.call("modify_attitude", victim, attitude_delta, seed_attitude_rumor)
 
 
 func _upkeep_snapshot(economy: Object) -> Dictionary:
@@ -543,35 +647,52 @@ func _upkeep_snapshot(economy: Object) -> Dictionary:
 	return snap
 
 
-func _spawn_raid_rumor(success: bool, victim: StringName, cattle: int, mercy: bool) -> void:
+## Seed a tagged raid-heat rumor. Returns rumor id (or &"" if Rumors missing).
+func _spawn_raid_heat_rumor(
+	success: bool,
+	victim: StringName,
+	cattle: int,
+	mercy: bool,
+	attitude_delta: float,
+	heat_mag: float,
+	retaliation: Dictionary
+) -> StringName:
 	var rumors := _autoload("Rumors")
 	if rumors == null or not rumors.has_method("add_rumor"):
-		return
+		return &""
 	var who := String(victim) if victim != &"" else "rivals"
 	var day := _day_stamp()
+	var escalated := not mercy
+	var severity := float(retaliation.get("severity", 0.0))
+	var tags := build_raid_heat_tags(victim, escalated)
 	var prio_high := 3
 	var prio_normal := 2
+	var priority := prio_high if escalated else prio_normal
+	if absf(attitude_delta) >= RUMOR_HEAT_ATTITUDE_THRESHOLD * 1.5 or severity >= 0.75:
+		priority = prio_high
+	var decay := RUMOR_HEAT_ESCALATED_DECAY_DAYS if escalated else RUMOR_HEAT_DECAY_DAYS
+	var rumor_id: StringName
+	var body: String
 	if success:
-		var text := "Word of a cattle raid against %s — %d head driven off." % [who, cattle]
-		if not mercy:
-			text = "Heat rises: another cattle raid against %s is the talk of the túatha." % who
-		rumors.call(
-			"add_rumor",
-			StringName("cattle_raid_%s_%d" % [who, day]),
-			text,
-			&"raid",
-			prio_high if not mercy else prio_normal,
-			8
-		)
+		rumor_id = StringName("cattle_raid_heat_%s_%d" % [who, day])
+		if escalated:
+			body = (
+				"Heat rises: another cattle raid against %s is the talk of the túatha "
+				+ "(attitude %.0f, honor heat %.1f)."
+			) % [who, attitude_delta, heat_mag]
+		else:
+			body = "Word of a cattle raid against %s — %d head driven off; relations chill." % [
+				who, cattle,
+			]
 	else:
-		rumors.call(
-			"add_rumor",
-			StringName("cattle_raid_fail_%s_%d" % [who, day]),
-			"A bungled night raid near %s is whispered in the ringforts." % who,
-			&"raid",
-			prio_normal,
-			5
-		)
+		rumor_id = StringName("cattle_raid_fail_heat_%s_%d" % [who, day])
+		body = (
+			"A bungled night raid near %s still draws heat "
+			+ "(attitude %.0f) — patrol word spreads."
+		) % [who, attitude_delta]
+		decay = maxi(5, decay - 2)
+	rumors.call("add_rumor", rumor_id, body, &"raid", priority, decay, tags)
+	return rumor_id
 
 
 func _retaliation_note(kind: StringName, mercy_active: bool) -> String:
