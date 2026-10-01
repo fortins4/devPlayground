@@ -145,14 +145,17 @@ static func list_connections(region_id: StringName, mode: StringName = &"horse")
 	return out
 
 
-## BFS shortest path in horse-days (unweighted hops use day costs as edge weights).
-## Returns {ok, days, path: Array[StringName]} or ok=false if unreachable.
-static func shortest_horse_path(from_region: StringName, to_region: StringName) -> Dictionary:
+## Shortest path in travel-days for mode (&"horse" default, or &"foot").
+## Dijkstra on the small region graph. Returns {ok, days, path} or ok=false.
+static func shortest_path(
+	from_region: StringName,
+	to_region: StringName,
+	mode: StringName = &"horse"
+) -> Dictionary:
 	if not is_known_region(from_region) or not is_known_region(to_region):
 		return {"ok": false, "reason": &"unknown_region", "days": -1, "path": []}
 	if from_region == to_region:
 		return {"ok": true, "days": 0, "path": [from_region]}
-	# Dijkstra on small graph.
 	var dist: Dictionary = {}
 	var prev: Dictionary = {}
 	var pending: Array[StringName] = []
@@ -172,7 +175,7 @@ static func shortest_horse_path(from_region: StringName, to_region: StringName) 
 			break
 		if int(dist[u]) >= 999999:
 			break
-		for conn in list_connections(u, &"horse"):
+		for conn in list_connections(u, mode):
 			var v: StringName = conn["to"]
 			var alt := int(dist[u]) + int(conn["days"])
 			if alt < int(dist[v]):
@@ -189,6 +192,11 @@ static func shortest_horse_path(from_region: StringName, to_region: StringName) 
 		cur = prev[cur]
 		path.insert(0, cur)
 	return {"ok": true, "days": int(dist[to_region]), "path": path}
+
+
+## Horse-day shortest path (wrapper around shortest_path).
+static func shortest_horse_path(from_region: StringName, to_region: StringName) -> Dictionary:
+	return shortest_path(from_region, to_region, &"horse")
 
 
 static func to_debug_dict() -> Dictionary:
