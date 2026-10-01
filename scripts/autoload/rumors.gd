@@ -5,8 +5,8 @@ extends Node
 ## useful (docs/SCOPE.md). Severity is an alias of priority. Default lifetimes
 ## and half-lives live in DEFAULT_DECAY_DAYS_BY_PRIORITY — high-severity rumors
 ## linger; low ones fade. Emitters: WorldClock event resolve, Honor swings,
-## Faction attitude / relationship-graph / cattle-raid heat swings — see
-## systems/rumors/README.md. Optional light reverse: high-priority faction-tagged
+## Faction attitude / relationship-graph / cattle-raid heat / sanctuary-breach
+## swings — see systems/rumors/README.md. Optional light reverse: high-priority faction-tagged
 ## rumors can nudge attitudes.
 
 signal rumor_added(rumor_id: StringName)
@@ -61,21 +61,27 @@ var active_rumors: Array[Dictionary] = []
 var recently_expired: Array[StringName] = []
 const MAX_RECENTLY_EXPIRED: int = 8
 
-## Tag vocabulary for diplomatic / faction / raid-heat coupling (see systems/rumors/README.md).
+## Tag vocabulary for diplomatic / faction / raid-heat / sanctuary coupling
+## (see systems/rumors/README.md).
 const TAG_ATTITUDE: StringName = &"attitude"
 const TAG_GRAPH: StringName = &"graph"
 const TAG_RAID: StringName = &"raid"
 const TAG_HEAT: StringName = &"heat"
 const TAG_RETALIATION: StringName = &"retaliation"
+const TAG_CHURCH: StringName = &"church"
+const TAG_SANCTUARY: StringName = &"sanctuary"
+const TAG_BREACH: StringName = &"breach"
 const TAG_DIRECTION_WARMER: StringName = &"direction:warmer"
 const TAG_DIRECTION_COLDER: StringName = &"direction:colder"
 const TAG_FACTION_PREFIX: String = "faction:"
 
 ## Light reverse coupling: HIGH+ faction-tagged rumors may nudge player attitudes.
-## Skipped for sources that Factions itself seeds (avoids feedback loops).
+## Skipped for sources that Factions / raid / sanctuary themselves seed (avoids loops).
 const FACTION_NUDGE_MIN_PRIORITY: int = PRIORITY_HIGH
 const FACTION_NUDGE_AMOUNT: float = 2.0
-const FACTION_NUDGE_SKIP_SOURCES: Array[StringName] = [&"faction", &"faction_graph", &"raid"]
+const FACTION_NUDGE_SKIP_SOURCES: Array[StringName] = [
+	&"faction", &"faction_graph", &"raid", &"sanctuary_breach",
+]
 
 ## When true, Rumors debug HUD may poll get_debug_text() cheaply.
 var debug_visible: bool = false
@@ -233,7 +239,8 @@ func rumor_severity(rumor: Dictionary) -> int:
 ## Add or refresh a rumor. Higher priority wins on refresh; decay_days is lifetime.
 ## Pass decay_days <= 0 to use DEFAULT_DECAY_DAYS_BY_PRIORITY for the priority.
 ## age_days resets to 0 on refresh (word is fresh again).
-## tags: optional StringName list (e.g. faction:*, direction:warmer/colder, graph, attitude, raid, heat).
+## tags: optional StringName list (e.g. faction:*, direction:*, graph, attitude, raid, heat,
+## church, sanctuary, breach).
 func add_rumor(
 	rumor_id: StringName,
 	text: String,

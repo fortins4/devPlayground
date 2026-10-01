@@ -140,10 +140,12 @@ Debug rows also expose `severity`, `severity_label`, `half_life_days`, `decay_pr
 | **Factions attitude** (`Factions.modify_attitude`) | `\|delta\| >= RUMOR_ATTITUDE_THRESHOLD` (10) | NORMAL, 5d · source `&"faction"` | `attitude`, `faction:<id>`, `direction:warmer\|colder` |
 | **Factions graph** (`set_relationship` / `modify_relationship_strength`) | `\|strength delta\| >= RUMOR_GRAPH_DELTA_THRESHOLD` (15) | NORMAL (HIGH if \|Δ\|≥30), 6d · source `&"faction_graph"` | `graph`, both `faction:<id>`, `direction:*`, `kind:<rel>` |
 | **Cattle-raid heat** (`CattleRaidOutcomes.resolve_success` / `resolve_failure`) | `\|attitude\| ≥ 10` **or** honor heat mag ≥ 8 **or** (past mercy **and** retaliation severity ≥ 0.5) | NORMAL (HIGH if escalated), 8–10d · source `&"raid"` | `raid`, `heat`, `faction:<victim>`, `direction:colder`, optional `retaliation` |
+| **Sanctuary breach** (`SanctuaryLocations.report_breach` / `resolve_breach`) | Director / stealth / combat reports steel-in-precinct at a known site | HIGH, 12d · source `&"sanctuary_breach"` | `church`, `sanctuary`, `breach`, `heat`, `faction:church`, `direction:colder`, `site:<id>` |
 
-Callers only touch Factions / CattleEconomy resolve APIs — rumor seeding is automatic. See
-[systems/factions/README.md](../factions/README.md) and
-[systems/raid/README.md](../raid/README.md) for thresholds and direction rules.
+Callers touch Factions / CattleEconomy / SanctuaryLocations resolve APIs — rumor seeding
+is automatic on those paths. See [systems/factions/README.md](../factions/README.md),
+[systems/raid/README.md](../raid/README.md), and
+[systems/sanctuary/README.md](../sanctuary/README.md) for thresholds and tags.
 
 ---
 
@@ -158,7 +160,11 @@ Optional `tags` array on each rumor dict (also accepted by `add_rumor(..., tags)
 | `raid` | Seeded from cattle-raid economy heat (`Rumors.TAG_RAID`) |
 | `heat` | Honor / attitude heat swing from a raid (`Rumors.TAG_HEAT`) |
 | `retaliation` | Escalated raid heat past mercy (`Rumors.TAG_RETALIATION`) |
+| `church` | Church / monastic domain (`Rumors.TAG_CHURCH`) |
+| `sanctuary` | Monastic precinct / refuge (`Rumors.TAG_SANCTUARY`) |
+| `breach` | Sanctuary violated — steel/blood in precinct (`Rumors.TAG_BREACH`) |
 | `faction:<id>` | Involves roster id (one or two) |
+| `site:<id>` | SanctuaryLocations site id (e.g. `site:glendalough`) |
 | `direction:warmer` / `direction:colder` | Diplomatic direction |
 | `kind:<rel>` | Graph edge kind (`alliance`, `hostility`, …) |
 
@@ -175,7 +181,7 @@ When `Rumors.faction_nudge_enabled` (default **true**):
 
 - Priority ≥ `FACTION_NUDGE_MIN_PRIORITY` (**HIGH**)
 - At least one `faction:<id>` tag **and** a `direction:warmer|colder` tag
-- Source **not** in `{faction, faction_graph, raid}` (avoids feedback loops)
+- Source **not** in `{faction, faction_graph, raid, sanctuary_breach}` (avoids feedback loops)
 
 → applies `±FACTION_NUDGE_AMOUNT` (**2.0**) via `Factions.modify_attitude(..., seed_rumor=false)`.
 Nudge runs only on **first add** of that rumor id (refresh does not re-nudge).
@@ -205,7 +211,10 @@ dedicated bus panel that does **not** sit on top of Honor (top-left) or Timeline
 8. Cattle-raid heat: deliver the south greybox drove **past mercy** (3rd success
    on the same victim) — bus should show `{raid,heat,faction:*,direction:colder,retaliation}`.
    See [systems/raid/README.md](../raid/README.md) F5 notes / thresholds.
-9. **N** again to hide.
+9. Sanctuary breach (Remote): `SanctuaryLocations.resolve_breach(&"glendalough")` —
+   bus should show `{church,sanctuary,breach,heat,faction:church,direction:colder,site:glendalough}`.
+   See [systems/sanctuary/README.md](../sanctuary/README.md).
+10. **N** again to hide.
 
 Keys: **N** toggle · **M** seed demo · **.** diplomatic swing · **,** decay tick.
 
@@ -234,6 +243,9 @@ Factions.modify_relationship_strength(
 	&"anglo_normans", &"norse_wexford_waterford", Factions.REL_HOSTILITY, 18.0
 )
 print(Rumors.filter_by_faction(&"anglo_normans"))
+# Sanctuary breach tags (after SanctuaryLocations.resolve_breach):
+print(Rumors.filter_rumors(0, &"", false, false, Rumors.TAG_BREACH))
+print(SanctuaryLocations.probe_remote(true))
 # Reverse nudge probe (outside Factions sources):
 Rumors.add_rumor(
 	&"probe_harbor_praise",
