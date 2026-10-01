@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://cq8riochtmain0001"]
+[gd_scene load_steps=20 format=3 uid="uid://cq8riochtmain0001"]
 
 [ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtdummy01" path="res://scenes/characters/npcs/dummy_fighter.tscn" id="2_dummy"]
@@ -6,6 +6,8 @@
 [ext_resource type="PackedScene" uid="uid://cq8riochttimdbg01" path="res://scenes/ui/timeline_debug_hud.tscn" id="4_timeline_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochthonrdbg01" path="res://scenes/ui/honor_debug_hud.tscn" id="5_honor_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtrumdbg01" path="res://scenes/ui/rumors_debug_hud.tscn" id="6_rumors_dbg"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtsentry01" path="res://scenes/characters/npcs/sentry.tscn" id="7_sentry"]
+[ext_resource type="Script" path="res://systems/stealth/bog_hide_stub.gd" id="8_bog"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.45, 0.55, 0.65, 1)
@@ -32,13 +34,30 @@ albedo_color = Color(0.35, 0.42, 0.28, 1)
 roughness = 0.9
 
 [sub_resource type="BoxMesh" id="BoxMesh_ground"]
-size = Vector3(40, 0.2, 40)
+size = Vector3(48, 0.2, 40)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
-size = Vector3(40, 0.2, 40)
+size = Vector3(48, 0.2, 40)
 
 [sub_resource type="BoxMesh" id="BoxMesh_landmark"]
 size = Vector3(1.5, 2, 1.5)
+
+[sub_resource type="StandardMaterial3D" id="Mat_cover"]
+albedo_color = Color(0.42, 0.36, 0.28, 1)
+roughness = 0.95
+
+[sub_resource type="BoxMesh" id="BoxMesh_cover"]
+size = Vector3(2.2, 1.6, 0.7)
+
+[sub_resource type="BoxShape3D" id="BoxShape_cover"]
+size = Vector3(2.2, 1.6, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="Mat_bog"]
+albedo_color = Color(0.22, 0.32, 0.2, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_bog"]
+size = Vector3(4.5, 0.08, 3.5)
 
 [node name="Main" type="Node3D"]
 
@@ -51,6 +70,8 @@ shadow_enabled = true
 light_energy = 1.1
 
 [node name="Ground" type="StaticBody3D" parent="."]
+collision_layer = 1
+collision_mask = 0
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
 mesh = SubResource("BoxMesh_ground")
@@ -68,6 +89,52 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, -6)
 [node name="Landmark" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 1, -4)
 mesh = SubResource("BoxMesh_landmark")
+
+[node name="StealthLane" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 2)
+
+[node name="CoverA" type="StaticBody3D" parent="StealthLane"]
+transform = Transform3D(0.965926, 0, 0.258819, 0, 1, 0, -0.258819, 0, 0.965926, -2.5, 0.8, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StealthLane/CoverA"]
+mesh = SubResource("BoxMesh_cover")
+surface_material_override/0 = SubResource("Mat_cover")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StealthLane/CoverA"]
+shape = SubResource("BoxShape_cover")
+
+[node name="CoverB" type="StaticBody3D" parent="StealthLane"]
+transform = Transform3D(0.939693, 0, -0.34202, 0, 1, 0, 0.34202, 0, 0.939693, 0.2, 0.8, 1.4)
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StealthLane/CoverB"]
+mesh = SubResource("BoxMesh_cover")
+surface_material_override/0 = SubResource("Mat_cover")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StealthLane/CoverB"]
+shape = SubResource("BoxShape_cover")
+
+[node name="Sentry" parent="StealthLane" instance=ExtResource("7_sentry")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 4.5, 0.1, 0)
+
+[node name="BogStub" type="Area3D" parent="StealthLane"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.5, 0.05, -1)
+script = ExtResource("8_bog")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StealthLane/BogStub"]
+mesh = SubResource("BoxMesh_bog")
+surface_material_override/0 = SubResource("Mat_bog")
+
+[node name="LaneLabel" type="Label3D" parent="StealthLane"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.2, 0)
+text = "Stealth lane →
+Ctrl/C crouch · cover crates · sentry"
+billboard = 1
+font_size = 32
+modulate = Color(0.75, 0.85, 0.7, 1)
 
 [node name="CombatHUD" parent="." instance=ExtResource("3_hud")]
 

@@ -1,17 +1,33 @@
 extends CharacterBody3D
 ## Third-person controller + hatchet-first combat wiring for the greybox slice.
+## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
 
 const WALK_SPEED := 5.0
 const SPRINT_SPEED := 8.0
+const CROUCH_SPEED := 2.4
 const ACCEL := 18.0
 const DECEL := 22.0
 const JUMP_VELOCITY := 4.5
 const MOUSE_SENSITIVITY := 0.003
 
+const STAND_CAPSULE_HEIGHT := 1.7
+const CROUCH_CAPSULE_HEIGHT := 0.95
+const STAND_CAPSULE_Y := 0.85
+const CROUCH_CAPSULE_Y := 0.48
+const STAND_PIVOT_Y := 1.45
+const CROUCH_PIVOT_Y := 0.72
+const STAND_VISUAL_Y := 0.0
+const CROUCH_VISUAL_Y := -0.55
+const CROUCH_LERP := 10.0
+
 @onready var pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D
 @onready var combat: CombatSystem = $CombatSystem
 @onready var right_arm: MeshInstance3D = $Visual/RightArm
+@onready var collision_shape: CollisionShape3D = $CollisionShape3D
+@onready var hurtbox_shape: CollisionShape3D = $Hurtbox/CollisionShape3D
+@onready var visual: Node3D = $Visual
+@onready var weapon_visual: Node3D = $WeaponVisual
 
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _jump_buffered: bool = false
@@ -19,6 +35,14 @@ var _arm_base_transform: Transform3D
 var _arm_tween: Tween
 var _camera_base_pos: Vector3
 var _punch_tween: Tween
+
+## Stealth footprint (read by DetectionSensor).
+var is_crouching: bool = false
+var _noise_level: float = 0.0
+var _crouch_blend: float = 0.0
+var _capsule_shape: CapsuleShape3D
+var _hurt_shape: CapsuleShape3D
+var _weapon_base_y: float = 1.05
 
 
 func _ready() -> void:
@@ -32,6 +56,12 @@ func _ready() -> void:
 		combat.hit_landed.connect(_on_hit_landed)
 		combat.damage_taken.connect(_on_damage_taken)
 		combat.died.connect(_on_died)
+	if collision_shape and collision_shape.shape is CapsuleShape3D:
+		_capsule_shape = collision_shape.shape as CapsuleShape3D
+	if hurtbox_shape and hurtbox_shape.shape is CapsuleShape3D:
+		_hurt_shape = hurtbox_shape.shape as CapsuleShape3D
+	if weapon_visual:
+		_weapon_base_y = weapon_visual.position.y
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -71,22 +101,37 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= _gravity * delta
 
 	var locked := combat != null and not combat.can_move()
+	var want_crouch := Input.is_action_pressed("crouch") and is_on_floor() and not locked
+	# Stay crouched mid-air until land if already crouching; no jump while crouched.
+	if not is_on_floor() and is_crouching:
+		want_crouch = true
+	is_crouching = want_crouch
+	_apply_crouch_visual(delta)
 
-	if not locked and (_jump_buffered or Input.is_action_just_pressed("jump")) and is_on_floor():
+	if not locked and not is_crouching and (_jump_buffered or Input.is_action_just_pressed("jump")) and is_on_floor():
 		velocity.y = JUMP_VELOCITY
 	_jump_buffered = false
 
 	var input_dir := _move_vector()
 	var direction := (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
 
-	var want_sprint := Input.is_action_pressed("sprint") and direction != Vector3.ZERO and not locked
+	var want_sprint := (
+		Input.is_action_pressed("sprint")
+		and direction != Vector3.ZERO
+		and not locked
+		and not is_crouching
+	)
 	var sprinting := false
 	if want_sprint and combat:
 		sprinting = combat.try_sprint_drain(delta)
 	elif want_sprint and combat == null:
 		sprinting = true
 
-	var target_speed := SPRINT_SPEED if sprinting else WALK_SPEED
+	var target_speed := WALK_SPEED
+	if is_crouching:
+		target_speed = CROUCH_SPEED
+	elif sprinting:
+		target_speed = SPRINT_SPEED
 	if locked:
 		target_speed = 0.0
 		direction = Vector3.ZERO
@@ -105,7 +150,56 @@ func _physics_process(delta: float) -> void:
 		velocity += kb
 
 	move_and_slide()
+	_update_noise(horiz.length(), sprinting)
 	_update_arm_swing(delta)
+
+
+func _apply_crouch_visual(delta: float) -> void:
+	var target := 1.0 if is_crouching else 0.0
+	_crouch_blend = move_toward(_crouch_blend, target, CROUCH_LERP * delta)
+	var h := lerpf(STAND_CAPSULE_HEIGHT, CROUCH_CAPSULE_HEIGHT, _crouch_blend)
+	var cy := lerpf(STAND_CAPSULE_Y, CROUCH_CAPSULE_Y, _crouch_blend)
+	if _capsule_shape:
+		_capsule_shape.height = h
+	if collision_shape:
+		collision_shape.position.y = cy
+	if _hurt_shape:
+		_hurt_shape.height = h + 0.05
+	if hurtbox_shape:
+		hurtbox_shape.position.y = cy
+	if pivot:
+		pivot.position.y = lerpf(STAND_PIVOT_Y, CROUCH_PIVOT_Y, _crouch_blend)
+	if visual:
+		visual.position.y = lerpf(STAND_VISUAL_Y, CROUCH_VISUAL_Y, _crouch_blend)
+	if weapon_visual:
+		weapon_visual.position.y = lerpf(_weapon_base_y, _weapon_base_y + CROUCH_VISUAL_Y, _crouch_blend)
+
+
+func _update_noise(speed: float, sprinting: bool) -> void:
+	# Footprint for DetectionSensor hearing. Still = silent; crouch walk quiet; sprint loud.
+	if speed < 0.15:
+		_noise_level = 0.0
+	elif is_crouching:
+		_noise_level = 0.18 + clampf(speed / CROUCH_SPEED, 0.0, 1.0) * 0.22
+	elif sprinting:
+		_noise_level = 0.85 + clampf(speed / SPRINT_SPEED, 0.0, 1.0) * 0.15
+	else:
+		_noise_level = 0.45 + clampf(speed / WALK_SPEED, 0.0, 1.0) * 0.25
+
+
+## Used by DetectionSensor LOS aim (chest/head height).
+func get_visibility_point() -> Vector3:
+	var height := lerpf(1.45, 0.72, _crouch_blend)
+	return global_position + Vector3(0.0, height, 0.0)
+
+
+func get_noise_level() -> float:
+	return _noise_level
+
+
+## Visual silhouette factor: crouch is harder to spot at range.
+func get_visibility_factor() -> float:
+	return lerpf(1.0, 0.55, _crouch_blend)
 
 
 func _move_vector() -> Vector2:

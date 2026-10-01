@@ -26,6 +26,7 @@ No starting sword or shield. `CombatSystem.enable_block` stays off until shield 
 | Q | Cycle weapon (hatchet → knife → goad) |
 | 1 / 2 / 3 | Select hatchet / knife / goad |
 | Esc | Capture / release mouse |
+| **Ctrl / C** | Crouch (stealth — see `systems/stealth/README.md`) |
 
 ## Component
 
