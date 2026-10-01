@@ -312,7 +312,9 @@ func to_debug_dict() -> Dictionary:
 				"id": rumor.get("id"),
 				"text": rumor.get("text"),
 				"priority": rumor.get("priority"),
+				"priority_label": Rumors.priority_label(int(rumor.get("priority", Rumors.PRIORITY_NORMAL))),
 				"age_days": rumor.get("age_days"),
+				"days_remaining": Rumors.days_remaining(rumor),
 			})
 	return {
 		"day": day,
@@ -352,15 +354,16 @@ func get_debug_text() -> String:
 			lines.append("  %s: %.1f" % [String(fid), Factions.get_attitude(fid)])
 	if Rumors:
 		var top := Rumors.get_top_rumors(4)
-		lines.append("Rumors (%d active):" % Rumors.active_rumors.size())
+		lines.append("Rumors (%d active):" % Rumors.count_active())
 		if top.is_empty():
 			lines.append("  (none)")
 		else:
 			for rumor in top:
 				lines.append(
-					"  [P%d a%d] %s" % [
+					"  [%s P%d left=%d] %s" % [
+						Rumors.priority_label(int(rumor.get("priority", Rumors.PRIORITY_NORMAL))),
 						int(rumor.get("priority", 0)),
-						int(rumor.get("age_days", 0)),
+						Rumors.days_remaining(rumor),
 						str(rumor.get("text", "")),
 					]
 				)
