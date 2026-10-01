@@ -17,6 +17,7 @@ enum State { IDLE, CHASE, TELEGRAPH, RECOVER, STAGGER }
 @onready var combat: CombatSystem = $CombatSystem
 @onready var visual: Node3D = $Visual
 @onready var weapon_visual: Node3D = $WeaponVisual
+@onready var locomotion: KerneLocomotion = $KerneLocomotion
 
 var _player: Node3D
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -128,6 +129,15 @@ func _physics_process(delta: float) -> void:
 					_begin_telegraph(&"light", false)
 
 	move_and_slide()
+	_tick_locomotion(delta)
+
+
+func _tick_locomotion(delta: float) -> void:
+	if locomotion == null:
+		return
+	var hs := Vector3(velocity.x, 0.0, velocity.z).length()
+	var attacking := combat != null and combat.is_attacking
+	locomotion.tick(delta, hs, false, false, attacking, Vector3.ZERO)
 
 
 func _begin_telegraph(kind: StringName, is_counter: bool) -> void:
