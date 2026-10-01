@@ -1,19 +1,33 @@
+class_name CattleEconomy
 extends Node
-## Cattle as primary wealth + herd upkeep. Band upkeep hooks live alongside.
+## Cattle as primary wealth + herd/band daily upkeep for Godot gameplay.
 ##
-## Slice: herd + daily upkeep + Norse Wexford/Waterford trade contact stub.
-## Recruitment UI later — use `band` (BandUpkeep) for size/morale/readiness costs.
+## Slice: herd + pens + daily tick + Norse Wexford/Waterford trade contact.
+## Not an autoload — ringfort / Game / sim owner instantiates and owns this node.
+## Prefer explicit `apply_daily_tick()`; optionally `subscribe_world_clock()`.
+##
+## Norse trade shares faction id `norse_wexford_waterford` with Factions.
 
 signal herd_changed(count: int)
+signal pens_changed(capacity: int, free_slots: int)
+## Emitted after each daily tick (herd + band).
 signal upkeep_applied(cattle_spent: int, band_spent: int)
+signal daily_tick_applied(day: int, report: Dictionary)
 signal trade_completed(goods_id: StringName, cattle_delta: int)
+signal cattle_gained(amount: int, reason: StringName)
+signal cattle_lost(amount: int, reason: StringName)
+## Forwarded from BandUpkeep for UI that only holds CattleEconomy.
+signal band_changed(size: int, morale: float, readiness: float)
+signal band_upkeep_failed(shortfall_cattle: int)
 
+## Current herd headcount (primary wealth).
 var herd_size: int = 12
+## Named trade goods held from Norse contact (goods_id → count).
 var trade_goods: Dictionary = {}
 
-## Soft cap from ringfort pens (upgrade later).
+## Soft cap from ringfort pens (upgrade via set_pen_capacity / upgrade_pens).
 var pen_capacity: int = 40
-## Cattle consumed by the herd itself per day (feed / loss).
+## Cattle consumed by the herd itself per day (feed / natural loss), per 10 head.
 var herd_upkeep_per_10: float = 0.5
 
 ## Norse coastal trade contact (slice actor: Wexford/Waterford faction).
@@ -23,20 +37,102 @@ var norse_trade_unlocked: bool = true
 ## Band upkeep API for later recruitment (no gameplay UI here).
 var band: BandUpkeep = BandUpkeep.new()
 
+var _clock_subscribed: Node = null
+var _last_tick_day: int = -1
 
-func add_cattle(amount: int) -> void:
-	herd_size = maxi(0, herd_size + amount)
+
+func _ready() -> void:
+	if not band.band_changed.is_connected(_on_band_changed):
+		band.band_changed.connect(_on_band_changed)
+	if not band.upkeep_failed.is_connected(_on_band_upkeep_failed):
+		band.upkeep_failed.connect(_on_band_upkeep_failed)
+
+
+func _exit_tree() -> void:
+	unsubscribe_world_clock()
+
+
+func _on_band_changed(size: int, morale: float, readiness: float) -> void:
+	band_changed.emit(size, morale, readiness)
+
+
+func _on_band_upkeep_failed(shortfall: int) -> void:
+	band_upkeep_failed.emit(shortfall)
+
+
+# --- Herd / pens -------------------------------------------------------------
+
+func get_herd_size() -> int:
+	return herd_size
+
+
+func get_pen_capacity() -> int:
+	return pen_capacity
+
+
+func get_pen_free_slots() -> int:
+	return maxi(0, pen_capacity - herd_size)
+
+
+func set_pen_capacity(capacity: int) -> void:
+	pen_capacity = maxi(0, capacity)
 	if herd_size > pen_capacity:
 		herd_size = pen_capacity
+		herd_changed.emit(herd_size)
+	pens_changed.emit(pen_capacity, get_pen_free_slots())
+
+
+## Grow pens by delta (ringfort upgrade hook).
+func upgrade_pens(delta: int) -> void:
+	if delta == 0:
+		return
+	set_pen_capacity(pen_capacity + delta)
+
+
+func add_cattle(amount: int) -> int:
+	if amount <= 0:
+		return 0
+	var room := get_pen_free_slots()
+	var added := mini(amount, room)
+	if added <= 0:
+		return 0
+	herd_size += added
 	herd_changed.emit(herd_size)
+	pens_changed.emit(pen_capacity, get_pen_free_slots())
+	return added
 
 
 func spend_cattle(amount: int) -> bool:
+	if amount <= 0:
+		return true
 	if herd_size < amount:
 		return false
 	herd_size -= amount
 	herd_changed.emit(herd_size)
+	pens_changed.emit(pen_capacity, get_pen_free_slots())
 	return true
+
+
+## Raid / mission gain hook. Caps at pens; returns heads actually added.
+func gain_cattle(amount: int, reason: StringName = &"raid") -> int:
+	var added := add_cattle(amount)
+	if added > 0:
+		cattle_gained.emit(added, reason)
+	return added
+
+
+## Raid loss / theft / disease hook. Returns heads actually removed.
+func lose_cattle(amount: int, reason: StringName = &"raid") -> int:
+	if amount <= 0:
+		return 0
+	var removed := mini(amount, herd_size)
+	if removed <= 0:
+		return 0
+	herd_size -= removed
+	herd_changed.emit(herd_size)
+	pens_changed.emit(pen_capacity, get_pen_free_slots())
+	cattle_lost.emit(removed, reason)
+	return removed
 
 
 func daily_herd_upkeep_cost() -> int:
@@ -46,30 +142,159 @@ func daily_herd_upkeep_cost() -> int:
 	return maxi(1, int(ceil(raw)))
 
 
-## Call from WorldClock.day_advanced owner / ringfort when simulation ticks.
-func apply_daily_upkeep() -> Dictionary:
+func daily_band_upkeep_cost() -> int:
+	return band.daily_cattle_cost()
+
+
+func daily_total_upkeep_cost() -> int:
+	return daily_herd_upkeep_cost() + daily_band_upkeep_cost()
+
+
+# --- Daily tick --------------------------------------------------------------
+
+## Primary Godot entry: run herd + band upkeep once per sim day.
+## Pass WorldClock.day when known (stored on report / last tick). Idempotent
+## for the same day if `skip_if_same_day` is true (default false for explicit calls).
+func apply_daily_tick(day: int = -1, skip_if_same_day: bool = false) -> Dictionary:
+	if skip_if_same_day and day >= 0 and day == _last_tick_day:
+		return {
+			"skipped": true,
+			"day": day,
+			"herd_size": herd_size,
+			"band": band.to_debug_dict(),
+		}
+
 	var herd_cost := daily_herd_upkeep_cost()
-	var herd_paid := spend_cattle(herd_cost) if herd_cost > 0 else true
-	if not herd_paid and herd_cost > 0:
-		# Starvation: lose a head instead of a clean pay.
-		herd_size = maxi(0, herd_size - 1)
-		herd_changed.emit(herd_size)
+	var herd_paid := true
+	var starvation_loss := 0
+	if herd_cost > 0:
+		herd_paid = spend_cattle(herd_cost)
+		if not herd_paid:
+			# Starvation: lose a head instead of a clean pay.
+			starvation_loss = lose_cattle(1, &"starvation")
+
 	var band_cost := band.daily_cattle_cost()
 	var band_paid := band.apply_daily_upkeep(self)
 	var spent_band := band_cost if band_paid else 0
 	var spent_herd := herd_cost if herd_paid else 0
-	upkeep_applied.emit(spent_herd, spent_band)
-	return {
+
+	if day >= 0:
+		_last_tick_day = day
+
+	var report := {
+		"skipped": false,
+		"day": day if day >= 0 else _last_tick_day,
 		"herd_cost": herd_cost,
 		"herd_paid": herd_paid,
+		"starvation_loss": starvation_loss,
 		"band_cost": band_cost,
 		"band_paid": band_paid,
 		"herd_size": herd_size,
+		"pen_capacity": pen_capacity,
+		"pen_free_slots": get_pen_free_slots(),
 		"band": band.to_debug_dict(),
 	}
+	upkeep_applied.emit(spent_herd, spent_band)
+	daily_tick_applied.emit(int(report["day"]), report)
+	return report
 
 
-## Simple trade stub: sell cattle for a named Norse trade good, or buy cattle.
+## Alias kept for earlier stub callers.
+func apply_daily_upkeep() -> Dictionary:
+	return apply_daily_tick()
+
+
+## Optional: connect to WorldClock.day_advanced without claiming Game ownership.
+## Pass null to use the WorldClock autoload when present.
+## Auto-tick uses skip_if_same_day so double-subscribe is harmless.
+func subscribe_world_clock(clock: Node = null) -> void:
+	if clock == null:
+		clock = _resolve_world_clock()
+	if clock == null:
+		push_warning("CattleEconomy.subscribe_world_clock: no WorldClock found")
+		return
+	if not clock.has_signal("day_advanced"):
+		push_warning("CattleEconomy.subscribe_world_clock: clock missing day_advanced")
+		return
+	unsubscribe_world_clock()
+	clock.day_advanced.connect(_on_world_day_advanced)
+	_clock_subscribed = clock
+
+
+func unsubscribe_world_clock() -> void:
+	if _clock_subscribed != null and is_instance_valid(_clock_subscribed):
+		if _clock_subscribed.day_advanced.is_connected(_on_world_day_advanced):
+			_clock_subscribed.day_advanced.disconnect(_on_world_day_advanced)
+	_clock_subscribed = null
+
+
+func is_subscribed_to_world_clock() -> bool:
+	return _clock_subscribed != null and is_instance_valid(_clock_subscribed)
+
+
+func _on_world_day_advanced(day: int) -> void:
+	apply_daily_tick(day, true)
+
+
+func _resolve_world_clock() -> Node:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var root := tree.root
+	if root == null:
+		return null
+	return root.get_node_or_null("WorldClock")
+
+
+# --- Band facade (typed convenience for Godot callers) -----------------------
+
+func get_band_size() -> int:
+	return band.get_size()
+
+
+func get_band_morale() -> float:
+	return band.get_morale()
+
+
+func get_band_readiness() -> float:
+	return band.get_readiness()
+
+
+func get_band_daily_cost() -> int:
+	return band.daily_cattle_cost()
+
+
+func get_skirmish_confidence() -> float:
+	return band.skirmish_confidence()
+
+
+func can_attempt_skirmish(min_confidence: float = 0.35) -> bool:
+	return band.can_attempt_skirmish(min_confidence)
+
+
+func set_band(new_size: int, new_morale: float = -1.0, new_readiness: float = -1.0) -> void:
+	band.set_band(new_size, new_morale, new_readiness)
+
+
+func recruit_warriors(count: int = 1) -> bool:
+	return band.recruit(count)
+
+
+func dismiss_warriors(count: int = 1) -> bool:
+	return band.dismiss(count)
+
+
+func modify_band_morale(delta: float) -> void:
+	band.modify_morale(delta)
+
+
+func modify_band_readiness(delta: float) -> void:
+	band.modify_readiness(delta)
+
+
+# --- Norse trade -------------------------------------------------------------
+
+## Simple trade stub: cattle_delta < 0 sells cattle for goods; > 0 buys cattle.
 func trade_with_norse(goods_id: StringName, cattle_delta: int) -> bool:
 	if not norse_trade_unlocked:
 		return false
@@ -78,12 +303,11 @@ func trade_with_norse(goods_id: StringName, cattle_delta: int) -> bool:
 			return false
 		trade_goods[goods_id] = int(trade_goods.get(goods_id, 0)) + 1
 	elif cattle_delta > 0:
-		add_cattle(cattle_delta)
+		var added := add_cattle(cattle_delta)
+		if added <= 0:
+			return false
 		var have := int(trade_goods.get(goods_id, 0))
-		if have <= 0:
-			# Buying cattle for silver/goods not yet modeled — allow cattle-only stub credit.
-			pass
-		else:
+		if have > 0:
 			trade_goods[goods_id] = have - 1
 	else:
 		return false
@@ -91,12 +315,24 @@ func trade_with_norse(goods_id: StringName, cattle_delta: int) -> bool:
 	return true
 
 
+func get_norse_trade_contact_id() -> StringName:
+	return norse_trade_contact_id
+
+
+# --- Debug -------------------------------------------------------------------
+
 func to_debug_dict() -> Dictionary:
 	return {
 		"herd_size": herd_size,
 		"pen_capacity": pen_capacity,
+		"pen_free_slots": get_pen_free_slots(),
 		"daily_herd_upkeep": daily_herd_upkeep_cost(),
+		"daily_band_upkeep": daily_band_upkeep_cost(),
+		"daily_total_upkeep": daily_total_upkeep_cost(),
 		"norse_trade_contact_id": norse_trade_contact_id,
+		"norse_trade_unlocked": norse_trade_unlocked,
 		"trade_goods": trade_goods.duplicate(true),
+		"subscribed_to_clock": is_subscribed_to_world_clock(),
+		"last_tick_day": _last_tick_day,
 		"band": band.to_debug_dict(),
 	}
