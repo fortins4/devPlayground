@@ -6,6 +6,7 @@ extends CanvasLayer
 ##   Y — WorldClock.advance_day(1)
 ##   U — force-resolve Bannow Bay (skips calendar)
 ##   I — force-resolve Wexford/Waterford struggle (skips calendar)
+##   O — force-resolve Aífe/Strongbow marriage (skips calendar)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -53,6 +54,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_I:
 				if WorldClock:
 					WorldClock.force_resolve(&"wexford_waterford_struggle")
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_O:
+				if WorldClock:
+					WorldClock.force_resolve(&"aife_strongbow_marriage")
 					_refresh()
 				get_viewport().set_input_as_handled()
 

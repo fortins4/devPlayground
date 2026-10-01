@@ -8,6 +8,7 @@ extends Node
 ## unresolved event with `scheduled_day <= day` (overdue inclusive). Bannow Bay
 ## is seeded on day 0; the first `advance_day(1)` therefore resolves it.
 ## Event #2 (Wexford/Waterford struggle) is scheduled on day 14.
+## Event #3 (Aífe / Strongbow marriage) is scheduled on day 28.
 
 signal day_advanced(day: int)
 signal event_triggered(event_id: StringName)
@@ -24,6 +25,7 @@ var events: Dictionary = {}
 var scheduled_events: Dictionary = {
 	0: &"bannow_bay_landing",
 	14: &"wexford_waterford_struggle",
+	28: &"aife_strongbow_marriage",
 }
 
 ## Ring buffer of recent resolve summaries for the debug readout.
@@ -37,6 +39,7 @@ var debug_visible: bool = false
 func _ready() -> void:
 	_seed_bannow_bay()
 	_seed_wexford_waterford()
+	_seed_aife_strongbow_marriage()
 
 
 func _seed_bannow_bay() -> void:
@@ -85,6 +88,35 @@ func _seed_wexford_waterford() -> void:
 		&"wexford_town": &"anglo_normans",
 		&"waterford_approaches": &"norse_wexford_waterford",
 		&"ui_chennselaig_core": &"ui_chennselaig",
+	}
+	outcome.troops = outcome.historical_troops
+	outcome.morale = outcome.historical_morale
+	outcome.supplies = outcome.historical_supplies
+	outcome.key_survivors = outcome.historical_survivors.duplicate(true)
+	outcome.clan_allegiance = outcome.historical_allegiance.duplicate(true)
+	events[outcome.event_id] = outcome
+
+
+
+func _seed_aife_strongbow_marriage() -> void:
+	var outcome := EventOutcome.new()
+	outcome.event_id = &"aife_strongbow_marriage"
+	outcome.display_name = "Marriage of Aífe and Strongbow"
+	outcome.scheduled_day = 28
+	outcome.historical_bias = 0.78
+	# History-leaning: Richard de Clare (Strongbow) marries Aífe after Waterford (1170).
+	outcome.historical_troops = 0.62
+	outcome.historical_morale = 0.7
+	outcome.historical_supplies = 0.58
+	outcome.historical_survivors = {
+		&"aife_ingen_diarmata": true,
+		&"richard_de_clare": true,
+		&"diarmait_mac_murchada": true,
+	}
+	outcome.historical_allegiance = {
+		&"waterford_town": &"anglo_normans",
+		&"ui_chennselaig_core": &"ui_chennselaig",
+		&"strongbow_host": &"anglo_normans",
 	}
 	outcome.troops = outcome.historical_troops
 	outcome.morale = outcome.historical_morale
@@ -188,6 +220,8 @@ func _resolve_outcome(outcome: EventOutcome) -> void:
 	match outcome.event_id:
 		&"wexford_waterford_struggle":
 			_resolve_wexford_waterford(outcome)
+		&"aife_strongbow_marriage":
+			_resolve_aife_strongbow_marriage(outcome)
 		_:
 			_resolve_bannow_bay(outcome)
 	outcome.resolved = true
@@ -226,6 +260,30 @@ func _resolve_wexford_waterford(outcome: EventOutcome) -> void:
 		outcome.result_tag = &"towns_hold"
 		outcome.result_summary = (
 			"%s — Norse-Gaelic defenses hold the ports; the inland advance slows."
+			% outcome.display_name
+		)
+
+
+
+func _resolve_aife_strongbow_marriage(outcome: EventOutcome) -> void:
+	# Dynastic seal: high pressure → marriage seals Norman claim through Aífe.
+	var pressure := (outcome.troops + outcome.morale + outcome.supplies) / 3.0
+	if pressure >= 0.55:
+		outcome.result_tag = &"marriage_sealed"
+		outcome.result_summary = (
+			"%s — Aífe weds Strongbow; Norman claim to Leinster hardens through Diarmait's line."
+			% outcome.display_name
+		)
+	elif pressure >= 0.35:
+		outcome.result_tag = &"marriage_contested"
+		outcome.result_summary = (
+			"%s — vows are spoken under protest; lords argue whether the match binds the túatha."
+			% outcome.display_name
+		)
+	else:
+		outcome.result_tag = &"marriage_blocked"
+		outcome.result_summary = (
+			"%s — the match fails or is delayed; Strongbow's inheritance through Aífe stays uncertain."
 			% outcome.display_name
 		)
 
@@ -272,6 +330,26 @@ func _ripple_attitudes(outcome: EventOutcome) -> void:
 			Factions.modify_attitude(&"norse_dublin", 4.0)
 			Factions.modify_attitude(&"ui_chennselaig", -3.0)
 			Factions.modify_attitude(&"local_clans", 4.0)
+		&"marriage_sealed":
+			Factions.modify_attitude(&"anglo_normans", 14.0)
+			Factions.modify_attitude(&"ui_chennselaig", 8.0)
+			Factions.modify_attitude(&"high_kingship", -10.0)
+			Factions.modify_attitude(&"norse_dublin", -8.0)
+			Factions.modify_attitude(&"norse_wexford_waterford", -4.0)
+			Factions.modify_attitude(&"local_clans", -6.0)
+			Factions.modify_attitude(&"church", 2.0)
+		&"marriage_contested":
+			Factions.modify_attitude(&"anglo_normans", 5.0)
+			Factions.modify_attitude(&"ui_chennselaig", 3.0)
+			Factions.modify_attitude(&"high_kingship", -4.0)
+			Factions.modify_attitude(&"norse_dublin", -3.0)
+			Factions.modify_attitude(&"local_clans", -2.0)
+		&"marriage_blocked":
+			Factions.modify_attitude(&"anglo_normans", -10.0)
+			Factions.modify_attitude(&"ui_chennselaig", -4.0)
+			Factions.modify_attitude(&"high_kingship", 6.0)
+			Factions.modify_attitude(&"norse_dublin", 4.0)
+			Factions.modify_attitude(&"local_clans", 5.0)
 	# Clan allegiance soft ripples (slice-scale: map allegiance tags → faction nudges).
 	for _clan in outcome.clan_allegiance.keys():
 		var alleg: StringName = outcome.clan_allegiance[_clan]
@@ -315,6 +393,22 @@ func _ripple_need_pressures(outcome: EventOutcome) -> void:
 			Factions.set_need_pressure(&"anglo_normans", &"local_guides", 0.7)
 			Factions.set_need_pressure(&"norse_wexford_waterford", &"harbor_defense", 0.55)
 			Factions.set_need_pressure(&"ui_chennselaig", &"warrior_host", 0.75)
+		&"marriage_sealed":
+			Factions.set_need_pressure(&"anglo_normans", &"supplies_landing", 0.2)
+			Factions.set_need_pressure(&"anglo_normans", &"local_guides", 0.3)
+			Factions.set_need_pressure(&"anglo_normans", &"leinster_claim", 0.85)
+			Factions.set_need_pressure(&"ui_chennselaig", &"warrior_host", 0.4)
+			Factions.set_need_pressure(&"high_kingship", &"resist_invasion", 0.9)
+			Factions.set_need_pressure(&"norse_dublin", &"harbor_defense", 0.8)
+		&"marriage_contested":
+			Factions.set_need_pressure(&"anglo_normans", &"leinster_claim", 0.55)
+			Factions.set_need_pressure(&"ui_chennselaig", &"warrior_host", 0.6)
+			Factions.set_need_pressure(&"high_kingship", &"resist_invasion", 0.7)
+		&"marriage_blocked":
+			Factions.set_need_pressure(&"anglo_normans", &"supplies_landing", 0.75)
+			Factions.set_need_pressure(&"anglo_normans", &"leinster_claim", 0.35)
+			Factions.set_need_pressure(&"ui_chennselaig", &"warrior_host", 0.7)
+			Factions.set_need_pressure(&"high_kingship", &"resist_invasion", 0.5)
 
 
 func _emit_outcome_rumors(outcome: EventOutcome) -> void:
@@ -331,6 +425,8 @@ func _emit_outcome_rumors(outcome: EventOutcome) -> void:
 	var place := "Bannow"
 	if outcome.event_id == &"wexford_waterford_struggle":
 		place = "Wexford"
+	elif outcome.event_id == &"aife_strongbow_marriage":
+		place = "Waterford"
 	var fallen: Array[String] = []
 	for who in outcome.key_survivors.keys():
 		if not bool(outcome.key_survivors[who]):
@@ -347,6 +443,8 @@ func _emit_outcome_rumors(outcome: EventOutcome) -> void:
 		var ok_text := "Messengers say Diarmait and FitzStephen still live after the landing."
 		if outcome.event_id == &"wexford_waterford_struggle":
 			ok_text = "Messengers say Diarmait and FitzStephen still live after the port struggle."
+		elif outcome.event_id == &"aife_strongbow_marriage":
+			ok_text = "Messengers say Aífe, Strongbow, and Diarmait still live after the wedding feast."
 		Rumors.add_rumor(
 			StringName("rumor_%s_survivors" % String(outcome.event_id)),
 			ok_text,
@@ -401,6 +499,37 @@ func _emit_outcome_rumors(outcome: EventOutcome) -> void:
 				outcome.event_id,
 				Rumors.PRIORITY_HIGH,
 				10
+			)
+		&"marriage_sealed":
+			Rumors.add_rumor(
+				&"rumor_aife_marriage_sealed",
+				"At Waterford, Aífe weds Strongbow — Norman steel now claims Leinster through Diarmait's daughter.",
+				outcome.event_id,
+				Rumors.PRIORITY_HIGH,
+				14
+			)
+			Rumors.add_rumor(
+				&"rumor_aife_marriage_dublin_watch",
+				"Dublin's Norse captains watch the feast with dread; Ruaidrí's riders carry the news west.",
+				outcome.event_id,
+				Rumors.PRIORITY_NORMAL,
+				10
+			)
+		&"marriage_contested":
+			Rumors.add_rumor(
+				&"rumor_aife_marriage_contested",
+				"Vows at Waterford draw protest — some túatha refuse to treat Strongbow as Diarmait's heir.",
+				outcome.event_id,
+				Rumors.PRIORITY_HIGH,
+				12
+			)
+		&"marriage_blocked":
+			Rumors.add_rumor(
+				&"rumor_aife_marriage_blocked",
+				"The match with Aífe falters; Strongbow's host holds ports but not a clear Leinster claim.",
+				outcome.event_id,
+				Rumors.PRIORITY_HIGH,
+				12
 			)
 
 
@@ -484,9 +613,10 @@ func _append_event_debug_lines(lines: PackedStringArray, event_id: StringName, l
 func get_debug_text() -> String:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("=== WorldClock / living-history debug ===")
-	lines.append("Day: %d   (T toggle · Y advance · U force Bannow · I force Wexford)" % day)
+	lines.append("Day: %d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage)" % day)
 	_append_event_debug_lines(lines, &"bannow_bay_landing", "Bannow")
 	_append_event_debug_lines(lines, &"wexford_waterford_struggle", "Wexford/Waterford")
+	_append_event_debug_lines(lines, &"aife_strongbow_marriage", "Aífe/Strongbow")
 	if Factions:
 		lines.append("Attitudes (Leinster):")
 		for fid in Factions.LEINSTER_ACTIVE:
