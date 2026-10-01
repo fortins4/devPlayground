@@ -1,4 +1,4 @@
-[gd_scene load_steps=24 format=3 uid="uid://cq8riochtmain0001"]
+[gd_scene load_steps=22 format=3 uid="uid://cq8riochtmain0001"]
 
 [ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtdummy01" path="res://scenes/characters/npcs/dummy_fighter.tscn" id="2_dummy"]
@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" uid="uid://cq8riochtrumdbg01" path="res://scenes/ui/rumors_debug_hud.tscn" id="6_rumors_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtsentry01" path="res://scenes/characters/npcs/sentry.tscn" id="7_sentry"]
 [ext_resource type="Script" path="res://systems/stealth/bog_hide_stub.gd" id="8_bog"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtleinst01" path="res://scenes/world/regions/leinster/leinster_region.tscn" id="9_leinster"]
 
 [ext_resource type="PackedScene" uid="uid://cq8riochtringfort01" path="res://scenes/world/ringfort/ringfort.tscn" id="9_ringfort"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtbandhud01" path="res://scenes/ui/band_hud.tscn" id="10_band_hud"]
@@ -30,20 +31,7 @@ ambient_light_energy = 0.6
 tonemap_mode = 2
 fog_enabled = true
 fog_light_color = Color(0.65, 0.68, 0.6, 1)
-fog_density = 0.002
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
-albedo_color = Color(0.35, 0.42, 0.28, 1)
-roughness = 0.9
-
-[sub_resource type="BoxMesh" id="BoxMesh_ground"]
-size = Vector3(72, 0.2, 48)
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
-size = Vector3(72, 0.2, 48)
-
-[sub_resource type="BoxMesh" id="BoxMesh_landmark"]
-size = Vector3(1.5, 2, 1.5)
+fog_density = 0.0015
 
 [sub_resource type="StandardMaterial3D" id="Mat_cover"]
 albedo_color = Color(0.42, 0.36, 0.28, 1)
@@ -79,30 +67,17 @@ size = Vector3(0.35, 1.8, 0.35)
 environment = SubResource("Environment_main")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 12, 0)
+transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 18, 0)
 shadow_enabled = true
-light_energy = 1.1
+light_energy = 1.15
 
-[node name="Ground" type="StaticBody3D" parent="."]
-collision_layer = 1
-collision_mask = 0
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
-mesh = SubResource("BoxMesh_ground")
-surface_material_override/0 = SubResource("StandardMaterial3D_ground")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
-shape = SubResource("BoxShape3D_ground")
+[node name="LeinsterRegion" parent="." instance=ExtResource("9_leinster")]
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
 
 [node name="DummyFighter" parent="." instance=ExtResource("2_dummy")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, -6)
-
-[node name="Landmark" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 1, -4)
-mesh = SubResource("BoxMesh_landmark")
 
 [node name="StealthLane" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 2)
