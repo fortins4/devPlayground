@@ -1,5 +1,6 @@
 extends CharacterBody3D
 ## Third-person controller + hatchet-first combat wiring for the greybox slice.
+## HealthCombatBridge (sibling) mirrors player CombatSystem ↔ CharacterHealth.
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
 ## Locomotion: procedural kerne joints via KerneLocomotion (walk/run/sprint/crouch/idle).
 
@@ -25,6 +26,7 @@ const CROUCH_LERP := 10.0
 @onready var pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D
 @onready var combat: CombatSystem = $CombatSystem
+@onready var health_bridge: HealthCombatBridge = $HealthCombatBridge
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
 @onready var hurtbox_shape: CollisionShape3D = $Hurtbox/CollisionShape3D
 @onready var visual: Node3D = $Visual

@@ -49,6 +49,14 @@ Wire under a `CharacterBody3D` with optional `Hitbox`, `Hurtbox`, and `WeaponVis
 
 Open `scenes/main/main.tscn` (F5). A dummy fighter stands a few meters ahead — swing the hatchet, swap weapons, sprint, and watch HP/STA on the HUD. Confirm flash + damage numbers on hit, and dummy telegraph before counters.
 
+
+## Session vitals bridge (player only)
+
+Player greybox adds `HealthCombatBridge` beside `CombatSystem` so melee HP/STA
+mirror into the `CharacterHealth` autoload (HUD / feel). **NPCs are unchanged** —
+do not attach the bridge to dummy / sentry / band scenes. See
+[`systems/health/README.md`](../health/README.md#healthcombatbridge-player--session).
+
 ## Character anims
 
 Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS.md`](../../docs/CHARACTER_ANIMS.md).

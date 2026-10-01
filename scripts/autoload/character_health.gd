@@ -348,7 +348,7 @@ func get_debug_text() -> String:
 	else:
 		lines.append("Companion: (none)")
 	lines.append("V toggle · 9/0 HP ±10 · 7/8 STA ±10 · 6 wound+ · 5 restore · 4 downed stub")
-	lines.append("≠ CombatSystem (per-entity melee). ≠ BandUpkeep (roster).")
+	lines.append("≠ CombatSystem alone (per-entity melee; player bridged). ≠ BandUpkeep (roster).")
 	return "\n".join(lines)
 
 

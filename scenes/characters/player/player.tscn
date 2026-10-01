@@ -1,7 +1,8 @@
-[gd_scene load_steps=12 format=3 uid="uid://bq8riochtplayer01"]
+[gd_scene load_steps=13 format=3 uid="uid://bq8riochtplayer01"]
 
 [ext_resource type="Script" path="res://scripts/characters/player/player_controller.gd" id="1_player"]
 [ext_resource type="Script" path="res://systems/combat/combat_system.gd" id="2_combat"]
+[ext_resource type="Script" path="res://systems/health/health_combat_bridge.gd" id="4_bridge"]
 [ext_resource type="Script" path="res://scripts/characters/shared/kerne_locomotion.gd" id="3_loco"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
@@ -90,6 +91,10 @@ script = ExtResource("2_combat")
 team = 0
 starting_weapon = 0
 enable_block = false
+
+[node name="HealthCombatBridge" type="Node" parent="."]
+script = ExtResource("4_bridge")
+; Player-only: mirrors CombatSystem ↔ CharacterHealth. Leave off NPCs.
 
 [node name="Hitbox" type="Area3D" parent="."]
 collision_layer = 8

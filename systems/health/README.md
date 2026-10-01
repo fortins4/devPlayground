@@ -7,6 +7,7 @@ single companion slot. Runtime API: `scripts/autoload/character_health.gd`
 | Piece | Role |
 |---|---|
 | `scripts/autoload/character_health.gd` | HP / stamina / wounds + downed/death stub + companion slot |
+| `systems/health/health_combat_bridge.gd` | Optional player-only bridge: `CombatSystem` ↔ `CharacterHealth` |
 | `scenes/ui/health_debug_hud.tscn` | F5 greybox panel (instanced on `scenes/main/main.tscn`) |
 
 **Not** a combat sim — per-entity melee lives in [`systems/combat/`](../combat/)
@@ -16,7 +17,8 @@ data + signals surface HUD / feel systems bind to later.
 
 Stealth remains first-class; combat exists, but HUD binding should prefer
 `CharacterHealth` signals over reaching into `CombatSystem` internals.
-A later bridge can sync player `CombatSystem.health` ↔ `CharacterHealth.hp`.
+Player greybox wires `HealthCombatBridge` on the player only so melee damage
+mirrors into this autoload (NPCs stay on independent `CombatSystem` vitals).
 
 ---
 
@@ -82,13 +84,41 @@ CharacterHealth.modify_stamina(-22.0)
 CharacterHealth.add_wound()
 ```
 
-Optional bridge from greybox combat (call from player hurt / heal hooks):
+### HealthCombatBridge (player ↔ session)
+
+`class_name HealthCombatBridge` — Node under the **player** (`scenes/characters/player/player.tscn`).
+Do **not** add it to NPC / dummy scenes; their `CombatSystem` stays independent.
+
+| API | Meaning |
+|---|---|
+| `bind_player_combat(combat)` | Bind a `CombatSystem` to `CharacterHealth` |
+| `bind_player_entity(entity)` | Find `CombatSystem` under entity, then bind |
+| `unbind()` / `is_bound()` / `get_bound_combat()` | Lifecycle |
+| `apply_damage(amount, from := null, frontal := true)` | Forward through combat (or session if unbound) |
+| `apply_heal(amount)` | Heal combat + session (soft-clears combat `is_dead` if HP > 0) |
+| `push_combat_to_session()` / `push_session_to_combat()` | One-shot mirror |
+| `to_debug_dict()` / `get_debug_text()` | Probe / F5 |
+
+Exports (defaults on for player stub):
+
+| Flag | Default | Role |
+|---|---|---|
+| `sync_combat_to_session` | `true` | Melee / combat HP·STA → `CharacterHealth` |
+| `sync_session_to_combat` | `true` | Session (V-panel keys, heals) → bound combat |
+| `sync_stamina` | `true` | Include stamina in both directions |
+| `seed_session_from_combat_on_bind` | `true` | Seed autoload from combat on bind |
+| `auto_bind_on_ready` | `true` | Resolve sibling `CombatSystem` and bind |
 
 ```gdscript
-# After CombatSystem.apply_damage / heal on the player:
-CharacterHealth.set_hp(combat.health)
-CharacterHealth.set_stamina(combat.stamina)
+# Player scene already instances HealthCombatBridge as sibling of CombatSystem.
+var bridge: HealthCombatBridge = player.get_node("HealthCombatBridge")
+bridge.apply_damage(14.0)   # combat.apply_damage → CharacterHealth.hp
+bridge.apply_heal(10.0)     # both surfaces
+print(bridge.get_debug_text())
 ```
+
+Signals: `bound_changed(is_bound)`, `synced(direction, hp, stamina)` where
+`direction` is `&"combat_to_session"`, `&"session_to_combat"`, or `&"heal"`.
 
 ---
 
@@ -122,5 +152,18 @@ Keys: **V** toggle · **9** / **0** HP −10 / +10 · **7** / **8** STA −10 / 
 Layout: Honor **H** top-left · Timeline **T** top-right · Rumors **N** bottom-left ·
 Travel **G** bottom-right · **CharacterHealth V** mid-left (below Honor).
 
-Combat HUD (always-on HP/STA from `CombatSystem`) is separate — this panel
-probes the **CharacterHealth** autoload only.
+Combat HUD (always-on HP/STA from `CombatSystem`) stays wired to the component;
+with the bridge on the player, those values should stay in lockstep with this
+panel when you take a hit or press **9** / **0**.
+
+### F5 bridge check (CombatSystem ↔ CharacterHealth)
+
+1. F5 main scene. Press **V** — panel should show bridge status lines when the
+   player `HealthCombatBridge` is bound (`bound=true`, `match hp=true`).
+2. Walk into the dummy and take a hit (or Remote:
+   `player.health_bridge.apply_damage(14.0)`).
+3. Confirm Combat HUD HP and V-panel HP match; `match hp=true` on the panel.
+4. Press **9** (session −10) — Combat HUD HP should drop too (`session→combat`).
+5. Press **5** restore — both surfaces refill.
+6. Headless (when Godot is available):
+   `godot --headless --path . --script res://tools/probe_health_combat_bridge.gd`
