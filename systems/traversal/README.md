@@ -9,6 +9,7 @@ Overland region graph for Leinster → Ireland. Design: [`docs/MAP_SCALE.md`](..
 | [`travel_gate.gd`](travel_gate.gd) (`class_name TravelGate`) | Preview / request / commit travel → `WorldClock` + `Game.current_region` |
 | `Game.current_region` | Live region id (seeds `&"leinster"`); `Game.set_current_region` / `region_changed` |
 | `scenes/ui/travel_debug_hud.tscn` | F5 greybox panel (instanced on `scenes/main/main.tscn`) |
+| Horse greybox (this slice) | Local mount/dismount + ride loop on F5 main |
 
 No scene loads here — the gate advances the living calendar and updates the
 session region id. Greybox / streaming swaps stay caller-owned.
@@ -16,6 +17,32 @@ session region id. Greybox / streaming swaps stay caller-owned.
 Church sanctuary sites that hang off these region ids: [`systems/sanctuary/`](../sanctuary/) (`glendalough` → `wicklow_glendalough`, `clonmacnoise` → `clonmacnoise`).
 
 Calendar / event resolve that travel days can trigger: [`systems/timeline/`](../timeline/) (`WorldClock.advance_day`).
+
+## Local horse (greybox)
+
+Playable mount for open-world traversal feel — not full cavalry combat.
+
+| Piece | Path |
+|---|---|
+| Horse scene | [`scenes/characters/horse/horse.tscn`](../../scenes/characters/horse/horse.tscn) |
+| Controller | [`scripts/characters/horse/horse_controller.gd`](../../scripts/characters/horse/horse_controller.gd) |
+| Player mount hooks | `prepare_for_mount` / `clear_mount` on `player_controller.gd` |
+| F5 wiring | `HorseLane` near spawn in [`scenes/main/main.tscn`](../../scenes/main/main.tscn) (+Z / SE of player) |
+
+### Controls
+
+| Input | Action |
+|---|---|
+| **E** (interact) | Mount when near / dismount when riding |
+| WASD | Ride (horse-local; mouse yaws the horse) |
+| Mouse | Look (yaw → horse, pitch → camera) |
+| Shift | Gallop (~14 m/s vs trot ~7.5) |
+| Space | Short hop while mounted |
+| LMB / RMB / weapons | **Blocked** while mounted — dismount to fight |
+
+Combat lane (−Z dummy) and stealth lane (+X) stay intact. FULL bog corpse-drag is live; mounting clears an active drag and mounted state blocks new drags / melee.
+
+Speeds are local greybox meters (feel), separate from `TravelDistances` calendar days on the region graph.
 
 ## API — distances
 
@@ -74,6 +101,7 @@ needs / rumors / cattle ticks and overdue timeline events resolve along the road
 - Other ids exist so UI / timeline / rumors can talk about destinations and so
   event spacing (Bannow → ports → marriage → Dublin) stays honest against travel cost.
 - Travel gate does **not** load other region scenes yet — region id + calendar only.
+- Horse entity is a **hobby / pony** greybox stand-in (Irish early-medieval vibe), not a warhorse combat mount yet.
 
 ## F5 test path (Travel gate debug)
 
@@ -104,6 +132,8 @@ needs / rumors / cattle ticks and overdue timeline events resolve along the road
 Keys: **G** toggle · **J** / **K** cycle dest · **F** horse/foot · **B** commit.
 
 Timeline debug remains **T** / **Y** / **U** / **I** / **O** (top-right).
+
+Horse greybox: walk to **HorseLane** (+Z / SE of spawn), **E** mount/dismount, WASD ride, Shift gallop.
 
 ## Remote probe
 
