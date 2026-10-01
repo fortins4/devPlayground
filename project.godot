@@ -20,9 +20,9 @@ config/icon="res://icon.svg"
 
 Game="*res://scripts/autoload/game.gd"
 WorldClock="*res://scripts/autoload/world_clock.gd"
-Honor="*res://scripts/autoload/honor.gd"
 Factions="*res://scripts/autoload/factions.gd"
 Rumors="*res://scripts/autoload/rumors.gd"
+Honor="*res://scripts/autoload/honor.gd"
 
 [display]
 
