@@ -98,3 +98,38 @@ print(cattle.to_debug_dict())
 ```
 
 Remote inspect: `print(cattle.to_debug_dict())` / `print(cattle.band.to_debug_dict())`.
+
+---
+
+## Recruitment data hooks (who / cost)
+
+Data/API only — **no recruitment UI**. Pool lives on `BandUpkeep.RECRUIT_POOL`;
+`CattleEconomy` exposes a typed facade that pays from the herd.
+
+| Option id | Cattle cost | Soft gates (slice) |
+|---|---|---|
+| `local_kerne` | 2 | honor ≥ −30 |
+| `ringfort_veteran` | 4 | honor ≥ −10, readiness ≥ 25 |
+| `ui_chennselaig_retainer` | 5 | honor ≥ 0, Uí Chennselaig attitude ≥ 15 |
+| `fian_outlaw` | 3 | honor ≥ −80 |
+| `norse_coastal_axe` | 6 | honor ≥ −20, Norse Wexford/Waterford attitude ≥ 10 |
+
+```gdscript
+# Inspect
+cattle.get_recruit_pool()
+cattle.get_recruit_cattle_cost(&"local_kerne")  # 2
+cattle.list_recruit_options(Honor.get_honor())   # eligible + grey rows; uses Factions.attitudes + herd
+cattle.list_eligible_recruits(Honor.get_honor())
+
+# Gate + pay + grow band
+var gate := cattle.can_recruit_option(&"ui_chennselaig_retainer", Honor.get_honor())
+var result := cattle.try_recruit_option(&"local_kerne", Honor.get_honor())
+# result: { ok, reason, cattle_spent, count, band_size, option }
+```
+
+Direct band access: `cattle.band.can_recruit_option(...)` / `try_recruit_option(id, economy, ...)`.
+Signal: `BandUpkeep.recruit_option_denied(option_id, reason)`.
+
+Deny reasons: `unknown_option`, `band_full`, `band_capacity`, `honor_too_low`,
+`readiness_too_low`, `faction_attitude`, `cannot_afford`, `no_economy`, `recruit_failed`.
+
