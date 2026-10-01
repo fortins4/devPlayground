@@ -291,13 +291,14 @@ func _try_damage_target(target: Node, damage: float, kind: StringName) -> void:
 
 
 func _is_frontal(other: CombatSystem) -> bool:
-	if other.get_parent() == null or _owner_body == null:
+	var defender_body := other.get_parent() as Node3D
+	if defender_body == null or _owner_body == null:
 		return true
-	var to_attacker: Vector3 = _owner_body.global_position - other.get_parent().global_position
+	var to_attacker: Vector3 = _owner_body.global_position - defender_body.global_position
 	to_attacker.y = 0.0
 	if to_attacker.length_squared() < 0.001:
 		return true
-	var defender_fwd := -other.get_parent().global_transform.basis.z
+	var defender_fwd: Vector3 = -defender_body.global_transform.basis.z
 	defender_fwd.y = 0.0
 	if defender_fwd.length_squared() < 0.001:
 		return true
