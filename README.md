@@ -10,7 +10,7 @@ Working title for an open-world, historically grounded action-adventure set in *
 2. Open `project.godot` in this repo.
 3. Press **F5** — greybox main scene with a stylized primitive humanoid player.
 4. See **[docs/SETUP.md](docs/SETUP.md)** for Terrain3D install and folder layout.
-5. Design bible: **[docs/VISION.md](docs/VISION.md)**.
+5. Design bible: **[docs/VISION.md](docs/VISION.md)** · full scope: **[docs/SCOPE.md](docs/SCOPE.md)**.
 
 ## Stack
 

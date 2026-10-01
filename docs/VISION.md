@@ -2,6 +2,8 @@
 
 > *Ríocht* means "Kingdom" in Irish.
 
+Companion doc: **[Full intended scope](SCOPE.md)** (now → vertical slice → full game).
+
 ## Elevator Pitch
 An open-world, historically grounded action-adventure set in **Ireland, 1169–1171 AD**, as the Anglo-Norman invasion begins. You play a set protagonist whose life is shattered in a gut-wrenching opening. Then you're released into a living sandbox where history moves forward whether you act or not. You can't stop the tide of history alone, but you can genuinely change how it plays out.
 
@@ -20,9 +22,11 @@ An open-world, historically grounded action-adventure set in **Ireland, 1169–1
 - **Who:** Diarmait Mac Murchada, Aífe, Richard de Clare ("Strongbow"), Ruaidrí Ua Conchobair (High King), Norse-Gaelic Dublin under Ascall mac Ragnaill, abbots, brehons, filí, and the common people of the túatha.
 
 ## The Protagonist & Opening
-- A set character from a minor Gaelic clan in Leinster.
-- The **opening sequence** is a tightly authored, emotional prologue. It ends in personal loss that gives the character a reason to act, then opens the full world.
-- After the prologue, the character's personal story continues as **optional threads** the player can pursue at any pace, or not at all.
+- **Placeholder name:** Cian (young man; final name TBD).
+- From a minor Gaelic clan in Leinster.
+- Recently traumatized by an **English (Anglo-Norman) invading raid** on his village; driven into the wilderness and forced to survive outside settled túath life.
+- The **opening sequence** is a tightly authored, emotional prologue built around that raid and exile. It ends in personal loss that gives him a reason to act, then opens the full world.
+- After the prologue, the personal story is **what you make of it** — optional threads the player can pursue at any pace, or not at all; no mandatory critical path.
 - The protagonist has a defined voice and personality, but the player controls choices, alliances, and methods.
 
 ## Core Pillars
@@ -71,11 +75,21 @@ A persistent base the player rebuilds after the opening tragedy. Recruit smiths,
 | Traversal | Foot, horseback, currach boats, and climbing round towers |
 
 ## World Regions
-- **Laigin (Leinster):** Starting region, home of the prologue, Norman landing site.
-- **Áth Cliath (Dublin):** Norse-Gaelic trade city, center of intrigue and siege.
-- **Glendalough / Clonmacnoise:** Monastic centers.
-- **The Midlands Bogs:** Guerrilla country.
-- **Connacht:** Seat of the High King, wild western coast.
+No fixed unlock order — the player can reach these as the sandbox allows. Compiled intended list:
+
+| Region | Irish / period name | Role |
+|---|---|---|
+| Leinster (start) | Laigin | Prologue home, Cian's wilderness exile nearby, Norman beachhead (Bannow Bay) |
+| Wexford / Waterford coasts | Loch Garman / Port Láirge approaches | Early Norman footholds, port towns, raid & trade pressure |
+| Dublin | Áth Cliath | Norse-Gaelic trade city; intrigue; Siege of Dublin set piece |
+| Wicklow mountains / Glendalough | Gleann Dá Loch | Monastic sanctuary, Church politics, pilgrimage, highland guerrilla cover |
+| Midlands bogs | Móinteach (midlands) | Guerrilla terrain that favors Gaelic fighters |
+| Clonmacnoise corridor | Cluain Mhic Nóis | Monastic center on the Shannon; pilgrimage and Church influence |
+| Munster fringe (east) | Approach to Muma | Secondary Norman / Gaelic conflict pressure (lighter depth than Laigin/Dublin) |
+| Connacht | Connacht | Seat of High King Ruaidrí; late-game political pressure; wild western coast |
+| Shannon / river ways | An tSionainn | Traversal spine (currach / river travel) linking midlands and west |
+
+Depth varies: Laigin and Áth Cliath densest; monastic, bog, and Connacht playable but not every túath simulated.
 
 ## Tone & Art Direction
 - Muted greens, peat browns, and mist, with vivid accents from Celtic enamel, illuminated manuscripts, and woven cloaks.
@@ -103,5 +117,6 @@ A persistent base the player rebuilds after the opening tragedy. Recruit smiths,
 10. Rumor system
 
 ## Open Questions
-- Protagonist name, gender, and backstory details
-- Post-1171 ending: hard end at Henry II's arrival, or continued sandbox?
+- Final protagonist name (placeholder: **Cian**)
+- How strongly the prologue teaches wilderness survival vs jumping straight into faction play
+- Exact content depth per region (list locked; budget per region still TBD after slice)
