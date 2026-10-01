@@ -11,6 +11,7 @@ extends CanvasLayer
 ##   X — force-resolve Dublin siege (skips calendar)
 ##   P — Factions.demo_need_pressure_surge(5)  (need tick without calendar events)
 ##   / — Factions.probe_quest_stubs()  (sync board + sample pick_up; Q is cycle_weapon)
+##   J — Factions.demo_seed_graph_timeline_unlocks()  (open Dublin road unlock)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -83,6 +84,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_SLASH:
 				if Factions:
 					print(Factions.probe_quest_stubs())
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_J:
+				if Factions:
+					Factions.demo_seed_graph_timeline_unlocks(true, false)
 					_refresh()
 				get_viewport().set_input_as_handled()
 

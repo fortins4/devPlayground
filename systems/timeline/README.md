@@ -3,6 +3,7 @@
 Historical clock and event definitions (Bannow Bay landing → Wexford/Waterford → Aífe/Strongbow marriage → Dublin approaches → Dublin siege).
 
 Runtime: `scripts/autoload/world_clock.gd`.
+Graph→timeline unlock registry: [`graph_timeline_unlocks.gd`](graph_timeline_unlocks.gd) (`class_name GraphTimelineUnlocks`) — queried live via **`Factions`**.
 
 ## EventOutcome schema
 
@@ -87,6 +88,77 @@ Relevant factions for #4: `norse_dublin`, `anglo_normans`, `english_crown`, `ui_
 
 ---
 
+## Graph → timeline unlock stubs
+
+Relationship-graph edge strengths unlock (or **gate**) living-history **event ids**
+and **content flags** directors can query. Data hooks only — does **not** auto-resolve
+`WorldClock` events or load scenes.
+
+| Piece | Role |
+|---|---|
+| [`GraphTimelineUnlocks`](graph_timeline_unlocks.gd) | Authored registry + pure evaluators over an edges snapshot |
+| `Factions` query API | Live graph wrapper; refreshes on `relationship_changed` |
+| Timeline HUD **J** | `Factions.demo_seed_graph_timeline_unlocks()` greybox swing |
+
+### Registry rows (seed)
+
+| ID | Effect | Graph condition (summary) | Opens / gates |
+|---|---|---|---|
+| `unlock_port_pressure` | unlock | Anglo ↔ Norse Wexford/Waterford hostility ≥ **60** | event `wexford_waterford_struggle` · flags `port_raid_hooks`, `harbor_struggle_briefings` |
+| `unlock_dynastic_seal` | unlock | Alliance ui↔anglo ≥ **50** AND obligation anglo→ui ≥ **40** | event `aife_strongbow_marriage` · flags `dynastic_marriage_path`, `strongbow_host_muster` |
+| `unlock_dublin_road` | unlock | High Kingship → Anglo hostility ≥ **55** (seed is 45 — closed until swing) | events `dublin_approaches`, `dublin_siege` (stub ids) · flags `dublin_road_intel`, `ath_cliath_pressure` |
+| `unlock_norse_coast_word` | unlock | Dublin↔Wexford kinship ≥35 **OR** trade ≥30 | flags `norse_coast_intelligence`, `east_coast_trade_word` |
+| `unlock_bannow_foothold_word` | unlock | Obligation anglo→ui ≥ **35** | event `bannow_bay_landing` · flag `bannow_foothold_briefings` |
+| `gate_marriage_if_alliance_cold` | **gate** | Alliance ui↔anglo ≤ **25** | blocks marriage event + `dynastic_marriage_path` even if dynastic unlock is met |
+
+**Availability rule:** a timeline event / content flag is available when ≥1 unlock
+grants it **and** no active gate blocks it.
+
+Directors can query `is_timeline_event_unlocked(&"dublin_approaches")` once the graph
+threshold is met (Dublin calendar events are seeded by living-history).
+
+### Query API
+
+```gdscript
+# Live graph (preferred for directors)
+Factions.list_open_timeline_unlocks()
+Factions.list_unlocked_timeline_events()
+Factions.list_unlocked_content_flags()
+Factions.is_timeline_event_unlocked(&"aife_strongbow_marriage")
+Factions.is_content_flag_unlocked(&"port_raid_hooks")
+Factions.is_timeline_unlock_open(&"unlock_dublin_road")
+Factions.is_timeline_gate_active(&"gate_marriage_if_alliance_cold")
+Factions.to_timeline_unlocks_debug_dict()
+Factions.get_timeline_unlocks_debug_text()
+Factions.refresh_timeline_unlocks()
+Factions.demo_seed_graph_timeline_unlocks(true, false)  # open Dublin road
+
+# Pure registry (edges snapshot / tests)
+GraphTimelineUnlocks.evaluate_registry(Factions.relationship_edges)
+GraphTimelineUnlocks.list_registry()
+```
+
+Signal: `Factions.timeline_unlocks_changed(report)` when the available set changes.
+
+### F5 / Remote probe
+
+1. F5 → **T** (Timeline panel). Confirm **Graph→timeline unlocks** block:
+   - `unlock_port_pressure`, `unlock_dynastic_seal`, `unlock_norse_coast_word`,
+     `unlock_bannow_foothold_word` marked **[Y]** at seed.
+   - `unlock_dublin_road` marked **[n]** at seed.
+2. Press **J** — bumps High Kingship→Anglo hostility; Dublin road unlocks;
+   `dublin_approaches` / `dublin_siege` appear in available events.
+3. Remote / headless:
+   ```text
+   godot --headless --path . --script res://tools/probe_graph_timeline_unlocks.gd
+   ```
+   Or paste `print(Factions.demo_seed_graph_timeline_unlocks(true, true))` in the
+   Editor Remote debugger to also chill the alliance and exercise the marriage gate.
+
+Keys: **T** toggle · **Y** day · **P** need surge · **J** graph unlocks · **U/I/O/Z/X** force events · **/** quest stubs.
+
+---
+
 ## F5 test path (Bannow → Wexford → Marriage → Dublin approaches → Siege)
 
 No Godot binary in this agent environment — run locally:
@@ -101,9 +173,11 @@ No Godot binary in this agent environment — run locally:
    - `Dublin siege: day=56 resolved=false`
    - Leinster attitudes at seed values
    - `Rumors (0 active)`
-3. Press **Y** once — advances to day 1 and resolves Bannow (absent-player,
+   - Graph→timeline unlocks block (port/dynastic/norse/bannow open; Dublin closed)
+3. Press **J** (optional) — opens `unlock_dublin_road` content stubs.
+4. Press **Y** once — advances to day 1 and resolves Bannow (absent-player,
    history-weighted → typically `norman_foothold`).
-4. Keep pressing **Y** (or `WorldClock.advance_day(14)` from the remote) until
+5. Keep pressing **Y** (or `WorldClock.advance_day(14)` from the remote) until
    day ≥ 14 — Wexford/Waterford resolves (typically `towns_fall`).
 5. Continue to day ≥ 28 — Aífe/Strongbow marriage resolves (typically `marriage_sealed`).
 6. Continue to day ≥ 42 — Dublin approaches resolve (typically `approaches_open`).
@@ -114,6 +188,7 @@ No Godot binary in this agent environment — run locally:
    - **O** force-resolves Aífe/Strongbow marriage without advancing
    - **Z** force-resolves Dublin approaches without advancing
    - **X** force-resolves Dublin siege without advancing
+   - **J** opens Dublin-road graph unlock stubs
 9. Pre-resolve mutation example (before the siege day):
    ```gdscript
    WorldClock.set_player_present(&"dublin_siege", true)
@@ -124,4 +199,4 @@ No Godot binary in this agent environment — run locally:
    ```
 10. Press **T** again to hide the panel.
 
-Keys: **T** toggle · **Y** advance day (need tick) · **P** need surge · **U** Bannow · **I** Wexford/Waterford · **O** Marriage · **Z** Dublin approaches · **X** Dublin siege.
+Keys: **T** toggle · **Y** advance day (need tick) · **P** need surge · **/** quest stubs · **J** graph unlocks · **U** Bannow · **I** Wexford/Waterford · **O** Marriage · **Z** Dublin approaches · **X** Dublin siege.

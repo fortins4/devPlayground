@@ -16,6 +16,12 @@ extends Node
 ##
 ## Quest hook board: quest-threshold crosses (and sync/query) land concrete stubs
 ## on offered_quest_stubs for directors to list / pick_up — see offer_quest_stub.
+##
+## Graph → timeline unlock stubs: relationship-edge thresholds unlock (or gate)
+## living-history event ids + content flags. Registry:
+## systems/timeline/graph_timeline_unlocks.gd (class_name GraphTimelineUnlocks).
+## Re-evaluated on relationship_changed; directors query list_open_timeline_unlocks /
+## is_timeline_event_unlocked / is_content_flag_unlocked.
 
 signal attitude_changed(faction_id: StringName, value: float)
 signal need_changed(faction_id: StringName, need_id: StringName)
@@ -25,6 +31,7 @@ signal quest_stub_generated(faction_id: StringName, quest: Dictionary)
 signal quest_stub_offered(faction_id: StringName, quest: Dictionary)
 signal quest_stub_status_changed(quest_id: StringName, status: StringName, quest: Dictionary)
 signal relationship_changed(from_id: StringName, to_id: StringName, edge: Dictionary)
+signal timeline_unlocks_changed(report: Dictionary)
 
 const FACTION_IDS: Array[StringName] = [
 	&"ui_chennselaig",
@@ -123,6 +130,9 @@ var _last_need_tick_day: int = -1
 var _last_need_tick_report: Dictionary = {}
 ## Concrete stubs directors can list / pick_up (need-threshold → quest hook).
 var offered_quest_stubs: Array[Dictionary] = []
+## Last GraphTimelineUnlocks.evaluate_registry report (cached for debug / signals).
+var _timeline_unlock_report: Dictionary = {}
+var _timeline_unlock_signature: String = ""
 
 
 func _ready() -> void:
@@ -133,6 +143,9 @@ func _ready() -> void:
 	_seed_relationship_graph()
 	_seed_need_daily_rates()
 	_latch_seed_need_thresholds()
+	if not relationship_changed.is_connected(_on_relationship_changed_for_unlocks):
+		relationship_changed.connect(_on_relationship_changed_for_unlocks)
+	refresh_timeline_unlocks(false)
 	if WorldClock and not WorldClock.day_advanced.is_connected(_on_world_day_advanced):
 		WorldClock.day_advanced.connect(_on_world_day_advanced)
 
@@ -1190,6 +1203,124 @@ func _graph_direction_tag(kind: StringName, strength_delta: float) -> StringName
 	if amicable:
 		return Rumors.TAG_DIRECTION_WARMER if strength_delta > 0.0 else Rumors.TAG_DIRECTION_COLDER
 	return Rumors.TAG_DIRECTION_COLDER if strength_delta > 0.0 else Rumors.TAG_DIRECTION_WARMER
+
+
+# --- Graph → timeline unlock stubs -------------------------------------------
+
+func _on_relationship_changed_for_unlocks(
+	_from_id: StringName, _to_id: StringName, _edge: Dictionary
+) -> void:
+	refresh_timeline_unlocks(true)
+
+
+## Recompute GraphTimelineUnlocks against the live relationship graph.
+## Emits timeline_unlocks_changed when the available set signature changes
+## (or when force_emit is true).
+func refresh_timeline_unlocks(emit_on_change: bool = true, force_emit: bool = false) -> Dictionary:
+	var report := GraphTimelineUnlocks.evaluate_registry(relationship_edges)
+	var signature := _timeline_unlock_signature_from_report(report)
+	var changed := signature != _timeline_unlock_signature
+	_timeline_unlock_report = report
+	_timeline_unlock_signature = signature
+	if force_emit or (emit_on_change and changed):
+		timeline_unlocks_changed.emit(report.duplicate(true))
+	return report.duplicate(true)
+
+
+func _timeline_unlock_signature_from_report(report: Dictionary) -> String:
+	var parts: PackedStringArray = PackedStringArray()
+	for eid in report.get("available_event_ids", []):
+		parts.append("e:%s" % String(eid))
+	for fid in report.get("available_content_flags", []):
+		parts.append("f:%s" % String(fid))
+	for row in report.get("open_unlocks", []):
+		parts.append("u:%s" % String(row.get("id", &"")))
+	for row in report.get("active_gates", []):
+		parts.append("g:%s" % String(row.get("id", &"")))
+	parts.sort()
+	return "|".join(parts)
+
+
+func get_timeline_unlock_report() -> Dictionary:
+	if _timeline_unlock_report.is_empty():
+		return refresh_timeline_unlocks(false)
+	return _timeline_unlock_report.duplicate(true)
+
+
+func list_open_timeline_unlocks() -> Array[Dictionary]:
+	return GraphTimelineUnlocks.list_open_unlocks(relationship_edges)
+
+
+func list_active_timeline_gates() -> Array[Dictionary]:
+	var report := GraphTimelineUnlocks.evaluate_registry(relationship_edges)
+	var out: Array[Dictionary] = []
+	for row in report.get("active_gates", []):
+		out.append(row)
+	return out
+
+
+func is_timeline_unlock_open(unlock_id: StringName) -> bool:
+	return GraphTimelineUnlocks.is_unlock_open(unlock_id, relationship_edges)
+
+
+func is_timeline_gate_active(unlock_id: StringName) -> bool:
+	return GraphTimelineUnlocks.is_gate_active(unlock_id, relationship_edges)
+
+
+## True when at least one unlock grants the event and no gate blocks it.
+func is_timeline_event_unlocked(event_id: StringName) -> bool:
+	return GraphTimelineUnlocks.is_timeline_event_available(event_id, relationship_edges)
+
+
+func is_content_flag_unlocked(flag: StringName) -> bool:
+	return GraphTimelineUnlocks.is_content_flag_available(flag, relationship_edges)
+
+
+func list_unlocked_timeline_events() -> Array[StringName]:
+	return GraphTimelineUnlocks.list_available_timeline_events(relationship_edges)
+
+
+func list_unlocked_content_flags() -> Array[StringName]:
+	return GraphTimelineUnlocks.list_available_content_flags(relationship_edges)
+
+
+func to_timeline_unlocks_debug_dict() -> Dictionary:
+	return GraphTimelineUnlocks.to_debug_dict(relationship_edges)
+
+
+func get_timeline_unlocks_debug_text() -> String:
+	return GraphTimelineUnlocks.get_debug_text(relationship_edges)
+
+
+## Greybox / F5 / Remote: bump High Kingship hostility so unlock_dublin_road opens,
+## then optionally chill the Diarmait–Norman alliance to exercise the marriage gate.
+func demo_seed_graph_timeline_unlocks(open_dublin: bool = true, chill_alliance: bool = false) -> Dictionary:
+	var before := to_timeline_unlocks_debug_dict()
+	if open_dublin:
+		modify_relationship_strength(
+			&"high_kingship",
+			&"anglo_normans",
+			REL_HOSTILITY,
+			15.0,
+			false
+		)
+	if chill_alliance:
+		set_relationship(
+			&"ui_chennselaig",
+			&"anglo_normans",
+			REL_ALLIANCE,
+			15.0,
+			"F5 chill — marriage gate test",
+			false
+		)
+	var after := refresh_timeline_unlocks(true, true)
+	return {
+		"before": before,
+		"after": after,
+		"dublin_road_open": is_timeline_unlock_open(&"unlock_dublin_road"),
+		"marriage_available": is_timeline_event_unlocked(&"aife_strongbow_marriage"),
+		"marriage_gate_active": is_timeline_gate_active(&"gate_marriage_if_alliance_cold"),
+	}
 
 
 ## Greybox / F5 helper — swing Leinster attitude + hostility so the bus shows tags.
