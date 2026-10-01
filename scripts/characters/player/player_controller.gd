@@ -5,6 +5,7 @@ extends CharacterBody3D
 const WALK_SPEED := 5.0
 const SPRINT_SPEED := 8.0
 const CROUCH_SPEED := 2.4
+const DRAG_SPEED := 1.75
 const ACCEL := 18.0
 const DECEL := 22.0
 const JUMP_VELOCITY := 4.5
@@ -44,6 +45,11 @@ var _capsule_shape: CapsuleShape3D
 var _hurt_shape: CapsuleShape3D
 var _weapon_base_y: float = 1.05
 
+## FULL bog body-drag: slow move + stamina drain while dragging a corpse.
+const DRAG_STAMINA_PER_SEC := 11.0
+var dragging_body: Node3D = null
+var drag_stamina_exhausted: bool = false
+
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -81,6 +87,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if combat == null or combat.is_dead:
 		return
+	if dragging_body != null and is_instance_valid(dragging_body):
+		return
 
 	if event.is_action_pressed("attack_light"):
 		combat.try_attack(&"light")
@@ -108,7 +116,8 @@ func _physics_process(delta: float) -> void:
 	is_crouching = want_crouch
 	_apply_crouch_visual(delta)
 
-	if not locked and not is_crouching and (_jump_buffered or Input.is_action_just_pressed("jump")) and is_on_floor():
+	var dragging := dragging_body != null and is_instance_valid(dragging_body)
+	if not locked and not is_crouching and not dragging and (_jump_buffered or Input.is_action_just_pressed("jump")) and is_on_floor():
 		velocity.y = JUMP_VELOCITY
 	_jump_buffered = false
 
@@ -120,6 +129,7 @@ func _physics_process(delta: float) -> void:
 		and direction != Vector3.ZERO
 		and not locked
 		and not is_crouching
+		and not dragging
 	)
 	var sprinting := false
 	if want_sprint and combat:
@@ -128,7 +138,10 @@ func _physics_process(delta: float) -> void:
 		sprinting = true
 
 	var target_speed := WALK_SPEED
-	if is_crouching:
+	if dragging_body != null and is_instance_valid(dragging_body):
+		target_speed = DRAG_SPEED * (0.55 if drag_stamina_exhausted else 1.0)
+		sprinting = false
+	elif is_crouching:
 		target_speed = CROUCH_SPEED
 	elif sprinting:
 		target_speed = SPRINT_SPEED
@@ -152,6 +165,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_update_noise(horiz.length(), sprinting)
 	_update_arm_swing(delta)
+	_update_drag_stamina(delta)
 
 
 func _apply_crouch_visual(delta: float) -> void:
@@ -179,6 +193,8 @@ func _update_noise(speed: float, sprinting: bool) -> void:
 	# Footprint for DetectionSensor hearing. Still = silent; crouch walk quiet; sprint loud.
 	if speed < 0.15:
 		_noise_level = 0.0
+	elif dragging_body != null and is_instance_valid(dragging_body):
+		_noise_level = 0.4 + clampf(speed / DRAG_SPEED, 0.0, 1.0) * 0.25
 	elif is_crouching:
 		_noise_level = 0.18 + clampf(speed / CROUCH_SPEED, 0.0, 1.0) * 0.22
 	elif sprinting:
@@ -284,3 +300,55 @@ func _screen_punch(amount: float) -> void:
 func _on_died(_victim: Node) -> void:
 	# Keep camera; player ragdoll deferred — just stop combat inputs via combat.is_dead
 	pass
+
+
+func begin_drag(body: Node3D) -> void:
+	if body == null:
+		return
+	dragging_body = body
+	drag_stamina_exhausted = false
+
+
+func end_drag() -> void:
+	dragging_body = null
+	drag_stamina_exhausted = false
+
+
+func is_dragging() -> bool:
+	return dragging_body != null and is_instance_valid(dragging_body)
+
+
+func get_dragged_body() -> Node3D:
+	if is_dragging():
+		return dragging_body
+	return null
+
+
+func get_drag_status_text() -> String:
+	if not is_dragging():
+		return ""
+	var sta := 0.0
+	var mx := 100.0
+	if combat:
+		sta = combat.stamina
+		mx = combat.max_stamina
+	var tag := "EXHAUSTED · crawl-drag" if drag_stamina_exhausted else "dragging"
+	return "DRAG %s · speed %.2f · STA %d/%d (−%d/s)" % [
+		tag, DRAG_SPEED * (0.55 if drag_stamina_exhausted else 1.0),
+		int(sta), int(mx), int(DRAG_STAMINA_PER_SEC),
+	]
+
+
+func _update_drag_stamina(delta: float) -> void:
+	if not is_dragging() or combat == null or combat.is_dead:
+		return
+	# Overcome CombatSystem idle regen so the HUD cost is actually readable.
+	var cost := (DRAG_STAMINA_PER_SEC + combat.stamina_regen_per_sec) * delta
+	if combat.stamina <= DRAG_STAMINA_PER_SEC * delta * 0.5:
+		drag_stamina_exhausted = true
+		combat.stamina = maxf(0.0, combat.stamina - cost * 0.4)
+	else:
+		drag_stamina_exhausted = false
+		combat.stamina = maxf(0.0, combat.stamina - cost)
+	combat.stamina_changed.emit(combat.stamina, combat.max_stamina)
+

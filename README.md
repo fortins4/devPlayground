@@ -18,4 +18,4 @@ Working title for an open-world, historically grounded action-adventure set in *
 
 ## Status
 
-Greybox slice in progress: third-person move/sprint/crouch + hatchet-first stamina combat + stealth detection lane + ringfort band muster; autoload stubs (honor, factions, timeline, rumors).
+Greybox slice in progress: third-person move/sprint/crouch + hatchet combat + stealth/bog body-drag + ringfort band muster + Leinster greybox; autoload stubs (honor, factions, timeline, rumors).

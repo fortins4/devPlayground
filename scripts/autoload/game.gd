@@ -39,6 +39,7 @@ func _ensure_default_input() -> void:
 		&"weapon_goad": KEY_3,
 		&"interact": KEY_E,
 		&"band_toggle": KEY_H,
+		&"crouch": KEY_CTRL,
 	}
 	for action in key_binds:
 		_ensure_key_action(action, key_binds[action])

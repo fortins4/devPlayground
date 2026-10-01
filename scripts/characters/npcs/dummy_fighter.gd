@@ -1,6 +1,8 @@
 extends CharacterBody3D
 ## Greybox dummy: faces the player, telegraphs swings, and weakly counters on hit.
 
+const CorpseSpawnerScript := preload("res://systems/stealth/corpse_spawner.gd")
+
 const MOVE_SPEED := 1.55
 const AGGRO_RANGE := 12.0
 const ATTACK_RANGE := 1.85
@@ -49,6 +51,8 @@ func _physics_process(delta: float) -> void:
 		_death_timer -= delta
 		rotation.z = move_toward(rotation.z, deg_to_rad(85.0), 2.5 * delta)
 		if _death_timer <= 0.0:
+			_death_timer = -1.0
+			_spawn_corpse_on_death()
 			queue_free()
 		return
 
@@ -261,6 +265,22 @@ func _find_player() -> void:
 
 func _on_died(_victim: Node) -> void:
 	_show_telegraph_visual(false, false)
-	_death_timer = 2.2
+	# Tip over briefly, then leave a draggable corpse (FULL bog-drag combat hook).
+	_death_timer = 0.95
 	collision_layer = 0
 	collision_mask = 0
+
+
+func _spawn_corpse_on_death() -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	var corpse: Node3D = CorpseSpawnerScript.spawn_from_combatant(self) as Node3D
+	if corpse == null:
+		return
+	# Slightly offset so it reads as fallen beside the dummy tip-over.
+	corpse.global_position = global_position + Vector3(0.15, 0.05, 0.1)
+	if corpse.has_method("_apply_ground_pose"):
+		corpse.call("_apply_ground_pose")
+	if corpse.has_method("_refresh_labels"):
+		corpse.call("_refresh_labels")
