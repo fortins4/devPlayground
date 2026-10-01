@@ -3,7 +3,8 @@ extends Node
 ##
 ## Priority (high→low sort) + decay (age vs lifetime) keep the bus useful
 ## (docs/SCOPE.md). Emitters: WorldClock event resolve, Honor swings,
-## Faction attitude spikes — see systems/rumors/README.md.
+## Faction attitude / relationship-graph swings — see systems/rumors/README.md.
+## Optional light reverse: high-priority faction-tagged rumors can nudge attitudes.
 
 signal rumor_added(rumor_id: StringName)
 signal rumor_expired(rumor_id: StringName)
@@ -32,8 +33,23 @@ var active_rumors: Array[Dictionary] = []
 var recently_expired: Array[StringName] = []
 const MAX_RECENTLY_EXPIRED: int = 8
 
+## Tag vocabulary for diplomatic / faction coupling (see systems/rumors/README.md).
+const TAG_ATTITUDE: StringName = &"attitude"
+const TAG_GRAPH: StringName = &"graph"
+const TAG_DIRECTION_WARMER: StringName = &"direction:warmer"
+const TAG_DIRECTION_COLDER: StringName = &"direction:colder"
+const TAG_FACTION_PREFIX: String = "faction:"
+
+## Light reverse coupling: HIGH+ faction-tagged rumors may nudge player attitudes.
+## Skipped for sources that Factions itself seeds (avoids feedback loops).
+const FACTION_NUDGE_MIN_PRIORITY: int = PRIORITY_HIGH
+const FACTION_NUDGE_AMOUNT: float = 2.0
+const FACTION_NUDGE_SKIP_SOURCES: Array[StringName] = [&"faction", &"faction_graph"]
+
 ## When true, Rumors debug HUD may poll get_debug_text() cheaply.
 var debug_visible: bool = false
+## Gate for reverse attitude nudge (Lead can flip off if noisy).
+var faction_nudge_enabled: bool = true
 
 
 func _ready() -> void:
@@ -46,12 +62,50 @@ func _on_day_advanced(_day: int) -> void:
 
 
 ## Schema keys for each rumor dict:
-##   id, text, source_event, heard, priority, decay_days, age_days, added_day
+##   id, text, source_event, heard, priority, decay_days, age_days, added_day, tags
 func rumor_schema_keys() -> PackedStringArray:
 	return PackedStringArray([
 		"id", "text", "source_event", "heard",
-		"priority", "decay_days", "age_days", "added_day",
+		"priority", "decay_days", "age_days", "added_day", "tags",
 	])
+
+
+## Build a `faction:<id>` tag for diplomatic coupling.
+func faction_tag(faction_id: StringName) -> StringName:
+	return StringName("%s%s" % [TAG_FACTION_PREFIX, String(faction_id)])
+
+
+## Extract roster faction ids from a tags array (unknown strings ignored).
+func faction_ids_from_tags(tags: Array) -> Array[StringName]:
+	var out: Array[StringName] = []
+	for tag in tags:
+		var s := String(tag)
+		if not s.begins_with(TAG_FACTION_PREFIX):
+			continue
+		var fid := StringName(s.substr(TAG_FACTION_PREFIX.length()))
+		if fid == &"":
+			continue
+		if fid not in out:
+			out.append(fid)
+	return out
+
+
+func rumor_has_tag(rumor: Dictionary, tag: StringName) -> bool:
+	var tags: Array = rumor.get("tags", [])
+	for t in tags:
+		if t == tag or String(t) == String(tag):
+			return true
+	return false
+
+
+## Direction tag helper — warmer / colder / empty.
+func direction_from_tags(tags: Array) -> StringName:
+	for tag in tags:
+		if tag == TAG_DIRECTION_WARMER or String(tag) == String(TAG_DIRECTION_WARMER):
+			return TAG_DIRECTION_WARMER
+		if tag == TAG_DIRECTION_COLDER or String(tag) == String(TAG_DIRECTION_COLDER):
+			return TAG_DIRECTION_COLDER
+	return &""
 
 
 func priority_label(priority: int) -> String:
@@ -71,15 +125,18 @@ func days_remaining(rumor: Dictionary) -> int:
 
 ## Add or refresh a rumor. Higher priority wins on refresh; decay_days is lifetime.
 ## age_days resets to 0 on refresh (word is fresh again).
+## tags: optional StringName list (e.g. faction:*, direction:warmer/colder, graph, attitude).
 func add_rumor(
 	rumor_id: StringName,
 	text: String,
 	source_event: StringName = &"",
 	priority: int = PRIORITY_NORMAL,
-	decay_days: int = 7
+	decay_days: int = 7,
+	tags: Array = []
 ) -> void:
 	priority = clamp_priority(priority)
 	decay_days = maxi(1, decay_days)
+	var normalized_tags := _normalize_tags(tags)
 	var added_day := _day_stamp()
 	for rumor in active_rumors:
 		if rumor.get("id") == rumor_id:
@@ -89,8 +146,11 @@ func add_rumor(
 			rumor["decay_days"] = maxi(int(rumor.get("decay_days", decay_days)), decay_days)
 			rumor["age_days"] = 0
 			rumor["added_day"] = added_day
+			if not normalized_tags.is_empty():
+				rumor["tags"] = _merge_tags(rumor.get("tags", []), normalized_tags)
 			_sort_by_priority()
 			rumor_added.emit(rumor_id)
+			# Reverse nudge only on first add — refresh must not re-nudge.
 			return
 	var entry := {
 		"id": rumor_id,
@@ -101,11 +161,13 @@ func add_rumor(
 		"decay_days": decay_days,
 		"age_days": 0,
 		"added_day": added_day,
+		"tags": normalized_tags,
 	}
 	active_rumors.append(entry)
 	_trim_overflow()
 	_sort_by_priority()
 	rumor_added.emit(rumor_id)
+	_maybe_nudge_factions_from_rumor(entry)
 
 
 func mark_heard(rumor_id: StringName) -> bool:
@@ -179,11 +241,13 @@ func list_recent(limit: int = 10) -> Array[Dictionary]:
 
 ## Filter active rumors. Pass defaults to skip a criterion.
 ## min_priority: inclusive floor (0 = any). source_event empty = any source.
+## require_tag: when non-empty, rumor must carry that tag.
 func filter_rumors(
 	min_priority: int = 0,
 	source_event: StringName = &"",
 	unheard_only: bool = false,
-	heard_only: bool = false
+	heard_only: bool = false,
+	require_tag: StringName = &""
 ) -> Array[Dictionary]:
 	_sort_by_priority()
 	var out: Array[Dictionary] = []
@@ -197,8 +261,15 @@ func filter_rumors(
 			continue
 		if heard_only and not heard:
 			continue
+		if require_tag != &"" and not rumor_has_tag(rumor, require_tag):
+			continue
 		out.append(rumor.duplicate(true))
 	return out
+
+
+## Convenience: all active rumors tagged with a given faction id.
+func filter_by_faction(faction_id: StringName, min_priority: int = 0) -> Array[Dictionary]:
+	return filter_rumors(min_priority, &"", false, false, faction_tag(faction_id))
 
 
 func clear_all() -> void:
@@ -252,6 +323,7 @@ func to_debug_dict() -> Dictionary:
 	return {
 		"active_count": count_active(),
 		"debug_visible": debug_visible,
+		"faction_nudge_enabled": faction_nudge_enabled,
 		"top": top,
 		"recent": recent,
 		"recently_expired": expired,
@@ -263,7 +335,7 @@ func get_debug_text() -> String:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("=== Rumors bus debug ===")
 	lines.append(
-		"Active: %d   Day: %d   (N toggle · M seed demo · , tick_decay 1)" % [
+		"Active: %d   Day: %d   (N toggle · M seed · , decay · . diplomatic)" % [
 			count_active(), _day_stamp(),
 		]
 	)
@@ -284,17 +356,22 @@ func get_debug_text() -> String:
 
 
 func _format_rumor_line(rumor: Dictionary) -> String:
-	return "[%s P%d left=%d a%d%s] %s" % [
+	var tag_bits := _tags_debug_suffix(rumor.get("tags", []))
+	return "[%s P%d left=%d a%d%s%s] %s" % [
 		priority_label(int(rumor.get("priority", PRIORITY_NORMAL))),
 		int(rumor.get("priority", PRIORITY_NORMAL)),
 		days_remaining(rumor),
 		int(rumor.get("age_days", 0)),
 		" heard" if bool(rumor.get("heard", false)) else "",
+		tag_bits,
 		str(rumor.get("text", "")),
 	]
 
 
 func _rumor_debug_row(rumor: Dictionary) -> Dictionary:
+	var tag_strings: Array = []
+	for t in rumor.get("tags", []):
+		tag_strings.append(String(t))
 	return {
 		"id": rumor.get("id"),
 		"text": rumor.get("text"),
@@ -306,6 +383,7 @@ func _rumor_debug_row(rumor: Dictionary) -> Dictionary:
 		"days_remaining": days_remaining(rumor),
 		"heard": rumor.get("heard"),
 		"added_day": rumor.get("added_day"),
+		"tags": tag_strings,
 	}
 
 
@@ -347,6 +425,75 @@ func _record_expired(rumor_id: StringName) -> void:
 	recently_expired.push_front(rumor_id)
 	while recently_expired.size() > MAX_RECENTLY_EXPIRED:
 		recently_expired.pop_back()
+
+
+func _normalize_tags(tags: Array) -> Array:
+	var out: Array = []
+	for tag in tags:
+		var sn: StringName
+		if typeof(tag) == TYPE_STRING_NAME:
+			sn = tag
+		else:
+			sn = StringName(str(tag))
+		if sn == &"":
+			continue
+		var already := false
+		for existing in out:
+			if existing == sn:
+				already = true
+				break
+		if not already:
+			out.append(sn)
+	return out
+
+
+func _merge_tags(existing: Array, incoming: Array) -> Array:
+	var merged := _normalize_tags(existing)
+	for tag in _normalize_tags(incoming):
+		var already := false
+		for e in merged:
+			if e == tag:
+				already = true
+				break
+		if not already:
+			merged.append(tag)
+	return merged
+
+
+func _tags_debug_suffix(tags: Array) -> String:
+	if tags.is_empty():
+		return ""
+	var bits: PackedStringArray = PackedStringArray()
+	for t in tags:
+		bits.append(String(t))
+	return " {%s}" % ",".join(bits)
+
+
+## Optional reverse: HIGH+ faction-tagged rumor lightly nudges player attitudes.
+## Gated; skips Factions-seeded sources so graph/attitude → rumor cannot loop.
+func _maybe_nudge_factions_from_rumor(rumor: Dictionary) -> void:
+	if not faction_nudge_enabled:
+		return
+	if Factions == null:
+		return
+	var priority := int(rumor.get("priority", PRIORITY_NORMAL))
+	if priority < FACTION_NUDGE_MIN_PRIORITY:
+		return
+	var source: StringName = rumor.get("source_event", &"")
+	if source in FACTION_NUDGE_SKIP_SOURCES:
+		return
+	var tags: Array = rumor.get("tags", [])
+	var faction_ids := faction_ids_from_tags(tags)
+	if faction_ids.is_empty():
+		return
+	var direction := direction_from_tags(tags)
+	if direction == &"":
+		return
+	var delta := FACTION_NUDGE_AMOUNT if direction == TAG_DIRECTION_WARMER else -FACTION_NUDGE_AMOUNT
+	for fid in faction_ids:
+		# seed_rumor=false — nudge stays below attitude rumor threshold anyway,
+		# but keep the path silent so Lead can raise nudge later without loops.
+		Factions.modify_attitude(fid, delta, false)
 
 
 func _day_stamp() -> int:
