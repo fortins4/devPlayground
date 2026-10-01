@@ -4,8 +4,9 @@ Cattle as primary wealth. Band upkeep lives alongside for later recruitment.
 
 | Script | Role |
 |---|---|
-| `cattle_economy.gd` (`class_name CattleEconomy`) | Herd, pens, daily tick, Norse trade (`norse_wexford_waterford`), band facade |
+| `cattle_economy.gd` (`class_name CattleEconomy`) | Herd, pens, daily tick, Norse trade (`norse_wexford_waterford`), band facade, **raid outcome facade** |
 | `band_upkeep.gd` (`class_name BandUpkeep`) | Band size / morale / readiness, cattle cost, skirmish confidence |
+| [`../raid/cattle_raid_outcomes.gd`](../raid/cattle_raid_outcomes.gd) | Cattle-raid loot / upkeep snapshot / honor heat / retaliation **data** |
 
 **Ownership:** not an autoload. Ringfort / Game / sim owner instantiates a `CattleEconomy` node. Ringfort greybox (`scenes/world/ringfort/`) owns one for muster/recruit in F5. Prefer **explicit** `apply_daily_tick()` so Game keeps control of when the day resolves. Optional `subscribe_world_clock()` auto-applies on `WorldClock.day_advanced` if you want hands-off wiring.
 
@@ -65,7 +66,7 @@ cattle.get_norse_trade_contact_id()    # &"norse_wexford_waterford"
 
 ### Signals (UI later)
 
-`herd_changed`, `pens_changed`, `upkeep_applied`, `daily_tick_applied`, `trade_completed`, `cattle_gained`, `cattle_lost`, `band_changed`, `band_upkeep_failed`.
+`herd_changed`, `pens_changed`, `upkeep_applied`, `daily_tick_applied`, `trade_completed`, `cattle_gained`, `cattle_lost`, `band_changed`, `band_upkeep_failed`, `raid_resolved`, `raid_loot_applied`, `raid_honor_heat_applied`, `raid_retaliation_queued`.
 
 ---
 
@@ -133,3 +134,23 @@ Signal: `BandUpkeep.recruit_option_denied(option_id, reason)`.
 Deny reasons: `unknown_option`, `band_full`, `band_capacity`, `honor_too_low`,
 `readiness_too_low`, `faction_attitude`, `cannot_afford`, `no_economy`, `recruit_failed`.
 
+---
+
+## Cattle-raid outcomes (loot / upkeep / honor heat)
+
+Data/API only — mission stealth stays in raid scenes. Full contract:
+[`systems/raid/README.md`](../raid/README.md).
+
+```gdscript
+# After a successful night raid:
+var outcome := cattle.resolve_raid_success(&"local_clan_herd")
+# outcome: cattle_gained (via gain_cattle), goods_gained, upkeep snapshot,
+#          honor/attitude deltas, retaliation data hook, mercy_active
+
+cattle.resolve_raid_failure(&"norse_coastal_pen")  # optional fail path
+cattle.preview_raid_success(&"anglo_norman_forage", 6)
+cattle.list_raid_targets()
+```
+
+Mercy: first two successes per victim faction use softer honor/attitude heat and
+longer retaliation `delay_days`. Escalation stacks after the mercy window.
