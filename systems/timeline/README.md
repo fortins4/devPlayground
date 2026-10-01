@@ -34,6 +34,9 @@ summary + survivor / coastal flavor).
 - **Event #3** `aife_strongbow_marriage` is scheduled on **day 28** (after Wexford/Waterford).
 - `force_resolve(event_id)` resolves immediately without advancing the calendar
   (debug / content hooks).
+- Autoload listeners on `day_advanced`: `Rumors.tick_decay(1)` and
+  `Factions.apply_need_pressure_tick` (hunger/security — see
+  [systems/factions/README.md](../factions/README.md)).
 
 Design source: `docs/SCOPE.md` (lock one shared EventOutcome schema before content multiplies).
 
@@ -87,4 +90,4 @@ Dublin down; blocked flips that pressure.
    ```
 8. Press **T** again to hide the panel.
 
-Keys: **T** toggle · **Y** advance day · **U** Bannow · **I** Wexford/Waterford · **O** Marriage.
+Keys: **T** toggle · **Y** advance day (need tick) · **P** need surge · **U** Bannow · **I** Wexford/Waterford · **O** Marriage.

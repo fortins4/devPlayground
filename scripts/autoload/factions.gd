@@ -9,9 +9,15 @@ extends Node
 ## Diplomatic coupling: meaningful attitude / graph swings auto-seed Rumors tags
 ## (faction pair + warmer/colder). Callers use modify_attitude / set_relationship /
 ## modify_relationship_strength — no second rumor call required.
+##
+## Need-pressure tick: hunger / security (+ related needs) evolve on
+## WorldClock.day_advanced via apply_need_pressure_tick() — missions need no
+## separate call. Tunable rates + thresholds in NEED_* constants / need_daily_rates.
 
 signal attitude_changed(faction_id: StringName, value: float)
 signal need_changed(faction_id: StringName, need_id: StringName)
+signal need_threshold_crossed(faction_id: StringName, need_id: StringName, threshold_kind: StringName, pressure: float)
+signal need_pressure_ticked(day: int, report: Dictionary)
 signal quest_stub_generated(faction_id: StringName, quest: Dictionary)
 signal relationship_changed(from_id: StringName, to_id: StringName, edge: Dictionary)
 
@@ -74,6 +80,22 @@ const RUMOR_GRAPH_HIGH_DELTA: float = 30.0
 const RUMOR_ATTITUDE_DECAY_DAYS: int = 5
 const RUMOR_GRAPH_DECAY_DAYS: int = 6
 
+## --- Need-pressure tick (hunger / security + related) -----------------------
+## Canonical categories polished for the Leinster day tick.
+const NEED_HUNGER: StringName = &"hunger"
+const NEED_SECURITY: StringName = &"security"
+
+## Pressure floor that surfaces quest stubs (matches generate_quest_stubs).
+const NEED_QUEST_THRESHOLD: float = 0.4
+## Crossing seeds a need-pressure rumor (latched until pressure clears).
+const NEED_RUMOR_THRESHOLD: float = 0.75
+## Extreme pressure: mild attitude chill (latched) — faction grows wary of the player.
+const NEED_ATTITUDE_THRESHOLD: float = 0.9
+const NEED_ATTITUDE_DELTA: float = -3.0
+const NEED_RUMOR_DECAY_DAYS: int = 5
+## Re-arm threshold hooks when pressure falls below (threshold - gap).
+const NEED_HOOK_CLEAR_GAP: float = 0.15
+
 ## Attitude toward the player: -100 hostile … +100 allied.
 var attitudes: Dictionary = {}
 ## faction_id → { display_name, goals: Array, needs: Array, resources: Dictionary, ... }
@@ -81,6 +103,12 @@ var profiles: Dictionary = {}
 ## Directed edges: Array of { from, to, kind, strength (−100…+100), note }.
 ## Multiple kinds allowed between the same pair (e.g. alliance + obligation).
 var relationship_edges: Array[Dictionary] = []
+## faction_id → { need_id: per-day pressure delta }. Tunable Leinster rates.
+var need_daily_rates: Dictionary = {}
+## Latch keys "faction|need|quest|rumor|attitude" → true while above clear line.
+var _need_hook_latched: Dictionary = {}
+var _last_need_tick_day: int = -1
+var _last_need_tick_report: Dictionary = {}
 
 
 func _ready() -> void:
@@ -89,6 +117,10 @@ func _ready() -> void:
 	_seed_profiles()
 	_seed_leinster_attitudes()
 	_seed_relationship_graph()
+	_seed_need_daily_rates()
+	_latch_seed_need_thresholds()
+	if WorldClock and not WorldClock.day_advanced.is_connected(_on_world_day_advanced):
+		WorldClock.day_advanced.connect(_on_world_day_advanced)
 
 
 func _seed_profiles() -> void:
@@ -101,8 +133,10 @@ func _seed_profiles() -> void:
 			&"secure_diarmait_kingship",
 		],
 		"needs": [
+			{"id": NEED_HUNGER, "priority": 3, "pressure": 0.45},
+			{"id": NEED_SECURITY, "priority": 3, "pressure": 0.5},
 			{"id": &"cattle_tribute", "priority": 2, "pressure": 0.6},
-			{"id": &"warrior_host", "priority": 3, "pressure": 0.7},
+			{"id": &"warrior_host", "priority": 2, "pressure": 0.7},
 		],
 		"resources": {"cattle": 40, "warriors": 25, "silver": 10},
 	}
@@ -115,6 +149,8 @@ func _seed_profiles() -> void:
 			&"expand_from_wexford",
 		],
 		"needs": [
+			{"id": NEED_HUNGER, "priority": 3, "pressure": 0.55},
+			{"id": NEED_SECURITY, "priority": 3, "pressure": 0.6},
 			{"id": &"supplies_landing", "priority": 3, "pressure": 0.8},
 			{"id": &"local_guides", "priority": 2, "pressure": 0.5},
 		],
@@ -160,6 +196,8 @@ func _seed_profiles() -> void:
 			&"preserve_autonomy",
 		],
 		"needs": [
+			{"id": NEED_HUNGER, "priority": 2, "pressure": 0.4},
+			{"id": NEED_SECURITY, "priority": 3, "pressure": 0.7},
 			{"id": &"harbor_defense", "priority": 3, "pressure": 0.75},
 			{"id": &"trade_cattle", "priority": 2, "pressure": 0.55},
 		],
@@ -237,9 +275,287 @@ func set_need_pressure(faction_id: StringName, need_id: StringName, pressure: fl
 	var needs: Array = profile.get("needs", [])
 	for need in needs:
 		if need.get("id") == need_id:
-			need["pressure"] = clampf(pressure, 0.0, 1.0)
+			var clamped := clampf(pressure, 0.0, 1.0)
+			need["pressure"] = clamped
 			need_changed.emit(faction_id, need_id)
+			_evaluate_need_thresholds(faction_id, need_id, clamped)
 			return
+	# Unknown need id on a known profile — append so event ripples / ticks can land.
+	needs.append({"id": need_id, "priority": 1, "pressure": clampf(pressure, 0.0, 1.0)})
+	profile["needs"] = needs
+	profiles[faction_id] = profile
+	need_changed.emit(faction_id, need_id)
+	_evaluate_need_thresholds(faction_id, need_id, clampf(pressure, 0.0, 1.0))
+
+
+func get_need_pressure(faction_id: StringName, need_id: StringName) -> float:
+	for need in get_needs(faction_id):
+		if need.get("id") == need_id:
+			return float(need.get("pressure", 0.0))
+	return 0.0
+
+
+## Add delta to a need (creates the need entry if missing). Returns new pressure.
+func modify_need_pressure(faction_id: StringName, need_id: StringName, delta: float) -> float:
+	var next := clampf(get_need_pressure(faction_id, need_id) + delta, 0.0, 1.0)
+	set_need_pressure(faction_id, need_id, next)
+	return next
+
+
+func get_need_daily_rate(faction_id: StringName, need_id: StringName) -> float:
+	var rates: Dictionary = need_daily_rates.get(faction_id, {})
+	return float(rates.get(need_id, 0.0))
+
+
+func set_need_daily_rate(faction_id: StringName, need_id: StringName, rate: float) -> void:
+	if faction_id not in need_daily_rates:
+		need_daily_rates[faction_id] = {}
+	need_daily_rates[faction_id][need_id] = rate
+
+
+## WorldClock day commit hook — missions do not need a separate call.
+func _on_world_day_advanced(day: int) -> void:
+	apply_need_pressure_tick(1, day)
+
+
+## Apply per-day need pressure for Leinster-active factions (hunger/security + related).
+## Idempotent for the same calendar day when skip_if_same_day is true.
+func apply_need_pressure_tick(
+	days: int = 1,
+	day: int = -1,
+	skip_if_same_day: bool = true
+) -> Dictionary:
+	var clock_day := day
+	if clock_day < 0:
+		clock_day = WorldClock.day if WorldClock else _last_need_tick_day
+	if skip_if_same_day and clock_day >= 0 and clock_day == _last_need_tick_day and days == 1:
+		return _last_need_tick_report.duplicate(true)
+
+	var steps := maxi(days, 0)
+	var changes: Array[Dictionary] = []
+	var crossed: Array[Dictionary] = []
+	for _i in steps:
+		for faction_id in LEINSTER_ACTIVE:
+			var rates: Dictionary = need_daily_rates.get(faction_id, {})
+			for need_id in rates.keys():
+				var rate := float(rates[need_id])
+				if is_zero_approx(rate):
+					continue
+				var before := get_need_pressure(faction_id, need_id as StringName)
+				var after := modify_need_pressure(faction_id, need_id as StringName, rate)
+				if not is_equal_approx(before, after):
+					changes.append({
+						"faction_id": faction_id,
+						"need_id": need_id,
+						"before": before,
+						"after": after,
+						"delta": after - before,
+					})
+	# Collect latch state for debug (hooks already fired inside set_need_pressure).
+	for key in _need_hook_latched.keys():
+		if _need_hook_latched[key]:
+			var parts: PackedStringArray = String(key).split("|")
+			if parts.size() >= 3:
+				crossed.append({
+					"faction_id": StringName(parts[0]),
+					"need_id": StringName(parts[1]),
+					"threshold_kind": StringName(parts[2]),
+					"pressure": get_need_pressure(StringName(parts[0]), StringName(parts[1])),
+				})
+
+	var report := {
+		"day": clock_day,
+		"days_applied": steps,
+		"changes": changes,
+		"latched_hooks": crossed,
+		"leinster_needs": to_needs_debug_dict(),
+	}
+	_last_need_tick_day = clock_day
+	_last_need_tick_report = report
+	need_pressure_ticked.emit(clock_day, report)
+	return report.duplicate(true)
+
+
+func _seed_need_daily_rates() -> void:
+	# Differentiated Leinster trio — do not starve all factions identically.
+	# Uí Chennselaig: exile cattle shortfall + rebuilding host (steady hunger).
+	need_daily_rates[&"ui_chennselaig"] = {
+		NEED_HUNGER: 0.035,
+		NEED_SECURITY: 0.028,
+		&"cattle_tribute": 0.03,
+		&"warrior_host": 0.025,
+	}
+	# Anglo-Normans: beachhead supplies burn fast; coastal security pressure.
+	need_daily_rates[&"anglo_normans"] = {
+		NEED_HUNGER: 0.055,
+		NEED_SECURITY: 0.045,
+		&"supplies_landing": 0.05,
+		&"local_guides": 0.02,
+	}
+	# Norse Wexford/Waterford: harbor threat leads; trade hunger slower.
+	need_daily_rates[&"norse_wexford_waterford"] = {
+		NEED_HUNGER: 0.025,
+		NEED_SECURITY: 0.065,
+		&"harbor_defense": 0.06,
+		&"trade_cattle": 0.022,
+	}
+
+
+## Quietly latch hooks for seed pressures already at/above thresholds so the
+## first day tick only fires on real crossings (not boot values).
+func _latch_seed_need_thresholds() -> void:
+	for faction_id in LEINSTER_ACTIVE:
+		for need in get_needs(faction_id):
+			var need_id: StringName = need.get("id")
+			var pressure := float(need.get("pressure", 0.0))
+			for kind_thresh in [
+				[&"quest", NEED_QUEST_THRESHOLD],
+				[&"rumor", NEED_RUMOR_THRESHOLD],
+				[&"attitude", NEED_ATTITUDE_THRESHOLD],
+			]:
+				var kind: StringName = kind_thresh[0]
+				var thresh := float(kind_thresh[1])
+				if pressure >= thresh:
+					_need_hook_latched[_hook_key(faction_id, need_id, kind)] = true
+
+
+## Latch-aware threshold hooks: quest signal, rumor seed, mild attitude chill.
+func _evaluate_need_thresholds(
+	faction_id: StringName,
+	need_id: StringName,
+	pressure: float
+) -> void:
+	_maybe_cross_need_threshold(
+		faction_id, need_id, pressure, NEED_QUEST_THRESHOLD, &"quest"
+	)
+	_maybe_cross_need_threshold(
+		faction_id, need_id, pressure, NEED_RUMOR_THRESHOLD, &"rumor"
+	)
+	_maybe_cross_need_threshold(
+		faction_id, need_id, pressure, NEED_ATTITUDE_THRESHOLD, &"attitude"
+	)
+
+
+func _hook_key(faction_id: StringName, need_id: StringName, kind: StringName) -> String:
+	return "%s|%s|%s" % [String(faction_id), String(need_id), String(kind)]
+
+
+func _maybe_cross_need_threshold(
+	faction_id: StringName,
+	need_id: StringName,
+	pressure: float,
+	threshold: float,
+	kind: StringName
+) -> void:
+	var key := _hook_key(faction_id, need_id, kind)
+	var latched := bool(_need_hook_latched.get(key, false))
+	var clear_line := threshold - NEED_HOOK_CLEAR_GAP
+	if pressure < clear_line:
+		_need_hook_latched[key] = false
+		return
+	if pressure < threshold or latched:
+		return
+	_need_hook_latched[key] = true
+	need_threshold_crossed.emit(faction_id, need_id, kind, pressure)
+	match kind:
+		&"quest":
+			# Surface data stubs once per climb (no quest UI).
+			generate_quest_stubs(faction_id)
+		&"rumor":
+			_seed_need_pressure_rumor(faction_id, need_id, pressure)
+		&"attitude":
+			# Mild chill; |delta| < RUMOR_ATTITUDE_THRESHOLD so no attitude rumor spam.
+			modify_attitude(faction_id, NEED_ATTITUDE_DELTA, false)
+
+
+func _seed_need_pressure_rumor(
+	faction_id: StringName,
+	need_id: StringName,
+	pressure: float
+) -> void:
+	if Rumors == null:
+		return
+	var day := WorldClock.day if WorldClock else 0
+	var tags: Array = [
+		&"need_pressure",
+		Rumors.faction_tag(faction_id),
+		StringName("need:%s" % String(need_id)),
+	]
+	var body := "%s feel the squeeze — %s pressure is critical." % [
+		_display_name(faction_id),
+		String(need_id).replace("_", " "),
+	]
+	Rumors.add_rumor(
+		StringName("need_%s_%s_%d" % [String(faction_id), String(need_id), day]),
+		body,
+		&"faction_need",
+		Rumors.PRIORITY_HIGH if pressure >= NEED_ATTITUDE_THRESHOLD else Rumors.PRIORITY_NORMAL,
+		NEED_RUMOR_DECAY_DAYS,
+		tags
+	)
+
+
+func to_needs_debug_dict() -> Dictionary:
+	var out: Dictionary = {}
+	for faction_id in LEINSTER_ACTIVE:
+		var needs_out: Array = []
+		for need in get_needs(faction_id):
+			var nid: StringName = need.get("id")
+			needs_out.append({
+				"id": nid,
+				"pressure": float(need.get("pressure", 0.0)),
+				"priority": int(need.get("priority", 0)),
+				"daily_rate": get_need_daily_rate(faction_id, nid),
+			})
+		out[String(faction_id)] = needs_out
+	return out
+
+
+func get_needs_debug_text() -> String:
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("Needs (Leinster tick · hunger/security):")
+	lines.append(
+		"  thresholds quest=%.2f rumor=%.2f attitude=%.2f" % [
+			NEED_QUEST_THRESHOLD, NEED_RUMOR_THRESHOLD, NEED_ATTITUDE_THRESHOLD,
+		]
+	)
+	for faction_id in LEINSTER_ACTIVE:
+		var parts: PackedStringArray = PackedStringArray()
+		for need in get_needs(faction_id):
+			var nid: StringName = need.get("id")
+			if nid != NEED_HUNGER and nid != NEED_SECURITY:
+				# Compact: show canonical + any related at/above quest floor.
+				if float(need.get("pressure", 0.0)) < NEED_QUEST_THRESHOLD:
+					continue
+			parts.append(
+				"%s=%.2f(+%.3f/d)" % [
+					String(nid),
+					float(need.get("pressure", 0.0)),
+					get_need_daily_rate(faction_id, nid),
+				]
+			)
+		lines.append("  %s: %s" % [String(faction_id), ", ".join(parts)])
+	if not _last_need_tick_report.is_empty():
+		lines.append(
+			"  last tick: day=%s changes=%d" % [
+				str(_last_need_tick_report.get("day", "?")),
+				(_last_need_tick_report.get("changes", []) as Array).size(),
+			]
+		)
+	return "\n".join(lines)
+
+
+## Greybox / F5 helper — force a multi-day need climb without calendar events.
+func demo_need_pressure_surge(days: int = 5) -> Dictionary:
+	var before := to_needs_debug_dict()
+	var report := apply_need_pressure_tick(days, WorldClock.day if WorldClock else -1, false)
+	return {
+		"days": days,
+		"before": before,
+		"report": report,
+		"after": to_needs_debug_dict(),
+		"quest_stubs": generate_quest_stubs(),
+	}
 
 
 ## Build 1–2 dynamic quest stubs from current needs (data only — no quest UI).
@@ -259,7 +575,7 @@ func generate_quest_stubs(faction_id: StringName = &"") -> Array[Dictionary]:
 		for need in needs:
 			if count >= 2:
 				break
-			if float(need.get("pressure", 0.0)) < 0.4:
+			if float(need.get("pressure", 0.0)) < NEED_QUEST_THRESHOLD:
 				continue
 			var quest := {
 				"id": StringName("%s_%s" % [String(id), String(need.get("id", &"need"))]),

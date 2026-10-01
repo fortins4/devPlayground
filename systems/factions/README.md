@@ -30,6 +30,80 @@ Runtime registry: `scripts/autoload/factions.gd` (autoload **`Factions`**).
 
 ---
 
+## Need-pressure tick (hunger / security)
+
+Daily pressure evolves with **WorldClock day commits** — wired inside `Factions`
+on `WorldClock.day_advanced`, so missions / greybox never need a second call
+(same pattern as `Rumors.tick_decay`).
+
+### Canonical + related needs (Leinster)
+
+| Faction | Canonical | Related (also tick) | Slice flavour |
+|---|---|---|---|
+| `ui_chennselaig` | `hunger`, `security` | `cattle_tribute`, `warrior_host` | Exile cattle shortfall; rebuilding host |
+| `anglo_normans` | `hunger`, `security` | `supplies_landing`, `local_guides` | Beachhead supplies burn; hostile coast |
+| `norse_wexford_waterford` | `hunger`, `security` | `harbor_defense`, `trade_cattle` | Harbor threat leads; trade hunger slower |
+
+Rates live in `Factions.need_daily_rates` (per-day pressure deltas, 0…1 scale).
+Defaults (tunable via `set_need_daily_rate`):
+
+| Faction | hunger/d | security/d | notes |
+|---|---|---|---|
+| Uí Chennselaig | **0.035** | **0.028** | Steady exile pressure |
+| Anglo-Normans | **0.055** | **0.045** | Fastest hunger climb |
+| Norse Wexford/Waterford | **0.025** | **0.065** | Fastest security climb |
+
+Related-need rates are slightly lower mirrors so the trio diverges over a few
+**Y** presses instead of starving identically.
+
+### Thresholds (quest / rumor / attitude)
+
+| Constant | Default | Effect (latched per faction+need until pressure clears) |
+|---|---|---|
+| `NEED_QUEST_THRESHOLD` | **0.4** | Emits `need_threshold_crossed(..., &"quest")` + `generate_quest_stubs(faction)` |
+| `NEED_RUMOR_THRESHOLD` | **0.75** | Seeds Rumors (`source=&"faction_need"`, tags `need_pressure` + `faction:*` + `need:*`) |
+| `NEED_ATTITUDE_THRESHOLD` | **0.9** | `modify_attitude(id, NEED_ATTITUDE_DELTA)` with `NEED_ATTITUDE_DELTA = -3` (silent; below attitude-rumor floor) |
+| `NEED_HOOK_CLEAR_GAP` | **0.15** | Hooks re-arm when pressure falls below `threshold - gap` |
+
+Event resolve still **sets** absolute pressures via `WorldClock` →
+`Factions.set_need_pressure` (Bannow / Wexford / Marriage ripples). The daily
+tick **adds** rates on top so pressure keeps evolving between authored beats.
+
+### Public API
+
+```gdscript
+Factions.apply_need_pressure_tick()                 # usually automatic on day_advanced
+Factions.apply_need_pressure_tick(3, WorldClock.day, false)  # force 3 days
+Factions.get_need_pressure(&"anglo_normans", Factions.NEED_HUNGER)
+Factions.modify_need_pressure(&"anglo_normans", Factions.NEED_SECURITY, 0.1)
+Factions.set_need_pressure(&"norse_wexford_waterford", &"harbor_defense", 0.9)
+Factions.get_need_daily_rate(&"ui_chennselaig", Factions.NEED_HUNGER)
+Factions.set_need_daily_rate(&"ui_chennselaig", Factions.NEED_HUNGER, 0.05)
+Factions.to_needs_debug_dict()
+Factions.get_needs_debug_text()
+Factions.demo_need_pressure_surge(5)               # F5 greybox helper
+Factions.generate_quest_stubs()                    # 1–2 stubs when pressure >= 0.4
+```
+
+Signals: `need_changed`, `need_threshold_crossed(faction_id, need_id, kind, pressure)`,
+`need_pressure_ticked(day, report)`.
+
+### F5 check (need pressure)
+
+1. F5 main scene → **T** (Timeline panel). Confirm Needs block lists Leinster
+   hunger/security with per-day rates.
+2. **Y** — advances day; need pressures climb (Anglo hunger fastest; Norse
+   security fastest). Bannow still resolves on first advance as before.
+3. **P** — `demo_need_pressure_surge(5)` without calendar events; watch pressures
+   + quest/rumor hooks once past 0.75.
+4. Remote: `print(Factions.to_needs_debug_dict())` /
+   `print(Factions.apply_need_pressure_tick(2, WorldClock.day, false))`.
+
+Keys (Timeline HUD): **T** toggle · **Y** day (+ need tick) · **P** need surge ·
+**U/I/O** force events.
+
+---
+
 ## Relationship graph (faction↔faction)
 
 Directed edges among the 9 roster IDs. **Player attitude** stays on `attitudes` / `get_attitude` / `modify_attitude` — the graph is faction-to-faction only.
