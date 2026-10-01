@@ -17,8 +17,24 @@ extends Node
 ##
 ## Graph→timeline unlock stubs: Factions / GraphTimelineUnlocks gate content flags
 ## + event ids from relationship thresholds (see systems/timeline/README.md).
+##
+## Season stub (not climate sim): four equal seasons driven by `day`.
+## Calendar length: DAYS_PER_YEAR = 360 (4 × DAYS_PER_SEASON = 90).
+## Day 0 = start of spring (landing window treated as early-season stub;
+## later content can offset for Beltane / May 1169 without changing the API).
+## Query: get_season / get_season_id / days_into_season / days_remaining_in_season.
+## Hooks later: travel mud, cattle calving, hunger/security seasonal bias.
+
+## Equal-length solar stub. Not Gregorian; keep math simple for gameplay hooks.
+enum Season { SPRING, SUMMER, AUTUMN, WINTER }
+
+const DAYS_PER_SEASON: int = 90
+const DAYS_PER_YEAR: int = 360  # 4 * DAYS_PER_SEASON
+const SEASON_IDS: Array[StringName] = [&"spring", &"summer", &"autumn", &"winter"]
+const SEASON_LABELS: Array[String] = ["Spring", "Summer", "Autumn", "Winter"]
 
 signal day_advanced(day: int)
+signal season_changed(season: Season, previous: Season)
 signal event_triggered(event_id: StringName)
 signal event_resolved(event_id: StringName, outcome: EventOutcome)
 
@@ -226,10 +242,67 @@ func adjust_event_variable(event_id: StringName, key: StringName, value: Variant
 				outcome.clan_allegiance = (value as Dictionary).duplicate(true)
 
 
+# --- Season stub API ---------------------------------------------------------
+
+func _day_or_current(for_day: int) -> int:
+	return day if for_day < 0 else for_day
+
+
+## Season enum for `for_day` (−1 = current `day`). Advances every DAYS_PER_SEASON.
+func get_season(for_day: int = -1) -> Season:
+	var d := _day_or_current(for_day)
+	# Floor-div; negative days clamp to spring of year 0 for safety.
+	if d < 0:
+		return Season.SPRING
+	return ((d / DAYS_PER_SEASON) % 4) as Season
+
+
+func get_season_id(for_day: int = -1) -> StringName:
+	return SEASON_IDS[int(get_season(for_day))]
+
+
+func get_season_name(for_day: int = -1) -> String:
+	return SEASON_LABELS[int(get_season(for_day))]
+
+
+## Days elapsed inside the current season (0 .. DAYS_PER_SEASON-1).
+func days_into_season(for_day: int = -1) -> int:
+	var d := _day_or_current(for_day)
+	if d < 0:
+		return 0
+	return d % DAYS_PER_SEASON
+
+
+## Days left until the next season boundary (1 .. DAYS_PER_SEASON).
+## On the last day of a season this returns 1; the next advance_day flips season.
+func days_remaining_in_season(for_day: int = -1) -> int:
+	return DAYS_PER_SEASON - days_into_season(for_day)
+
+
+## 0-based year index from the landing window (360-day stub years).
+func get_year_index(for_day: int = -1) -> int:
+	var d := _day_or_current(for_day)
+	if d < 0:
+		return 0
+	return d / DAYS_PER_YEAR
+
+
+## Day within the stub year (0 .. DAYS_PER_YEAR-1).
+func day_of_year(for_day: int = -1) -> int:
+	var d := _day_or_current(for_day)
+	if d < 0:
+		return 0
+	return d % DAYS_PER_YEAR
+
+
 func advance_day(amount: int = 1) -> void:
 	for _i in amount:
+		var previous := get_season()
 		day += 1
 		day_advanced.emit(day)
+		var current := get_season()
+		if current != previous:
+			season_changed.emit(current, previous)
 		_resolve_due_events()
 
 
@@ -851,6 +924,15 @@ func to_debug_dict() -> Dictionary:
 		timeline_unlocks = Factions.to_timeline_unlocks_debug_dict()
 	return {
 		"day": day,
+		"season": get_season_id(),
+		"season_index": int(get_season()),
+		"season_name": get_season_name(),
+		"days_into_season": days_into_season(),
+		"days_remaining_in_season": days_remaining_in_season(),
+		"year_index": get_year_index(),
+		"day_of_year": day_of_year(),
+		"days_per_season": DAYS_PER_SEASON,
+		"days_per_year": DAYS_PER_YEAR,
 		"debug_visible": debug_visible,
 		"events": event_debug,
 		"leinster_attitudes": attitudes,
@@ -888,7 +970,19 @@ func _append_event_debug_lines(lines: PackedStringArray, event_id: StringName, l
 func get_debug_text() -> String:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("=== WorldClock / living-history debug ===")
-	lines.append("Day: %d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage · Z Approaches · X Siege · P need surge · / quest stubs · J graph unlocks)" % day)
+	lines.append(
+		"Day: %d   Season: %s (%s) +%d/%d rem=%d  year=%d doy=%d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage · Z Approaches · X Siege · P need surge · / quest stubs · J graph unlocks)"
+		% [
+			day,
+			get_season_name(),
+			String(get_season_id()),
+			days_into_season(),
+			DAYS_PER_SEASON,
+			days_remaining_in_season(),
+			get_year_index(),
+			day_of_year(),
+		]
+	)
 	_append_event_debug_lines(lines, &"bannow_bay_landing", "Bannow")
 	_append_event_debug_lines(lines, &"wexford_waterford_struggle", "Wexford/Waterford")
 	_append_event_debug_lines(lines, &"aife_strongbow_marriage", "Aífe/Strongbow")

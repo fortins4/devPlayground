@@ -1,9 +1,11 @@
 extends CanvasLayer
-## Toggleable WorldClock / Bannow / rumors / attitudes readout for greybox F5.
+## Toggleable WorldClock / Bannow / rumors / attitudes / season readout for greybox F5.
+##
+## Season line comes from WorldClock.get_debug_text() (360-day year, 90-day seasons).
 ##
 ## Keys (when this node is in the tree):
 ##   T — show / hide panel
-##   Y — WorldClock.advance_day(1)  (also ticks Factions need pressure)
+##   Y — WorldClock.advance_day(1)  (also ticks Factions need pressure; may emit season_changed)
 ##   U — force-resolve Bannow Bay (skips calendar)
 ##   I — force-resolve Wexford/Waterford struggle (skips calendar)
 ##   O — force-resolve Aífe/Strongbow marriage (skips calendar)
