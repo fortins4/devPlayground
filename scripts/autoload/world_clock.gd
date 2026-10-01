@@ -620,7 +620,7 @@ func _append_event_debug_lines(lines: PackedStringArray, event_id: StringName, l
 func get_debug_text() -> String:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("=== WorldClock / living-history debug ===")
-	lines.append("Day: %d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage · P need surge)" % day)
+	lines.append("Day: %d   (T toggle · Y advance · U Bannow · I Wexford · O Marriage · P need surge · / quest stubs)" % day)
 	_append_event_debug_lines(lines, &"bannow_bay_landing", "Bannow")
 	_append_event_debug_lines(lines, &"wexford_waterford_struggle", "Wexford/Waterford")
 	_append_event_debug_lines(lines, &"aife_strongbow_marriage", "Aífe/Strongbow")

@@ -8,6 +8,7 @@ extends CanvasLayer
 ##   I — force-resolve Wexford/Waterford struggle (skips calendar)
 ##   O — force-resolve Aífe/Strongbow marriage (skips calendar)
 ##   P — Factions.demo_need_pressure_surge(5)  (need tick without calendar events)
+##   / — Factions.probe_quest_stubs()  (sync board + sample pick_up; Q is cycle_weapon)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -65,6 +66,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_P:
 				if Factions:
 					Factions.demo_need_pressure_surge(5)
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_SLASH:
+				if Factions:
+					print(Factions.probe_quest_stubs())
 					_refresh()
 				get_viewport().set_input_as_handled()
 

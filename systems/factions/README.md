@@ -26,7 +26,7 @@ Runtime registry: `scripts/autoload/factions.gd` (autoload **`Factions`**).
 
 `norse_wexford_waterford` is the third active faction so Bannow Bay → Wexford pressure and the Norse trade contact in `systems/economy/cattle_economy.gd` share one coastal actor. Monolithic `norse_gaelic` was split into Dublin vs Wexford/Waterford. Full roster IDs remain registered; `LEINSTER_ACTIVE` gates quest generation. `english_crown` is registered but inactive until late.
 
-`generate_quest_stubs()` returns 1–2 data-only quest dictionaries from current needs (no quest UI).
+`generate_quest_stubs()` returns 1–2 data-only quest dictionaries from current needs and lands them on the **quest stub board** (`offered_quest_stubs`) for directors to list / pick_up (no quest UI).
 
 ---
 
@@ -60,7 +60,7 @@ Related-need rates are slightly lower mirrors so the trio diverges over a few
 
 | Constant | Default | Effect (latched per faction+need until pressure clears) |
 |---|---|---|
-| `NEED_QUEST_THRESHOLD` | **0.4** | Emits `need_threshold_crossed(..., &"quest")` + `generate_quest_stubs(faction)` |
+| `NEED_QUEST_THRESHOLD` | **0.4** | Emits `need_threshold_crossed(..., &"quest")` + `offer_quest_stub(faction, need, &"threshold_cross")` |
 | `NEED_RUMOR_THRESHOLD` | **0.75** | Seeds Rumors (`source=&"faction_need"`, tags `need_pressure` + `faction:*` + `need:*`) |
 | `NEED_ATTITUDE_THRESHOLD` | **0.9** | `modify_attitude(id, NEED_ATTITUDE_DELTA)` with `NEED_ATTITUDE_DELTA = -3` (silent; below attitude-rumor floor) |
 | `NEED_HOOK_CLEAR_GAP` | **0.15** | Hooks re-arm when pressure falls below `threshold - gap` |
@@ -81,26 +81,95 @@ Factions.get_need_daily_rate(&"ui_chennselaig", Factions.NEED_HUNGER)
 Factions.set_need_daily_rate(&"ui_chennselaig", Factions.NEED_HUNGER, 0.05)
 Factions.to_needs_debug_dict()
 Factions.get_needs_debug_text()
-Factions.demo_need_pressure_surge(5)               # F5 greybox helper
-Factions.generate_quest_stubs()                    # 1–2 stubs when pressure >= 0.4
+Factions.demo_need_pressure_surge(5)               # F5 greybox helper (+ sync board)
 ```
 
 Signals: `need_changed`, `need_threshold_crossed(faction_id, need_id, kind, pressure)`,
 `need_pressure_ticked(day, report)`.
 
-### F5 check (need pressure)
+---
+
+## Quest stub hook board (need → director pickup)
+
+PR #36 latched quest/rumor/attitude thresholds and called an ephemeral
+`generate_quest_stubs`. Crossing now **lands** a concrete stub on
+`Factions.offered_quest_stubs` so directors can list / pick_up without a second
+system.
+
+| Status const | Meaning |
+|---|---|
+| `QUEST_STATUS_AVAILABLE` | On the board; director may claim |
+| `QUEST_STATUS_PICKED_UP` | Director claimed via `pick_up_quest_stub` |
+| `QUEST_STATUS_DISMISSED` | Soft-dismissed; kept for history |
+
+Stub schema: `id`, `faction_id`, `need_id`, `title`, `pressure`, `priority`,
+`status`, `offered_day`, `source` (`threshold_cross` | `sync_query` | `generate`).
+
+Idempotent by `id` (`<faction>_<need>`). Refresh updates pressure/title but does
+**not** clobber `picked_up` / `dismissed`. Soft cap: `MAX_OFFERED_QUEST_STUBS` (24).
+
+Seed pressures start above the quest floor and are **quietly latched** at boot so
+the first day tick does not spam offers. Use the **query** path to surface them:
+
+### Public API (quest hooks)
+
+```gdscript
+# Threshold cross (automatic inside set_need_pressure / day tick)
+# → offer_quest_stub(faction, need, &"threshold_cross")
+
+# Query / sync — land stubs for every need currently >= NEED_QUEST_THRESHOLD
+Factions.sync_offered_quest_stubs()
+Factions.sync_offered_quest_stubs(&"anglo_normans")
+
+# Build / offer
+Factions.build_quest_stub(&"ui_chennselaig", Factions.NEED_HUNGER)   # pure; {} if below floor
+Factions.offer_quest_stub(&"anglo_normans", &"supplies_landing")
+Factions.generate_quest_stubs()                    # top 1–2 / faction + land on board
+Factions.generate_quest_stubs(&"", false)          # candidates only (no board write)
+
+# List / claim
+Factions.list_offered_quest_stubs()
+Factions.list_offered_quest_stubs(&"norse_wexford_waterford")
+Factions.list_available_quest_stubs()              # status == available
+Factions.get_quest_stub(&"anglo_normans_hunger")
+Factions.has_quest_stub(&"anglo_normans_hunger")
+Factions.count_offered_quest_stubs()
+Factions.count_offered_quest_stubs(Factions.QUEST_STATUS_AVAILABLE)
+Factions.pick_up_quest_stub(&"anglo_normans_hunger")   # director claim
+Factions.dismiss_quest_stub(&"ui_chennselaig_security")
+Factions.clear_offered_quest_stubs()
+
+# Debug / probe
+Factions.to_quest_stubs_debug_dict()
+Factions.get_quest_stubs_debug_text()
+Factions.probe_quest_stubs()                       # sync + sample pick_up
+```
+
+Signals: `quest_stub_generated`, `quest_stub_offered(faction_id, quest)`,
+`quest_stub_status_changed(quest_id, status, quest)`.
+
+### F5 check (need pressure + quest board)
 
 1. F5 main scene → **T** (Timeline panel). Confirm Needs block lists Leinster
-   hunger/security with per-day rates.
+   hunger/security with per-day rates; Quest stubs line starts empty (seed latch).
 2. **Y** — advances day; need pressures climb (Anglo hunger fastest; Norse
    security fastest). Bannow still resolves on first advance as before.
-3. **P** — `demo_need_pressure_surge(5)` without calendar events; watch pressures
-   + quest/rumor hooks once past 0.75.
-4. Remote: `print(Factions.to_needs_debug_dict())` /
-   `print(Factions.apply_need_pressure_tick(2, WorldClock.day, false))`.
+3. **P** — `demo_need_pressure_surge(5)` without calendar events; syncs the board
+   so Quest stubs list fills; watch pressures + quest/rumor hooks once past 0.75.
+4. **/** — `probe_quest_stubs()` (sync + sample pick_up; **Q** is cycle_weapon); board shows one
+   `picked_up` row. Remote alternative below.
+5. Remote:
+   ```gdscript
+   print(Factions.to_needs_debug_dict())
+   print(Factions.sync_offered_quest_stubs())
+   print(Factions.list_available_quest_stubs())
+   print(Factions.pick_up_quest_stub(&"anglo_normans_supplies_landing"))
+   print(Factions.probe_quest_stubs())
+   ```
+   Or headless: `godot --headless --path . --script res://tools/probe_faction_need_quests.gd`
 
 Keys (Timeline HUD): **T** toggle · **Y** day (+ need tick) · **P** need surge ·
-**U/I/O** force events.
+**/** quest-stub probe · **U/I/O** force events.
 
 ---
 
