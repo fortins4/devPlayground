@@ -5,6 +5,7 @@ extends CanvasLayer
 ##   N — show / hide panel
 ##   M — Rumors.seed_demo_rumors()
 ##   , — Rumors.tick_decay(1)
+##   . — Factions.demo_seed_diplomatic_swing() (attitude + graph → tagged rumors)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -50,6 +51,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_COMMA:
 				if Rumors:
 					Rumors.tick_decay(1)
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_PERIOD:
+				if Factions:
+					Factions.demo_seed_diplomatic_swing()
 					_refresh()
 				get_viewport().set_input_as_handled()
 

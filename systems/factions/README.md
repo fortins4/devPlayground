@@ -68,9 +68,41 @@ Factions.list_relationships_involving(&"fian")
 Factions.get_relationship(&"ui_chennselaig", &"anglo_normans", Factions.REL_ALLIANCE)
 Factions.set_relationship(a, b, Factions.REL_HOSTILITY, 40.0, "note")
 Factions.modify_relationship_strength(a, b, Factions.REL_TRADE, 5.0)
+# Optional silent write (no rumor seed):
+Factions.set_relationship(a, b, Factions.REL_TRADE, 40.0, "", false)
+Factions.modify_relationship_strength(a, b, Factions.REL_TRADE, 5.0, false)
 Factions.are_allied(&"ui_chennselaig", &"anglo_normans")
 Factions.are_hostile(&"anglo_normans", &"norse_wexford_waterford")
 Factions.to_relationship_debug_dict()
+Factions.demo_seed_diplomatic_swing()                  # F5 greybox helper
 ```
 
 Signal: `relationship_changed(from_id, to_id, edge)`.
+
+---
+
+## Rumors ↔ graph coupling
+
+Primary direction: **attitude / graph changes → Rumors**. Wired inside the
+existing mutate APIs so gameplay callers never need a second rumor call.
+
+| Trigger API | Threshold | Direction rule | Rumor source / tags |
+|---|---|---|---|
+| `modify_attitude(id, delta)` | `\|delta\| >= RUMOR_ATTITUDE_THRESHOLD` (**10**) | delta > 0 → warmer | `&"faction"` · `attitude` + `faction:<id>` + `direction:*` |
+| `set_relationship` / `modify_relationship_strength` | `\|Δstrength\| >= RUMOR_GRAPH_DELTA_THRESHOLD` (**15**) | Amicable kinds (alliance/obligation/patronage/trade/kinship): strength up → warmer. Hostile/rival/feud: strength up → colder | `&"faction_graph"` · `graph` + both `faction:*` + `direction:*` + `kind:<rel>` |
+
+- Graph rumor priority elevates to **HIGH** when `\|Δstrength\| >= RUMOR_GRAPH_HIGH_DELTA` (**30**).
+- Boot seed (`_seed_relationship_graph` / `_add_edge_raw`) does **not** emit rumors.
+- `modify_attitude(..., seed_rumor=false)` / `set_relationship(..., seed_rumor=false)` skip seeding (used by reverse nudge).
+
+Optional reverse (gated on Rumors): HIGH+ faction-tagged rumors from non-Factions
+sources can apply ±2 attitude — see [systems/rumors/README.md](../rumors/README.md).
+
+### F5 check (diplomatic coupling)
+
+1. F5 main scene → **N** (Rumors panel).
+2. **.** — runs `Factions.demo_seed_diplomatic_swing()`:
+   - Anglo-Normans attitude +12 → tagged attitude rumor (`direction:warmer`)
+   - Hostility vs Norse Wexford/Waterford +18 → tagged graph rumor (`direction:colder`)
+3. Confirm panel lines show `{attitude,...}` / `{graph,...}` tag suffixes.
+4. Remote alternative: the `modify_attitude` / `modify_relationship_strength` calls above.

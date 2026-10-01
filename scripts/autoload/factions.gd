@@ -1,10 +1,14 @@
 extends Node
-## Faction registry, attitudes, goals/needs, and quest-generation stubs.
+## Faction registry, attitudes, goals/needs, relationship graph, and quest stubs.
 ##
 ## Full roster (historically truer): Uí Chennselaig, Anglo-Normans, English crown,
 ## High Kingship, Norse Dublin, Norse Wexford/Waterford, Church, local clans, fían.
 ## Leinster slice ACTIVE (quest gen): ui_chennselaig, anglo_normans,
 ## norse_wexford_waterford. english_crown stays inactive until late / 1171 pressure.
+##
+## Diplomatic coupling: meaningful attitude / graph swings auto-seed Rumors tags
+## (faction pair + warmer/colder). Callers use modify_attitude / set_relationship /
+## modify_relationship_strength — no second rumor call required.
 
 signal attitude_changed(faction_id: StringName, value: float)
 signal need_changed(faction_id: StringName, need_id: StringName)
@@ -50,6 +54,25 @@ const RELATIONSHIP_KINDS: Array[StringName] = [
 	REL_KINSHIP,
 	REL_FEUD,
 ]
+
+## Kinds where higher strength means warmer diplomacy (alliance / trade / etc.).
+const REL_AMICABLE_KINDS: Array[StringName] = [
+	REL_ALLIANCE,
+	REL_OBLIGATION,
+	REL_PATRONAGE,
+	REL_TRADE,
+	REL_KINSHIP,
+]
+
+## --- Rumors ↔ graph coupling thresholds (documented in systems/*/README) ---
+## |delta| on player attitude that auto-seeds a tagged rumor.
+const RUMOR_ATTITUDE_THRESHOLD: float = 10.0
+## |strength delta| on a graph edge that auto-seeds a tagged rumor.
+const RUMOR_GRAPH_DELTA_THRESHOLD: float = 15.0
+## |strength delta| that elevates graph rumor to PRIORITY_HIGH.
+const RUMOR_GRAPH_HIGH_DELTA: float = 30.0
+const RUMOR_ATTITUDE_DECAY_DAYS: int = 5
+const RUMOR_GRAPH_DECAY_DAYS: int = 6
 
 ## Attitude toward the player: -100 hostile … +100 allied.
 var attitudes: Dictionary = {}
@@ -186,19 +209,15 @@ func get_attitude(faction_id: StringName) -> float:
 	return float(attitudes.get(faction_id, 0.0))
 
 
-func modify_attitude(faction_id: StringName, delta: float) -> void:
+## Change player attitude. When |delta| >= RUMOR_ATTITUDE_THRESHOLD and seed_rumor,
+## auto-seeds a Rumors entry tagged with faction + direction (warmer/colder).
+## Pass seed_rumor=false for silent nudges (e.g. reverse rumor→attitude coupling).
+func modify_attitude(faction_id: StringName, delta: float, seed_rumor: bool = true) -> void:
 	var value := clampf(get_attitude(faction_id) + delta, -100.0, 100.0)
 	attitudes[faction_id] = value
 	attitude_changed.emit(faction_id, value)
-	if Rumors and absf(delta) >= 10.0:
-		var direction := "warmer" if delta > 0.0 else "colder"
-		Rumors.add_rumor(
-			StringName("attitude_%s_%d" % [String(faction_id), WorldClock.day if WorldClock else 0]),
-			"Relations with %s grow %s." % [_display_name(faction_id), direction],
-			&"faction",
-			Rumors.PRIORITY_NORMAL,
-			5
-		)
+	if seed_rumor and absf(delta) >= RUMOR_ATTITUDE_THRESHOLD:
+		_seed_attitude_rumor(faction_id, delta)
 
 
 func get_goals(faction_id: StringName) -> Array:
@@ -346,12 +365,15 @@ func _edge_matches(
 
 
 ## Upsert a directed edge (match on from+to+kind). Emits relationship_changed.
+## When |strength delta| >= RUMOR_GRAPH_DELTA_THRESHOLD and seed_rumor, auto-seeds
+## a Rumors entry tagged with both faction ids + warmer/colder direction.
 func set_relationship(
 	from_id: StringName,
 	to_id: StringName,
 	kind: StringName,
 	strength: float,
-	note: String = ""
+	note: String = "",
+	seed_rumor: bool = true
 ) -> Dictionary:
 	if from_id not in FACTION_IDS or to_id not in FACTION_IDS:
 		push_warning("Factions.set_relationship: unknown faction id")
@@ -360,14 +382,18 @@ func set_relationship(
 		push_warning("Factions.set_relationship: unknown kind %s" % String(kind))
 		return {}
 	var clamped := clampf(strength, -100.0, 100.0)
+	var previous_strength := 0.0
 	for i in relationship_edges.size():
 		var edge: Dictionary = relationship_edges[i]
 		if _edge_matches(edge, from_id, to_id, kind):
+			previous_strength = float(edge.get("strength", 0.0))
 			edge["strength"] = clamped
 			if note != "":
 				edge["note"] = note
 			relationship_edges[i] = edge
 			relationship_changed.emit(from_id, to_id, edge)
+			if seed_rumor:
+				_maybe_seed_graph_rumor(from_id, to_id, kind, clamped - previous_strength, edge)
 			return edge
 	var created := {
 		"from": from_id,
@@ -378,6 +404,9 @@ func set_relationship(
 	}
 	relationship_edges.append(created)
 	relationship_changed.emit(from_id, to_id, created)
+	# New edge: treat previous as 0 so a sized create can still seed word.
+	if seed_rumor:
+		_maybe_seed_graph_rumor(from_id, to_id, kind, clamped - previous_strength, created)
 	return created
 
 
@@ -385,12 +414,13 @@ func modify_relationship_strength(
 	from_id: StringName,
 	to_id: StringName,
 	kind: StringName,
-	delta: float
+	delta: float,
+	seed_rumor: bool = true
 ) -> Dictionary:
 	var edge := get_relationship(from_id, to_id, kind)
 	var current := float(edge.get("strength", 0.0)) if not edge.is_empty() else 0.0
 	var note := str(edge.get("note", "")) if not edge.is_empty() else ""
-	return set_relationship(from_id, to_id, kind, current + delta, note)
+	return set_relationship(from_id, to_id, kind, current + delta, note, seed_rumor)
 
 
 ## First matching edge (optional kind filter). Empty Dictionary if none.
@@ -482,4 +512,102 @@ func to_relationship_debug_dict() -> Dictionary:
 		"by_kind": by_kind,
 		"leinster_edges": list_leinster_relationships(),
 		"edges": list_relationships(),
+	}
+
+
+# --- Rumors ↔ attitude / graph coupling --------------------------------------
+
+func _seed_attitude_rumor(faction_id: StringName, delta: float) -> void:
+	if Rumors == null:
+		return
+	var direction := "warmer" if delta > 0.0 else "colder"
+	var dir_tag: StringName = (
+		Rumors.TAG_DIRECTION_WARMER if delta > 0.0 else Rumors.TAG_DIRECTION_COLDER
+	)
+	var day := WorldClock.day if WorldClock else 0
+	var tags: Array = [
+		Rumors.TAG_ATTITUDE,
+		Rumors.faction_tag(faction_id),
+		dir_tag,
+	]
+	Rumors.add_rumor(
+		StringName("attitude_%s_%s_%d" % [String(faction_id), direction, day]),
+		"Relations with %s grow %s." % [_display_name(faction_id), direction],
+		&"faction",
+		Rumors.PRIORITY_NORMAL,
+		RUMOR_ATTITUDE_DECAY_DAYS,
+		tags
+	)
+
+
+func _maybe_seed_graph_rumor(
+	from_id: StringName,
+	to_id: StringName,
+	kind: StringName,
+	strength_delta: float,
+	edge: Dictionary
+) -> void:
+	if Rumors == null:
+		return
+	if absf(strength_delta) < RUMOR_GRAPH_DELTA_THRESHOLD:
+		return
+	var dir_tag := _graph_direction_tag(kind, strength_delta)
+	var direction_word := "warmer" if dir_tag == Rumors.TAG_DIRECTION_WARMER else "colder"
+	var priority := Rumors.PRIORITY_NORMAL
+	if absf(strength_delta) >= RUMOR_GRAPH_HIGH_DELTA:
+		priority = Rumors.PRIORITY_HIGH
+	var day := WorldClock.day if WorldClock else 0
+	var tags: Array = [
+		Rumors.TAG_GRAPH,
+		Rumors.faction_tag(from_id),
+		Rumors.faction_tag(to_id),
+		dir_tag,
+		StringName("kind:%s" % String(kind)),
+	]
+	var note := str(edge.get("note", "")).strip_edges()
+	var body := "Word spreads: %s and %s grow %s (%s)." % [
+		_display_name(from_id),
+		_display_name(to_id),
+		direction_word,
+		String(kind),
+	]
+	if note != "":
+		body = "%s — %s" % [body, note]
+	Rumors.add_rumor(
+		StringName(
+			"graph_%s_%s_%s_%s_%d" % [
+				String(from_id), String(to_id), String(kind), direction_word, day,
+			]
+		),
+		body,
+		&"faction_graph",
+		priority,
+		RUMOR_GRAPH_DECAY_DAYS,
+		tags
+	)
+
+
+## Amicable kinds: strength up → warmer. Hostile/rival/feud: strength up → colder.
+func _graph_direction_tag(kind: StringName, strength_delta: float) -> StringName:
+	var amicable := kind in REL_AMICABLE_KINDS
+	if amicable:
+		return Rumors.TAG_DIRECTION_WARMER if strength_delta > 0.0 else Rumors.TAG_DIRECTION_COLDER
+	return Rumors.TAG_DIRECTION_COLDER if strength_delta > 0.0 else Rumors.TAG_DIRECTION_WARMER
+
+
+## Greybox / F5 helper — swing Leinster attitude + hostility so the bus shows tags.
+func demo_seed_diplomatic_swing() -> Dictionary:
+	var before_att := get_attitude(&"anglo_normans")
+	modify_attitude(&"anglo_normans", 12.0)
+	var edge := modify_relationship_strength(
+		&"anglo_normans",
+		&"norse_wexford_waterford",
+		REL_HOSTILITY,
+		18.0
+	)
+	return {
+		"attitude_before": before_att,
+		"attitude_after": get_attitude(&"anglo_normans"),
+		"hostility_edge": edge.duplicate(true) if not edge.is_empty() else {},
+		"rumors_active": Rumors.count_active() if Rumors else 0,
 	}
