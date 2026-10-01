@@ -102,37 +102,67 @@ Remote inspect: `print(cattle.to_debug_dict())` / `print(cattle.band.to_debug_di
 
 ---
 
-## Recruitment data hooks (who / cost)
+## Recruitment data hooks (who / cost) ↔ Honor enech gates
 
 Data/API only — **no recruitment UI**. Pool lives on `BandUpkeep.RECRUIT_POOL`;
-`CattleEconomy` exposes a typed facade that pays from the herd.
+`CattleEconomy` exposes a typed facade that pays from the herd and **auto-resolves
+`Honor.overall` (0..100)** when honor is omitted (`HONOR_RESOLVE_AUTO`).
 
-| Option id | Cattle cost | Soft gates (slice) |
-|---|---|---|
-| `local_kerne` | 2 | honor ≥ −30 |
-| `ringfort_veteran` | 4 | honor ≥ −10, readiness ≥ 25 |
-| `ui_chennselaig_retainer` | 5 | honor ≥ 0, Uí Chennselaig attitude ≥ 15 |
-| `fian_outlaw` | 3 | honor ≥ −80 |
-| `norse_coastal_axe` | 6 | honor ≥ −20, Norse Wexford/Waterford attitude ≥ 10 |
+Honor scale is the same as the [`Honor`](../honor/README.md) autoload (enech),
+**not** the signed faction-attitude scale. Low / high enech changes who is
+recruitable and can raise or discount cattle cost.
+
+| Option id | Base cattle | Honor gate (overall 0..100) | Cost tiers / notes |
+|---|---|---|---|
+| `local_kerne` | 2 | ≥ 15 | < 25 → 3 cattle |
+| `ringfort_veteran` | 4 | ≥ 35, readiness ≥ 25 | < 40 → 6; ≥ 70 → 3 |
+| `ui_chennselaig_retainer` | 5 | ≥ 50 + Uí Chennselaig attitude ≥ 15 | ≥ 75 → 4 |
+| `fian_outlaw` | 3 | **0…40 only** (`honor_max`) | Locked at seed enech 50 — drop Honor to unlock |
+| `norse_coastal_axe` | 6 | ≥ 30 + Norse attitude ≥ 10 | < 40 → 8 |
 
 ```gdscript
-# Inspect
+# Inspect (Honor auto-resolved from autoload when omitted)
 cattle.get_recruit_pool()
-cattle.get_recruit_cattle_cost(&"local_kerne")  # 2
-cattle.list_recruit_options(Honor.get_honor())   # eligible + grey rows; uses Factions.attitudes + herd
-cattle.list_eligible_recruits(Honor.get_honor())
+cattle.get_recruit_cattle_cost(&"local_kerne")           # base 2
+cattle.effective_recruit_cattle_cost(&"local_kerne")     # Honor-tier
+cattle.list_recruit_options()                            # eligible + grey; Factions + herd
+cattle.list_eligible_recruits()
+cattle.probe_recruit_honor_gates()                       # remote / F5 snapshot
+cattle.probe_recruit_honor_gates(20.0)                   # simulate thin enech
 
-# Gate + pay + grow band
-var gate := cattle.can_recruit_option(&"ui_chennselaig_retainer", Honor.get_honor())
-var result := cattle.try_recruit_option(&"local_kerne", Honor.get_honor())
-# result: { ok, reason, cattle_spent, count, band_size, option }
+# Gate + pay + grow band (same API as before — now enech-gated)
+var gate := cattle.can_recruit_option(&"ui_chennselaig_retainer")
+var result := cattle.try_recruit_option(&"local_kerne")
+# result: { ok, reason, cattle_spent, count, band_size, option, honor_score }
+# Optional override: cattle.try_recruit_option(&"fian_outlaw", 25.0)
 ```
 
-Direct band access: `cattle.band.can_recruit_option(...)` / `try_recruit_option(id, economy, ...)`.
+Direct band access: `cattle.band.can_recruit_option(id, honor, attitudes)` /
+`effective_recruit_cattle_cost` / `probe_recruit_honor_gates`.
 Signal: `BandUpkeep.recruit_option_denied(option_id, reason)`.
 
 Deny reasons: `unknown_option`, `band_full`, `band_capacity`, `honor_too_low`,
-`readiness_too_low`, `faction_attitude`, `cannot_afford`, `no_economy`, `recruit_failed`.
+`honor_too_high`, `readiness_too_low`, `faction_attitude`, `cannot_afford`,
+`no_economy`, `recruit_failed`.
+
+### F5 / remote probe (band ↔ Honor)
+
+1. Open project in **Godot 4.4+**, press **F5** (main scene with ringfort muster).
+2. Press **H** (Honor debug HUD, top-left) — confirm `Overall: 50.0` seed.
+3. Remote / Debugger:
+   ```gdscript
+   var cattle := get_tree().get_first_node_in_group("player") # or find ringfort CattleEconomy
+   # Prefer: locate RingfortArea → cattle
+   print(cattle.probe_recruit_honor_gates())
+   # At seed 50: fian_outlaw eligible=false deny=honor_too_high; kerne/veteran open (readiness permitting)
+   ```
+4. Drop enech with Honor HUD **[** (overall −5) until ~30:
+   - `probe_recruit_honor_gates()` → `fian_outlaw` eligible; veteran/retainer may deny `honor_too_low`
+   - Muster **E** still recruits `local_kerne` (cost may rise to 3 if < 25)
+5. Raise enech with **]** to ≥ 70 — veteran cattle cost discounts; fian locks again (`honor_too_high`).
+6. Ringfort muster prompt shows **effective** cattle cost for the slice kerne option.
+
+No Godot binary in CI agents — Lead runs F5; remote `probe_recruit_honor_gates` is enough for smoke.
 
 ---
 

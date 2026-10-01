@@ -4,7 +4,8 @@ extends RefCounted
 ##
 ## Systems data only — no UI. CattleEconomy (or ringfort owner) pays via
 ## `apply_daily_upkeep(economy)`. Ambush confidence: `skirmish_confidence()`.
-## Who-can-join / cost: `RECRUIT_POOL`, `list_recruit_options`, `try_recruit_option`.
+## Who-can-join / cost: `RECRUIT_POOL`, `list_recruit_options`, `try_recruit_option`
+## (Honor enech 0..100 gates + optional cattle cost tiers).
 
 signal band_changed(size: int, morale: float, readiness: float)
 signal upkeep_failed(shortfall_cattle: int)
@@ -27,65 +28,83 @@ var cattle_per_warrior_per_day: float = 0.15
 ## Flat cattle cost even for an empty band (camp overhead); 0 while size == 0.
 var base_camp_cattle_per_day: float = 0.0
 
-## Slice recruit archetypes: who can join + cattle cost (+ soft gates).
-## Gates are data-only; callers pass honor / faction attitudes in.
-## Schema keys: id, display_name, cattle_cost, count, honor_min, readiness_min,
-##   required_attitudes {faction_id → min}, tags, note
+## Slice recruit archetypes: who can join + cattle cost (+ Honor enech gates).
+## Honor scale matches autoload Honor overall (0..100). Callers pass honor /
+## faction attitudes in; CattleEconomy auto-resolves Honor when omitted.
+## Schema keys: id, display_name, cattle_cost, count, honor_min, honor_max,
+##   readiness_min, required_attitudes {faction_id → min}, tags, note,
+##   optional cost tiers: honor_cost_low_below + cattle_cost_low_honor,
+##   honor_cost_high_at + cattle_cost_high_honor
 const RECRUIT_POOL: Array[Dictionary] = [
 	{
 		"id": &"local_kerne",
 		"display_name": "Local kerne",
 		"cattle_cost": 2,
 		"count": 1,
-		"honor_min": -30.0,
+		"honor_min": 15.0,
+		"honor_max": 100.0,
 		"readiness_min": 0.0,
 		"required_attitudes": {},
 		"tags": [&"gaelic", &"light"],
-		"note": "Túatha youth willing to follow for cattle and protection.",
+		"honor_cost_low_below": 25.0,
+		"cattle_cost_low_honor": 3,
+		"note": "Túatha youth; thin enech pays +1 cattle.",
 	},
 	{
 		"id": &"ringfort_veteran",
 		"display_name": "Ringfort veteran",
 		"cattle_cost": 4,
 		"count": 1,
-		"honor_min": -10.0,
+		"honor_min": 35.0,
+		"honor_max": 100.0,
 		"readiness_min": 25.0,
 		"required_attitudes": {},
 		"tags": [&"gaelic", &"drilled"],
-		"note": "Experienced spear from the rebuilt ringfort muster.",
+		"honor_cost_low_below": 40.0,
+		"cattle_cost_low_honor": 6,
+		"honor_cost_high_at": 70.0,
+		"cattle_cost_high_honor": 3,
+		"note": "Experienced spear; needs solid enech. High enech discounts.",
 	},
 	{
 		"id": &"ui_chennselaig_retainer",
 		"display_name": "Uí Chennselaig retainer",
 		"cattle_cost": 5,
 		"count": 1,
-		"honor_min": 0.0,
+		"honor_min": 50.0,
+		"honor_max": 100.0,
 		"readiness_min": 20.0,
 		"required_attitudes": {&"ui_chennselaig": 15.0},
 		"tags": [&"gaelic", &"retainer"],
-		"note": "Requires warm Diarmait attitude; costs more cattle.",
+		"honor_cost_high_at": 75.0,
+		"cattle_cost_high_honor": 4,
+		"note": "Warm Diarmait attitude + respectable enech; lofty enech discounts.",
 	},
 	{
 		"id": &"fian_outlaw",
 		"display_name": "Fían outlaw",
 		"cattle_cost": 3,
 		"count": 1,
-		"honor_min": -80.0,
+		"honor_min": 0.0,
+		"honor_max": 40.0,
 		"readiness_min": 0.0,
 		"required_attitudes": {},
 		"tags": [&"fian", &"light"],
-		"note": "Cheap blade; honor can be low. Soft-caps via honor_min only.",
+		"note": "Only when enech is thin — outlaws shun a lofty lord (honor_max).",
 	},
 	{
 		"id": &"norse_coastal_axe",
 		"display_name": "Norse coastal axeman",
 		"cattle_cost": 6,
 		"count": 1,
-		"honor_min": -20.0,
+		"honor_min": 30.0,
+		"honor_max": 100.0,
 		"readiness_min": 15.0,
 		"required_attitudes": {&"norse_wexford_waterford": 10.0},
 		"tags": [&"norse", &"axe"],
-		"note": "Harbor hireling — needs non-hostile Norse Wexford/Waterford attitude.",
+		"honor_cost_low_below": 40.0,
+		"cattle_cost_low_honor": 8,
+		"note": "Harbor hireling; thin enech pays a premium.",
 	},
 ]
 
@@ -219,6 +238,7 @@ func get_recruit_option(option_id: StringName) -> Dictionary:
 	return {}
 
 
+## Base cattle_cost from pool (ignores Honor tiers). Prefer effective_recruit_cattle_cost.
 func get_recruit_cattle_cost(option_id: StringName) -> int:
 	var opt := get_recruit_option(option_id)
 	if opt.is_empty():
@@ -226,11 +246,32 @@ func get_recruit_cattle_cost(option_id: StringName) -> int:
 	return maxi(0, int(opt.get("cattle_cost", 0)))
 
 
-## Eligibility without paying. Pass current honor + faction attitude map.
+## Cattle cost after Honor enech tiers (low premium / high discount).
+## Pass Honor.get_honor() (0..100). Unknown option → -1.
+func effective_recruit_cattle_cost(option_id: StringName, honor_score: float = 50.0) -> int:
+	var opt := get_recruit_option(option_id)
+	if opt.is_empty():
+		return -1
+	return _effective_cattle_cost(opt, honor_score)
+
+
+func _effective_cattle_cost(opt: Dictionary, honor_score: float) -> int:
+	var cost := maxi(0, int(opt.get("cattle_cost", 0)))
+	var low_below := float(opt.get("honor_cost_low_below", -1.0))
+	if low_below >= 0.0 and honor_score < low_below:
+		cost = maxi(0, int(opt.get("cattle_cost_low_honor", cost)))
+	var high_at := float(opt.get("honor_cost_high_at", -1.0))
+	if high_at >= 0.0 and honor_score >= high_at:
+		cost = maxi(0, int(opt.get("cattle_cost_high_honor", cost)))
+	return cost
+
+
+## Eligibility without paying. Pass Honor overall (0..100) + faction attitude map.
 ## `faction_attitudes` is faction_id → float (player attitude), e.g. Factions.attitudes.
+## cattle_cost in the result is Honor-tier effective cost.
 func can_recruit_option(
 	option_id: StringName,
-	honor_score: float = 0.0,
+	honor_score: float = 50.0,
 	faction_attitudes: Dictionary = {}
 ) -> Dictionary:
 	var opt := get_recruit_option(option_id)
@@ -241,10 +282,39 @@ func can_recruit_option(
 	var count := maxi(1, int(opt.get("count", 1)))
 	if size + count > max_size:
 		return {"ok": false, "reason": &"band_capacity", "option": opt}
-	if honor_score < float(opt.get("honor_min", -100.0)):
-		return {"ok": false, "reason": &"honor_too_low", "option": opt}
+	var honor_min := float(opt.get("honor_min", 0.0))
+	var honor_max := float(opt.get("honor_max", 100.0))
+	var cost := _effective_cattle_cost(opt, honor_score)
+	if honor_score < honor_min:
+		return {
+			"ok": false,
+			"reason": &"honor_too_low",
+			"option": opt,
+			"honor_score": honor_score,
+			"honor_min": honor_min,
+			"honor_max": honor_max,
+			"cattle_cost": cost,
+			"cattle_cost_base": int(opt.get("cattle_cost", 0)),
+		}
+	if honor_score > honor_max:
+		return {
+			"ok": false,
+			"reason": &"honor_too_high",
+			"option": opt,
+			"honor_score": honor_score,
+			"honor_min": honor_min,
+			"honor_max": honor_max,
+			"cattle_cost": cost,
+			"cattle_cost_base": int(opt.get("cattle_cost", 0)),
+		}
 	if readiness < float(opt.get("readiness_min", 0.0)):
-		return {"ok": false, "reason": &"readiness_too_low", "option": opt}
+		return {
+			"ok": false,
+			"reason": &"readiness_too_low",
+			"option": opt,
+			"honor_score": honor_score,
+			"cattle_cost": cost,
+		}
 	var required: Dictionary = opt.get("required_attitudes", {})
 	for faction_id in required.keys():
 		# Skip pure floor sentinels (≤ -100 means "no attitude gate").
@@ -260,19 +330,26 @@ func can_recruit_option(
 				"need": need,
 				"have": have,
 				"option": opt,
+				"honor_score": honor_score,
+				"cattle_cost": cost,
 			}
 	return {
 		"ok": true,
 		"reason": &"ok",
 		"option": opt,
-		"cattle_cost": int(opt.get("cattle_cost", 0)),
+		"cattle_cost": cost,
+		"cattle_cost_base": int(opt.get("cattle_cost", 0)),
 		"count": count,
+		"honor_score": honor_score,
+		"honor_min": honor_min,
+		"honor_max": honor_max,
 	}
 
 
 ## Options the band could take right now (gates only — does not check cattle).
+## Row cattle_cost is Honor-tier effective; cattle_cost_base is pool base.
 func list_recruit_options(
-	honor_score: float = 0.0,
+	honor_score: float = 50.0,
 	faction_attitudes: Dictionary = {},
 	affordable_only: bool = false,
 	available_cattle: int = -1
@@ -284,7 +361,11 @@ func list_recruit_options(
 		var row := entry.duplicate(true)
 		row["eligible"] = bool(gate.get("ok", false))
 		row["deny_reason"] = gate.get("reason", &"")
-		var cost := int(entry.get("cattle_cost", 0))
+		var base_cost := int(entry.get("cattle_cost", 0))
+		var cost := int(gate.get("cattle_cost", base_cost))
+		row["cattle_cost_base"] = base_cost
+		row["cattle_cost"] = cost
+		row["honor_score"] = honor_score
 		row["can_afford"] = available_cattle < 0 or available_cattle >= cost
 		if affordable_only and available_cattle >= 0 and available_cattle < cost:
 			continue
@@ -298,7 +379,7 @@ func list_recruit_options(
 
 ## Eligible-only convenience (ignores cattle unless available_cattle >= 0).
 func list_eligible_recruits(
-	honor_score: float = 0.0,
+	honor_score: float = 50.0,
 	faction_attitudes: Dictionary = {},
 	available_cattle: int = -1
 ) -> Array[Dictionary]:
@@ -313,27 +394,40 @@ func list_eligible_recruits(
 
 
 ## Pay cattle (via economy.spend_cattle) then grow the band. Returns result dict.
+## Charges Honor-tier effective cattle_cost.
 func try_recruit_option(
 	option_id: StringName,
 	economy: Object,
-	honor_score: float = 0.0,
+	honor_score: float = 50.0,
 	faction_attitudes: Dictionary = {}
 ) -> Dictionary:
 	var gate := can_recruit_option(option_id, honor_score, faction_attitudes)
 	if not bool(gate.get("ok", false)):
 		var reason: StringName = gate.get("reason", &"denied")
 		recruit_option_denied.emit(option_id, reason)
-		return {"ok": false, "reason": reason, "option": gate.get("option", {})}
+		return {
+			"ok": false,
+			"reason": reason,
+			"option": gate.get("option", {}),
+			"honor_score": honor_score,
+			"cattle_cost": gate.get("cattle_cost", -1),
+		}
 	var opt: Dictionary = gate.get("option", {})
-	var cost := int(opt.get("cattle_cost", 0))
+	var cost := int(gate.get("cattle_cost", _effective_cattle_cost(opt, honor_score)))
 	var count := maxi(1, int(opt.get("count", 1)))
 	if cost > 0:
 		if economy == null or not economy.has_method("spend_cattle"):
 			recruit_option_denied.emit(option_id, &"no_economy")
-			return {"ok": false, "reason": &"no_economy", "option": opt}
+			return {"ok": false, "reason": &"no_economy", "option": opt, "honor_score": honor_score}
 		if not bool(economy.spend_cattle(cost)):
 			recruit_option_denied.emit(option_id, &"cannot_afford")
-			return {"ok": false, "reason": &"cannot_afford", "option": opt, "cattle_cost": cost}
+			return {
+				"ok": false,
+				"reason": &"cannot_afford",
+				"option": opt,
+				"cattle_cost": cost,
+				"honor_score": honor_score,
+			}
 	# Drilled retainers add a touch of readiness; green kernes still drag via recruit().
 	var morale_bonus := 2.0
 	var tags: Array = opt.get("tags", [])
@@ -345,15 +439,37 @@ func try_recruit_option(
 		if cost > 0 and economy != null and economy.has_method("add_cattle"):
 			economy.add_cattle(cost)
 		recruit_option_denied.emit(option_id, &"recruit_failed")
-		return {"ok": false, "reason": &"recruit_failed", "option": opt}
+		return {"ok": false, "reason": &"recruit_failed", "option": opt, "honor_score": honor_score}
 	return {
 		"ok": true,
 		"reason": &"ok",
 		"option_id": option_id,
 		"cattle_spent": cost,
+		"cattle_cost_base": int(opt.get("cattle_cost", 0)),
 		"count": count,
 		"band_size": size,
 		"option": opt,
+		"honor_score": honor_score,
+	}
+
+
+## Snapshot pool gates at a given Honor overall (default seed 50).
+func probe_recruit_honor_gates(honor_score: float = 50.0, faction_attitudes: Dictionary = {}) -> Dictionary:
+	var rows: Array = []
+	for row in list_recruit_options(honor_score, faction_attitudes, false, -1):
+		rows.append({
+			"id": String(row.get("id", &"")),
+			"eligible": bool(row.get("eligible", false)),
+			"deny_reason": String(row.get("deny_reason", &"")),
+			"honor_min": float(row.get("honor_min", 0.0)),
+			"honor_max": float(row.get("honor_max", 100.0)),
+			"cattle_cost": int(row.get("cattle_cost", 0)),
+			"cattle_cost_base": int(row.get("cattle_cost_base", row.get("cattle_cost", 0))),
+		})
+	return {
+		"honor_score": honor_score,
+		"honor_scale": "Honor.overall 0..100",
+		"options": rows,
 	}
 
 
@@ -371,4 +487,5 @@ func to_debug_dict() -> Dictionary:
 		"can_attempt_skirmish": can_attempt_skirmish(),
 		"recruit_pool_size": RECRUIT_POOL.size(),
 		"recruit_option_ids": option_ids,
+		"recruit_honor_scale": "Honor.overall 0..100",
 	}

@@ -333,7 +333,11 @@ func modify_band_readiness(delta: float) -> void:
 
 
 
-# --- Recruitment data hooks (who / cost) -------------------------------------
+# --- Recruitment data hooks (who / cost) + Honor enech gates -----------------
+
+## Sentinel: omit / pass this so facade resolves Honor.overall (0..100).
+const HONOR_RESOLVE_AUTO: float = -1000.0
+
 
 func get_recruit_pool() -> Array[Dictionary]:
 	return band.get_recruit_pool()
@@ -343,43 +347,56 @@ func get_recruit_option(option_id: StringName) -> Dictionary:
 	return band.get_recruit_option(option_id)
 
 
+## Base pool cost (no Honor tier). Prefer effective_recruit_cattle_cost.
 func get_recruit_cattle_cost(option_id: StringName) -> int:
 	return band.get_recruit_cattle_cost(option_id)
 
 
-## List pool rows with eligible/can_afford flags. Attitudes default to Factions if present.
+## Honor-tier cattle cost. honor_score defaults to Honor.overall when auto.
+func effective_recruit_cattle_cost(
+	option_id: StringName,
+	honor_score: float = HONOR_RESOLVE_AUTO
+) -> int:
+	return band.effective_recruit_cattle_cost(option_id, _resolve_honor_score(honor_score))
+
+
+## List pool rows with eligible/can_afford flags.
+## Honor defaults to Honor.overall; attitudes default to Factions if present.
 func list_recruit_options(
-	honor_score: float = 0.0,
+	honor_score: float = HONOR_RESOLVE_AUTO,
 	faction_attitudes: Dictionary = {},
 	affordable_only: bool = false
 ) -> Array[Dictionary]:
+	var honor := _resolve_honor_score(honor_score)
 	var attitudes := faction_attitudes
 	if attitudes.is_empty():
 		attitudes = _default_faction_attitudes()
 	return band.list_recruit_options(
-		honor_score, attitudes, affordable_only, herd_size
+		honor, attitudes, affordable_only, herd_size
 	)
 
 
 func list_eligible_recruits(
-	honor_score: float = 0.0,
+	honor_score: float = HONOR_RESOLVE_AUTO,
 	faction_attitudes: Dictionary = {}
 ) -> Array[Dictionary]:
+	var honor := _resolve_honor_score(honor_score)
 	var attitudes := faction_attitudes
 	if attitudes.is_empty():
 		attitudes = _default_faction_attitudes()
-	return band.list_eligible_recruits(honor_score, attitudes, herd_size)
+	return band.list_eligible_recruits(honor, attitudes, herd_size)
 
 
 func can_recruit_option(
 	option_id: StringName,
-	honor_score: float = 0.0,
+	honor_score: float = HONOR_RESOLVE_AUTO,
 	faction_attitudes: Dictionary = {}
 ) -> Dictionary:
+	var honor := _resolve_honor_score(honor_score)
 	var attitudes := faction_attitudes
 	if attitudes.is_empty():
 		attitudes = _default_faction_attitudes()
-	var gate := band.can_recruit_option(option_id, honor_score, attitudes)
+	var gate := band.can_recruit_option(option_id, honor, attitudes)
 	if not bool(gate.get("ok", false)):
 		return gate
 	var cost := int(gate.get("cattle_cost", 0))
@@ -392,16 +409,59 @@ func can_recruit_option(
 	return gate
 
 
-## Pay from this herd and grow the band. Pass Honor.get_honor() (or equivalent) from Game.
+## Pay from this herd and grow the band.
+## Honor defaults to Honor.overall — same API, now enech-gated.
 func try_recruit_option(
 	option_id: StringName,
-	honor_score: float = 0.0,
+	honor_score: float = HONOR_RESOLVE_AUTO,
 	faction_attitudes: Dictionary = {}
 ) -> Dictionary:
+	var honor := _resolve_honor_score(honor_score)
 	var attitudes := faction_attitudes
 	if attitudes.is_empty():
 		attitudes = _default_faction_attitudes()
-	return band.try_recruit_option(option_id, self, honor_score, attitudes)
+	return band.try_recruit_option(option_id, self, honor, attitudes)
+
+
+## Remote / F5 probe: who is recruitable at current (or override) enech.
+func probe_recruit_honor_gates(honor_score: float = HONOR_RESOLVE_AUTO) -> Dictionary:
+	var honor := _resolve_honor_score(honor_score)
+	var attitudes := _default_faction_attitudes()
+	var probe := band.probe_recruit_honor_gates(honor, attitudes)
+	probe["herd_size"] = herd_size
+	probe["band_size"] = band.get_size()
+	probe["band_readiness"] = band.get_readiness()
+	# Annotate affordability against current herd.
+	var annotated: Array = []
+	for row in probe.get("options", []):
+		var r: Dictionary = row.duplicate(true)
+		var cost := int(r.get("cattle_cost", 0))
+		r["can_afford"] = herd_size >= cost
+		annotated.append(r)
+	probe["options"] = annotated
+	return probe
+
+
+func _resolve_honor_score(honor_score: float) -> float:
+	if honor_score > HONOR_RESOLVE_AUTO + 0.5:
+		return honor_score
+	return _default_honor_score()
+
+
+func _default_honor_score() -> float:
+	# Resolve Honor via tree so --script / isolated tests still compile.
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return 50.0
+	var honor := tree.root.get_node_or_null("Honor")
+	if honor == null:
+		return 50.0
+	if honor.has_method("get_honor"):
+		return float(honor.call("get_honor"))
+	var overall = honor.get("overall")
+	if typeof(overall) in [TYPE_FLOAT, TYPE_INT]:
+		return float(overall)
+	return 50.0
 
 
 func _default_faction_attitudes() -> Dictionary:
@@ -516,5 +576,6 @@ func to_debug_dict() -> Dictionary:
 		"last_tick_day": _last_tick_day,
 		"band": band.to_debug_dict(),
 		"recruit_pool_size": band.RECRUIT_POOL.size(),
+		"recruit_honor": _default_honor_score(),
 		"raid_outcomes": raid_outcomes.to_debug_dict() if raid_outcomes else {},
 	}

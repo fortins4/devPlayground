@@ -1,6 +1,7 @@
 extends Node3D
 ## Greybox home ringfort: cattle pens stub, muster point, band recruit/follow.
 ## Owns a CattleEconomy instance (not an autoload) per economy README.
+## Muster recruit consults Honor enech gates via CattleEconomy.try_recruit_option.
 
 const SLICE_RECRUIT_OPTION := &"local_kerne"
 const SLICE_VISUAL_CAP := 3
@@ -74,7 +75,10 @@ func try_muster_recruit() -> Dictionary:
 		)
 	else:
 		var reason: StringName = result.get("reason", &"denied")
-		_flash_status("Cannot recruit: %s" % String(reason))
+		var detail := String(reason)
+		if reason == &"honor_too_low" or reason == &"honor_too_high":
+			detail = "%s (enech %.0f)" % [String(reason), float(result.get("honor_score", 0.0))]
+		_flash_status("Cannot recruit: %s" % detail)
 	_refresh_labels()
 	_refresh_muster_prompt()
 	return result
@@ -127,7 +131,8 @@ func _refresh_muster_prompt() -> void:
 	else:
 		var cost := 2
 		if cattle:
-			cost = cattle.get_recruit_cattle_cost(SLICE_RECRUIT_OPTION)
+			# Honor-tier effective cost (auto-resolves Honor.overall).
+			cost = cattle.effective_recruit_cattle_cost(SLICE_RECRUIT_OPTION)
 		muster.set_prompt("E  Muster kerne (−%d cattle)\nBand %d · H follow/hold" % [cost, size])
 
 
