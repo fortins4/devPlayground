@@ -24,6 +24,7 @@ Factions="*res://scripts/autoload/factions.gd"
 Rumors="*res://scripts/autoload/rumors.gd"
 Honor="*res://scripts/autoload/honor.gd"
 CharacterHealth="*res://scripts/autoload/character_health.gd"
+Crowd="*res://scripts/autoload/crowd.gd"
 
 [display]
 

@@ -18,6 +18,6 @@ Working title for an open-world, historically grounded action-adventure set in *
 
 ## Status
 
-Greybox slice in progress: third-person move/sprint/crouch + hatchet combat + stealth/bog body-drag + ringfort band muster + Leinster greybox + cattle-raid heat→Rumors + sanctuary breach→Honor/Rumors + Rumors↔Honor prestige tags on HIGH+; autoload stubs (honor, factions + graph→timeline unlock stubs, timeline living-history through Dublin approaches/siege + WorldClock season stub, rumors, CharacterHealth + player CombatSystem bridge, travel gate + expedition day-budget debug).
+Greybox slice in progress: third-person move/sprint/crouch + hatchet combat + stealth/bog body-drag + ringfort band muster + Leinster greybox + cattle-raid heat→Rumors + sanctuary breach→Honor/Rumors + Rumors↔Honor prestige tags on HIGH+; autoload stubs (honor, factions + graph→timeline unlock stubs, timeline living-history through Dublin approaches/siege + WorldClock season stub, rumors, CharacterHealth + player CombatSystem bridge, travel gate + expedition day-budget debug, town crowd presence stub).
 
 Character feel: procedural **kerne** silhouette + locomotion (see [docs/CHARACTER_ANIMS.md](docs/CHARACTER_ANIMS.md)). Kit lock — hatchet + knife + cattle goad.
