@@ -2,7 +2,8 @@ class_name TravelDistances
 extends RefCounted
 ## Overland travel day stubs between world regions (Leinster → Ireland).
 ##
-## Design source: docs/MAP_SCALE.md. Data only — no scene loads.
+## Design source: docs/MAP_SCALE.md (days/tiers) · docs/MAP_REGIONS.md (layout viz).
+## Data only — no scene loads.
 ## Horse days are the primary graph; foot ≈ slower on the same edges.
 ## Game.current_region should use REGION_IDS values.
 

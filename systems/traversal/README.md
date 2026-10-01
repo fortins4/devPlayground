@@ -1,6 +1,7 @@
 # Traversal / map scale
 
-Overland region graph for Leinster → Ireland. Design: [`docs/MAP_SCALE.md`](../../docs/MAP_SCALE.md).
+Overland region graph for Leinster → Ireland. Design: [`docs/MAP_SCALE.md`](../../docs/MAP_SCALE.md)
+(scale & days) · [`docs/MAP_REGIONS.md`](../../docs/MAP_REGIONS.md) (layout viz / inventory).
 
 | Piece | Role |
 |---|---|
