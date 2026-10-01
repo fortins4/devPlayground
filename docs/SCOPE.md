@@ -32,7 +32,7 @@ Not yet: real combat loop, authored prologue beats, Terrain3D landscapes, factio
 
 ## Vertical slice — prove the fantasy
 
-Ship criteria: a player can finish the greybox prologue, roam a small Leinster greybox, fight, raid cattle, **recruit a small warrior band**, feel honor consequences, hear rumors of one historical event, **ambush an Anglo-Norman patrol in a minor skirmish**, and return to an upgradeable ringfort — without leaving the intended pillars.
+Ship criteria: a player can finish the greybox prologue, roam a small Leinster greybox, fight, raid cattle, **recruit a small warrior band**, feel honor consequences, hear rumors of one historical event, **use stealth**, **hide a body in the bog**, **ambush an Anglo-Norman patrol in a minor skirmish**, and return to an upgradeable ringfort — without leaving the intended pillars.
 
 ### Content
 
@@ -53,6 +53,7 @@ Ship criteria: a player can finish the greybox prologue, roam a small Leinster g
 | Rumors | Offscreen event news + pointers toward raid / faction opportunities |
 | Band / recruitment | Recruit a few warriors over time; band is visible at ringfort and on the road |
 | Ambush / skirmish | One minor ambush vs an Anglo-Norman patrol using the band (confidence gated by band size/readiness) |
+| Stealth / bog | Basic stealth (crouch, cover, detection); hide at least one body in peat bog to delay discovery |
 | Traversal | Foot + horseback (boat / towers can wait) |
 
 ### Slice non-goals
@@ -125,7 +126,7 @@ Warlord · Cattle Lord · Mercenary · Brehon / fili influence · Outlaw · Pilg
 | System | Full intent |
 |---|---|
 | Combat | Gaelic arms (spear, axe, javelin, light armor, ambush) vs Norman knights / crossbows; stamina, directionality, shield breaks, terrain (bog / forest / open) |
-| Stealth & raiding | Night raids, watchmen, dogs, weather/fog, retaliation risk |
+| Stealth & raiding | Crouch/cover, noise, vision; night raids; watchmen, dogs, fog; **hide bodies in bogs** to delay discovery and cut patrol heat |
 | Honor & Brehon law | Éraic / honor-price tables, hospitality, sanctuary; law as alternative to bloodshed; breaking law has lasting cost |
 | Economy | Cattle core; Norse town trade goods; upkeep + faction retaliation against endless raiding |
 | Poets & satire | Filí raise standing or damage enemy morale / support |
@@ -216,6 +217,11 @@ Godot-owned clarity for scenes, player, combat, raid, ringfort, and regions. **I
 - **Slice:** Small recruitable party; one ambush/skirmish vs an Anglo-Norman patrol gated by band readiness; band ties to ringfort; major-battle *hook* only (full set piece can wait for systems-depth / climax phases)
 - **Deferred:** Mass army battles as the *everyday* primary loop; full campaign-map army logistics; dozens of simultaneous AI warbands before slice combat + small-band skirmish feel good
 
+### Stealth & bog disposal
+- **IN (core):** Stealth is first-class alongside combat — detection (vision/noise), cover, night advantage; after a kill or ambush, **drag/hide bodies in the bog** so discovery is delayed and faction/patrol heat stays manageable
+- **Slice:** Crouch + basic detection; one readable “hide body in bog” interaction in midlands/Leinster wetland greybox; undiscovered vs discovered body affects rumor/patrol response
+- **Deferred:** Full social investigation sim; perfect forever-hidden corpses with no risk; stealth-only campaign path that skips band/skirmish pillars
+
 ### First-hour / tech notes (Godot)
 - Prologue handoff needs a concrete first-hour checklist so pillars teach without a long forced tour
 - Keep greybox as landscape truth until Terrain3D is installed locally (addon not vendored)
@@ -287,6 +293,7 @@ Exact quest / NPC counts TBD after slice proves systems cost.
 | UI debt | Combat telegraphs + honor/cattle/timeline readable in slice |
 | Band too weak forever / too strong early | Gate English confidence on readiness; slice teaches one clear ambush win |
 | Skirmish vs personal combat identity | Keep Cian playable in skirmish; band is force multiplier, not autopilot |
+| Bog body hide unclear / unrewarded | Slice teaches one clear bog-hide that visibly delays heat |
 | Doc drift | VISION = locked pillars; SCOPE = intended ship layers; update both when decisions change |
 
 ---
