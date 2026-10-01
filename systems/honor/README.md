@@ -15,11 +15,15 @@ Brehon-law honor / reputation. Runtime API: `scripts/autoload/honor.gd` (autoloa
 |---|---|
 | `Honor.can_choose_eraic(faction_id := &"")` | Min overall (and faction when given) to offer/accept **éraic** |
 | `Honor.can_claim_sanctuary()` | Church **or** overall threshold for monastic sanctuary |
+| `Honor.can_claim_sanctuary_at(site_id)` | Site-aware: known `SanctuaryLocations` id + global gate |
 | `Honor.available_law_options()` | `Array[StringName]` of open options (`eraic`, `sanctuary`) for dialogue UI |
 
 Thresholds (slice defaults): `ERAIC_MIN_OVERALL=40`, `SANCTUARY_MIN_CHURCH=30`, `SANCTUARY_MIN_OVERALL=35`.
 
 Significant honor swings (`|delta| >= RUMOR_HONOR_THRESHOLD`) emit rumors via the Rumors bus.
+
+Sanctuary **sites** (Glendalough / Clonmacnoise) live in [`systems/sanctuary/`](../sanctuary/) —
+`SanctuaryLocations.can_claim` / `try_claim` reuse `Honor.can_claim_sanctuary()` and Church faction `&"church"`.
 
 ---
 
