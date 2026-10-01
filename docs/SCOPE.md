@@ -32,7 +32,7 @@ Not yet: real combat loop, authored prologue beats, Terrain3D landscapes, factio
 
 ## Vertical slice — prove the fantasy
 
-Ship criteria: a player can finish the greybox prologue, roam a small Leinster greybox, fight, raid cattle, feel honor consequences, hear rumors of one historical event, and return to an upgradeable ringfort — without leaving the intended pillars.
+Ship criteria: a player can finish the greybox prologue, roam a small Leinster greybox, fight, raid cattle, **recruit a small warrior band**, feel honor consequences, hear rumors of one historical event, **ambush an Anglo-Norman patrol in a minor skirmish**, and return to an upgradeable ringfort — without leaving the intended pillars.
 
 ### Content
 
@@ -51,6 +51,8 @@ Ship criteria: a player can finish the greybox prologue, roam a small Leinster g
 | Economy | Cattle as primary wealth; upkeep; simple trade stub in one Norse town contact |
 | Raid | Night cattle-raid loop: watchmen, dogs, fog, escape route |
 | Rumors | Offscreen event news + pointers toward raid / faction opportunities |
+| Band / recruitment | Recruit a few warriors over time; band is visible at ringfort and on the road |
+| Ambush / skirmish | One minor ambush vs an Anglo-Norman patrol using the band (confidence gated by band size/readiness) |
 | Traversal | Foot + horseback (boat / towers can wait) |
 
 ### Slice non-goals
@@ -191,7 +193,7 @@ Godot-owned clarity for scenes, player, combat, raid, ringfort, and regions. **I
 ### Combat (`systems/combat/`)
 - **IN:** Stamina + directional attacks; shield breaks; thrown spears/javelins; Gaelic kit vs Norman knights/crossbows; terrain modifiers (bog/forest favor Gael; open favors Norman)
 - **Slice:** Stamina + directional basics + spear/shield; terrain modifiers stubbed
-- **Deferred:** Large-scale real-time army battles as the primary loop (skirmish + event participation first); full mounted combat depth before foot combat feels good; filí satire as combat-adjacent until systems-depth phase
+- **Deferred:** Large-scale army battles as the everyday loop (rare major-battle set pieces **are** intended later); full mounted combat depth before foot combat feels good; filí satire as combat-adjacent until systems-depth phase
 
 ### Raid (`systems/raid/`)
 - **IN:** Night cattle-raid loop with watchmen, dogs, fog/weather, escape routes; gain/loss ties to cattle economy + ringfort pens; retaliation + honor hit
@@ -207,6 +209,12 @@ Godot-owned clarity for scenes, player, combat, raid, ringfort, and regions. **I
 - **IN:** Laigin (start, Bannow Bay; Terrain3D once addon installed); Dublin (intrigue + siege); Glendalough/Clonmacnoise; Midlands bogs; Connacht; traversal foot + horseback, plus currach boats and climbable round towers in full
 - **Slice traversal:** Foot + horseback only
 - **Deferred:** Connacht + full monastic/bog depth before Leinster loop is proven; accurate every-túath geography; photoreal Terrain3D before greybox gameplay locks (no fixed region unlock order)
+
+### Band / recruitment & skirmish strategy
+- **IN (core):** Recruit warriors into Cian's band over time; band size, morale, and readiness build **confidence to confront the English**; ambush patrols and fight **minor skirmishes** as the everyday strategy loop
+- **IN (occasional):** **Major battles** as rare timeline / story events (sieges, named clashes) that reshape faction outcomes and narrative direction; when Cian's band is present, participation can tip variables — when absent, history-weighted resolve still applies
+- **Slice:** Small recruitable party; one ambush/skirmish vs an Anglo-Norman patrol gated by band readiness; band ties to ringfort; major-battle *hook* only (full set piece can wait for systems-depth / climax phases)
+- **Deferred:** Mass army battles as the *everyday* primary loop; full campaign-map army logistics; dozens of simultaneous AI warbands before slice combat + small-band skirmish feel good
 
 ### First-hour / tech notes (Godot)
 - Prologue handoff needs a concrete first-hour checklist so pillars teach without a long forced tour
@@ -227,6 +235,7 @@ Rough targets to keep scope honest (adjust after slice):
 - **Personal story**: multiple optional threads, not a mandatory critical path
 - **Ringfort** upgrade tree (defenses, crafts, cattle, people)
 - **Combat** kit: Gaelic set + recognizable Norman opposition
+- **Band:** recruitable warriors that grow over time; ambush / minor skirmish loop vs English patrols
 - **UI**: honor, cattle, map/timeline awareness, rumors feed, dialogue
 
 Exact quest / NPC counts TBD after slice proves systems cost.
@@ -242,7 +251,7 @@ Exact quest / NPC counts TBD after slice proves systems cost.
 | **2 Leinster content** | Real landscape, 3 factions live, Bannow Bay event, raid + ringfort loop polished |
 | **3 Systems depth** | Full honor/law, economy, rumors, combat feel; filí / boats as they earn their keep |
 | **4 Multi-region** | Dublin + one monastic or bog region; expand faction roster |
-| **5 Climax window** | Siege of Dublin + Henry II arrival; lock ending model |
+| **5 Climax window** | Siege of Dublin + Henry II arrival as major-battle / story events; sandbox continues after |
 | **6 Polish** | Art pass, audio, UX, historical consult pass, performance |
 
 ---
@@ -253,6 +262,7 @@ Exact quest / NPC counts TBD after slice proves systems cost.
 - Full character creator or silent blank-slate protagonist
 - Overt magic, mythic monsters as gameplay systems
 - Real-time grand strategy map replacing third-person adventure
+- Mass army battles as the *everyday* primary loop (ambushes/skirmishes are regular; **major battles are rare story events**)
 - Accurate every-túath simulation of all Ireland at launch
 - Post-1171 *authored main campaign* (sandbox after the arc **is** intended — no hard end)
 
@@ -275,6 +285,8 @@ Exact quest / NPC counts TBD after slice proves systems cost.
 | Terrain3D install gate | Greybox landscapes remain truth until local addon install |
 | Region streaming | Lock load strategy (additive vs travel gates) before Dublin content |
 | UI debt | Combat telegraphs + honor/cattle/timeline readable in slice |
+| Band too weak forever / too strong early | Gate English confidence on readiness; slice teaches one clear ambush win |
+| Skirmish vs personal combat identity | Keep Cian playable in skirmish; band is force multiplier, not autopilot |
 | Doc drift | VISION = locked pillars; SCOPE = intended ship layers; update both when decisions change |
 
 ---

@@ -35,6 +35,7 @@ An open-world, historically grounded action-adventure set in **Ireland, 1169–1
 3. **Grounded, Weighty Combat:** Gaelic warfare (spears, axes, javelins, light armor, ambush) against armored Norman knights and crossbowmen. Terrain matters: bogs and forests favor the Gael.
 4. **Honor & Law (Enech):** Brehon law gives consistent rules for every interaction: hospitality, sanctuary, honor-price (éraic). Honor is both reputation and currency.
 5. **A Personal Story in a Big World:** The authored protagonist anchors the emotion. The sandbox supplies the scale.
+6. **Growing Band & Skirmish Strategy:** Recruit warriors over time into Cian's band. Numbers and readiness build the confidence to ambush Anglo-Norman forces and win minor skirmishes — strategy and party power matter alongside personal combat. Major battles are rare, timeline-tied events that can reshape the story — not the everyday fight loop.
 
 ## Structure
 
@@ -57,7 +58,7 @@ An open-world, historically grounded action-adventure set in **Ireland, 1169–1
 Each faction has goals, resources, relationships, and an attitude toward the player. Factions create dynamic quests from their current needs.
 
 ### Player Paths (Emergent, Not Classes)
-Warlord · Cattle Lord · Mercenary · Brehon/Fili influence · Outlaw · Pilgrim. Players drift between these naturally through their actions.
+Warlord · Cattle Lord · Mercenary · Brehon/Fili influence · Outlaw · Pilgrim. Players drift between these naturally through their actions. Growing a warrior band is the through-line that lets Cian take the fight to the English in ambushes and skirmishes.
 
 ### Home Settlement (Túath / Ringfort)
 A persistent base the player rebuilds after the opening tragedy. Recruit smiths, a brehon, a fili, and warriors, and keep cattle. It can be raided, so it ties the player into the living world.
@@ -72,6 +73,8 @@ A persistent base the player rebuilds after the opening tragedy. Recruit smiths,
 | Economy | Cattle are the main currency, plus trade goods in Norse towns |
 | Poets & Satire | Filí raise your standing or damage enemies' morale and support |
 | Rumors | Spread news of offscreen events and guide players toward opportunities |
+| Band & recruitment | Recruit warriors over time; band size, morale, and gear gate confidence vs Anglo-Normans |
+| Skirmish / ambush | Party-scale fights: ambush English patrols and win minor skirmishes (not full army battles) |
 | Traversal | Foot, horseback, currach boats, and climbing round towers |
 
 ## World Regions
