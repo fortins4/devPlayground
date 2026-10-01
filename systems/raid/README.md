@@ -12,8 +12,9 @@ This folder ships:
 | `../economy/cattle_economy.gd` | Owns a `raid_outcomes` instance + facade (`resolve_raid_success` / `resolve_raid_failure`) |
 | `../../scripts/world/raid/cattle_raid_director.gd` | F5 greybox state machine (phases + E start + deliver) |
 | `../../scripts/world/raid/raid_cow.gd` | Placeholder cattle (idle wander → driven follow) |
-| `../../scenes/world/raid/cattle_raid_lane.tscn` | Victim pens, herd, path stubs, home return zone |
-| `../../scenes/ui/cattle_raid_hud.tscn` | Phase strip + outcome banner |
+| `../../scenes/world/raid/cattle_raid_lane.tscn` | Victim pens, herd, path stubs, home return zone, **watchmen** |
+| `raid_heat_bridge.gd` | Drove-gated watchmen → shared HeatTracker · heat≥85 ATTACK (no auto-fail) |
+| `../../scenes/ui/cattle_raid_hud.tscn` | Phase strip + outcome banner + raid alert line |
 
 Design: [`docs/SCOPE.md`](../../docs/SCOPE.md) (Raid · Economy · cattle-raid feedback loop).
 Mercy window before full retaliation is intentional for the slice.
@@ -28,11 +29,12 @@ Lane is instanced on `scenes/main/main.tscn` as **CattleRaidLane** at roughly **
 |---|---|
 | 1 Approach | Follow the gold **Cattle raid ↓ south** sign from spawn |
 | 2 Start | Enter victim pens · **E** start raid (5 placeholder head) |
-| 3 Drive | Cattle follow as a drove · walk the path markers **west / NW** |
-| 4 Deliver | Reach **Home pens** pad (near ringfort) with ≥3 head · auto-resolve success |
-| 5 Outcome | HUD banner + `CattleEconomy.resolve_raid_success(&"local_clan_herd", heads)` |
-| Fail | 90s timeout (or abandon with no drove) → `resolve_raid_failure` |
-| Retry | Back at victim pens · **E** resets herd |
+| 3 Drive | Cattle follow as a drove · walk the path markers **west / NW** · skirt **watchmen** LOS |
+| 4 Heat | Pre-raid light pens heat · mid-drove LOS → SUSPICIOUS / **RAID ALARM** · heat ≥85 → watchmen **ATTACK** (raid still completable) |
+| 5 Deliver | Reach **Home pens** pad (near ringfort) with ≥3 head · auto-resolve success (if not blown) |
+| 6 Outcome | HUD banner + `CattleEconomy.resolve_raid_success(&"local_clan_herd", heads)` |
+| Fail | 90s timeout · abandon → `resolve_raid_failure` (watchmen heat no longer auto-fails) |
+| Retry | Back at victim pens · **E** resets herd (raid spot cooldowns clear) |
 
 ### Controls
 
@@ -143,7 +145,9 @@ Failure outcomes add `cattle_lost` and set `success: false` / `reason: raid_fail
 | Script | Purpose |
 |---|---|
 | `tools/capture_cattle_raid_screenshots.gd` | Headless SubViewport proof shots → `/workspace/riocht-builds/screenshots/cattle-raid/` |
+| `tools/capture_watchmen_heat_screenshots.gd` | Watchmen idle / spotted / heat UI / calm success → `…/watchmen-heat/` |
 | `tools/smoke_cattle_raid.gd` | Begin → force deliver → assert economy loot |
+| `tools/smoke_watchmen_raid_heat.gd` | Spot mid-drove → heat rises; undetected deliver still succeeds |
 
 ```bash
 cd /workspace/riocht-wt/cattle-raid
@@ -228,9 +232,48 @@ print(Rumors.get_debug_text())
 
 4. Confirm `spawn_rumor=false` skips seeding; `apply_heat=false` also skips.
 
+## Watchmen / raid heat (this slice)
+
+Lane watchmen reuse `scenes/characters/npcs/sentry.tscn` + `DetectionSensor` (same LOS/hearing as stealth).
+During **DRIVING / RAIDING** only, `RaidHeatBridge` forwards SUSPICIOUS / ALERT into the shared
+`systems/stealth/heat_tracker.gd` (extend, not fork):
+
+| Event | Heat | Feedback |
+|---|---|---|
+| Watchman SUSPICIOUS mid-drove | `+raid_suspicious_bump` (8) | Banner + HUD “stirring” |
+| First ALERT mid-drove | `+raid_alert_bump` (22) + **RAID ALARM** | Heat HUD · raid banner · watchman tint |
+| Still seen later | `+raid_rediscovery_bump` (10) | “Watchmen still on you” |
+| Heat ≥ **85** (bridge export) | Fail `watchmen_alarm` | Outcome banner “RAID BLOWN” |
+| Undetected deliver | Unchanged success path | No alarm · economy resolve as before |
+
+Calm path: crouch (Ctrl/C), skirt LOS cones (debug wedges on), keep heat under the fail threshold.
+Shared heat also covers bog body discovery — one meter for the demo.
+
+| Piece | Role |
+|---|---|
+| `raid_heat_bridge.gd` | Drove-gated wiring watchmen → HeatTracker · optional fail |
+| `Watchmen/*` in `cattle_raid_lane.tscn` | 3 greybox sentries on pens / mid-path / home approach |
+| `HeatTracker.note_raid_*` | Raid bump / alarm / cooldowns |
+| `CattleRaidHUD` RaidAlertLabel | Mid-drove heat / ALARM strip |
+
+### Debug
+
+```gdscript
+var lane = get_tree().get_first_node_in_group("cattle_raid")
+lane.debug_begin_raid()
+lane.debug_force_watchman_spot()  # ALERT bump + sensor force
+lane.get_raid_heat()
+```
+
 ## Out of scope (still)
 
-- Watchmen / dogs / fog / bog body heat during the drove
+- Dogs / fog / night FOV during the drove
 - Executing counter-raids or patrol spawns (retaliation is data-only)
 - Full procedural raid generator
 - Mounted cattle-drive / goad physics herding (goad weapon exists; follow-drove is the greybox stand-in)
+- Separate raid-only heat meter (intentionally shared with stealth)
+
+
+### Follow-ups (locked)
+- **Q3:** split a **separate raid heat meter** from bog `HeatTracker` — after this merge.
+- Q1/Q2/Q4 applied on this branch: soft-fail attack @85, light pre-raid pens heat, facing pass + light calm cover.

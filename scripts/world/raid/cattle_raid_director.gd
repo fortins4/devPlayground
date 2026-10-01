@@ -1,6 +1,7 @@
 extends Node3D
 ## Greybox cattle-raid loop: approach herd → start raid → drive cattle home → resolve.
 ## Wires into ringfort CattleEconomy.resolve_raid_success / resolve_raid_failure.
+## Watchmen on the lane raise shared HeatTracker during DRIVING (see raid_heat_bridge.gd).
 ## Does not touch band muster caps; presentational drove only.
 
 enum Phase {
@@ -37,6 +38,7 @@ var _return_zone: Area3D = null
 var _player_in_start: bool = false
 var _player_in_return: bool = false
 var _banner_timer: float = 0.0
+var _heat_bridge: Node = null
 
 @onready var lane_label: Label3D = $LaneLabel
 @onready var status_label: Label3D = $StatusLabel
@@ -45,6 +47,7 @@ var _banner_timer: float = 0.0
 
 func _ready() -> void:
 	add_to_group("cattle_raid")
+	_heat_bridge = get_node_or_null("RaidHeatBridge")
 	_start_zone = get_node_or_null(start_zone_path) as Area3D
 	_return_zone = get_node_or_null(return_zone_path) as Area3D
 	_collect_cows()
@@ -129,9 +132,10 @@ func get_hud_text() -> String:
 		Phase.APPROACH:
 			return "E — Start cattle raid (local túath pens)"
 		Phase.RAIDING, Phase.DRIVING:
-			return "Drive cattle to home pens  ·  %d/%d head  ·  %.0fs" % [
+			var base := "Drive cattle to home pens  ·  %d/%d head  ·  %.0fs" % [
 				driven + delivered, MIN_DELIVER, maxf(0.0, time_left)
 			]
+			return base + _heat_hud_suffix()
 		Phase.SUCCESS:
 			var gained := int(last_outcome.get("cattle_gained", 0))
 			return "RAID SUCCESS — +%d cattle to pens  ·  E retry at herd" % gained
@@ -176,6 +180,9 @@ func _begin_raid() -> void:
 	_find_player()
 	time_left = RAID_TIME_LIMIT
 	last_outcome = {}
+	_player_in_return = false
+	if _heat_bridge and _heat_bridge.has_method("reset_for_new_raid"):
+		_heat_bridge.call("reset_for_new_raid")
 	var started := 0
 	for cow in _cows:
 		if cow and cow.has_method("set_player"):
@@ -262,6 +269,7 @@ func _reset_raid() -> void:
 		i += 1
 	time_left = RAID_TIME_LIMIT
 	last_outcome = {}
+	_player_in_return = false
 	_set_phase(Phase.APPROACH if _player_in_start else Phase.IDLE)
 	_flash_status("Herd resettled — E to raid again.")
 	_refresh_labels()
@@ -353,6 +361,45 @@ func _on_return_exited(body: Node3D) -> void:
 		_player_in_return = false
 
 
+
+func fail_from_watchmen_heat() -> void:
+	## Legacy hook — Q1 lock: heat≥85 no longer auto-fails. Prefer attack path.
+	push_warning("fail_from_watchmen_heat deprecated; raid stays completable (alarm+attack)")
+
+
+func debug_force_watchman_spot() -> void:
+	## Smoke / screenshot: force ALERT heat bump as if mid-drove LOS.
+	if phase != Phase.DRIVING and phase != Phase.RAIDING:
+		_begin_raid()
+	if _heat_bridge and _heat_bridge.has_method("debug_force_spot"):
+		_heat_bridge.call("debug_force_spot")
+
+
+func get_raid_heat() -> float:
+	if _heat_bridge and _heat_bridge.has_method("get_heat"):
+		return float(_heat_bridge.call("get_heat"))
+	var ht := get_tree().get_first_node_in_group("heat_tracker") if get_tree() else null
+	if ht:
+		return float(ht.get("heat"))
+	return 0.0
+
+
+func _heat_hud_suffix() -> String:
+	var h := get_raid_heat()
+	if h <= 0.05:
+		return ""
+	var bit := "  ·  raid heat %d" % int(h)
+	if _heat_bridge and _heat_bridge.has_method("are_watchmen_attacking") and bool(_heat_bridge.call("are_watchmen_attacking")):
+		bit += " ATTACK — escape with herd"
+	elif _heat_bridge and _heat_bridge.has_method("is_alarm_raised") and bool(_heat_bridge.call("is_alarm_raised")):
+		bit += " ALARM"
+	elif h >= 70.0:
+		bit += " HOT"
+	elif h >= 50.0:
+		bit += " pressure"
+	return bit
+
+
 func _is_player(body: Node) -> bool:
 	return body != null and body.is_in_group("player")
 
@@ -376,9 +423,13 @@ func _refresh_labels() -> void:
 				prompt_label.visible = false
 	if status_label and phase != Phase.SUCCESS and phase != Phase.FAILED:
 		if phase == Phase.DRIVING or phase == Phase.RAIDING:
-			status_label.text = "Drove %d · need %d · %.0fs · home pens ← west" % [
+			var st := "Drove %d · need %d · %.0fs · home pens ← west" % [
 				_driven_count() + _delivered_count(), MIN_DELIVER, maxf(0.0, time_left)
 			]
+			var hs := _heat_hud_suffix()
+			if hs != "":
+				st += hs
+			status_label.text = st
 		elif phase == Phase.APPROACH:
 			status_label.text = "Local túath pens — cut out a drove"
 		elif phase == Phase.IDLE:

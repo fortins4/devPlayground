@@ -6,6 +6,8 @@ signal heat_changed(heat: float, reason: StringName)
 signal body_discovered(corpse: Node3D, sentry: Node3D)
 signal investigation_started(corpse: Node3D, sentry: Node3D)
 signal honor_stub_applied(delta: float, reason: StringName)
+signal raid_spotted(sentry: Node3D, heat_after: float)
+signal raid_alarm(heat_after: float)
 
 @export var max_heat: float = 100.0
 @export var discover_bump: float = 28.0
@@ -19,6 +21,13 @@ signal honor_stub_applied(delta: float, reason: StringName)
 @export var honor_on_discover: float = -4.0
 @export var honor_on_hide: float = 1.5
 @export var honor_coupling_enabled: bool = true
+@export var raid_suspicious_bump: float = 8.0
+@export var raid_alert_bump: float = 22.0
+@export var raid_rediscovery_bump: float = 10.0
+@export var raid_rediscovery_interval: float = 3.5
+
+@export var pre_raid_suspicious_bump: float = 3.0
+@export var pre_raid_alert_bump: float = 6.0
 
 var heat: float = 0.0
 var _scan_cd: float = 0.0
@@ -30,6 +39,8 @@ var _hud_label: Label
 var _banner: Label
 var _world_label: Label3D
 var _banner_tween: Tween
+var _raid_spot_cd: Dictionary = {}  # sentry instance_id -> cooldown remaining
+var _raid_alarm_raised: bool = false
 
 
 func _ready() -> void:
@@ -42,6 +53,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_tick_investigations(delta)
 	_tick_rediscovery_cds(delta)
+	_tick_raid_spot_cds(delta)
 	_scan_cd -= delta
 	if _scan_cd > 0.0:
 		return
@@ -162,6 +174,102 @@ func _confirm_discovery(corpse: Node3D, sentry: Node3D) -> void:
 		corpse.call("mark_discovered")
 	_flash_banner("BODY DISCOVERED — heat +%d" % int(discover_bump), Color(0.98, 0.3, 0.2))
 	_apply_honor(honor_on_discover, &"body_seen")
+
+
+
+func note_raid_suspicious(sentry: Node3D) -> void:
+	## Watchman stirs during an active drove — small heat bump (cooldown per sentry).
+	if sentry == null:
+		return
+	var id := sentry.get_instance_id()
+	if float(_raid_spot_cd.get(id, 0.0)) > 0.0:
+		return
+	_raid_spot_cd[id] = raid_rediscovery_interval * 0.6
+	bump(raid_suspicious_bump, &"raid_suspicious")
+	_nudge_sentry_suspicious(sentry)
+	_flash_banner("Watchman suspicious — raid heat +%d" % int(raid_suspicious_bump), Color(0.95, 0.82, 0.3))
+	raid_spotted.emit(sentry, heat)
+
+
+func note_raid_alert(sentry: Node3D) -> void:
+	## Watchman ALERT mid-drove — alarm bump (or rediscovery while still seen).
+	if sentry == null:
+		return
+	var id := sentry.get_instance_id()
+	if float(_raid_spot_cd.get(id, 0.0)) > 0.0:
+		return
+	var first_alarm := not _raid_alarm_raised
+	var amount := raid_alert_bump if first_alarm else raid_rediscovery_bump
+	var reason: StringName = &"raid_alert" if first_alarm else &"raid_seen_again"
+	_raid_spot_cd[id] = raid_rediscovery_interval
+	bump(amount, reason)
+	_nudge_sentry_alert(sentry)
+	_raid_alarm_raised = true
+	if first_alarm:
+		_flash_banner("RAID ALARM — spotted mid-drove! heat +%d" % int(amount), Color(0.98, 0.28, 0.2))
+		raid_alarm.emit(heat)
+	else:
+		_flash_banner("Watchmen still on you — heat +%d" % int(amount), Color(0.95, 0.4, 0.25))
+	raid_spotted.emit(sentry, heat)
+
+
+func reset_raid_spot_state() -> void:
+	## Clears drove-spot cooldowns / alarm flag. Shared heat value is kept.
+	_raid_spot_cd.clear()
+	_raid_alarm_raised = false
+	if _banner:
+		_banner.visible = false
+		_banner.modulate.a = 1.0
+	if _banner_tween and _banner_tween.is_valid():
+		_banner_tween.kill()
+	_refresh_hud("raid_reset")
+
+
+
+
+func note_pre_raid_suspicious(sentry: Node3D) -> void:
+	## Q2=2b: light heat seed near pens before the drove starts.
+	if sentry == null:
+		return
+	var id := sentry.get_instance_id()
+	if float(_raid_spot_cd.get(id, 0.0)) > 0.0:
+		return
+	_raid_spot_cd[id] = raid_rediscovery_interval * 0.8
+	bump(pre_raid_suspicious_bump, &"pre_raid_suspicious")
+	_nudge_sentry_suspicious(sentry)
+	_flash_banner("Watchman stirs at pens — heat +%d" % int(pre_raid_suspicious_bump), Color(0.9, 0.85, 0.45))
+
+
+func note_pre_raid_alert(sentry: Node3D) -> void:
+	## Q2=2b: ALERT near pens seeds a little heat (not full mid-drove alarm).
+	if sentry == null:
+		return
+	var id := sentry.get_instance_id()
+	if float(_raid_spot_cd.get(id, 0.0)) > 0.0:
+		return
+	_raid_spot_cd[id] = raid_rediscovery_interval
+	bump(pre_raid_alert_bump, &"pre_raid_alert")
+	_nudge_sentry_alert(sentry)
+	_flash_banner("Spotted near pens — heat +%d" % int(pre_raid_alert_bump), Color(0.95, 0.55, 0.3))
+
+
+func raise_raid_alarm(reason: StringName = &"raid_alarm") -> void:
+	## Force RAID ALARM banner/flag without requiring a fresh LOS bump (e.g. heat≥85 attack).
+	if _raid_alarm_raised:
+		return
+	_raid_alarm_raised = true
+	_flash_banner("RAID ALARM — watchmen ATTACK! (%s)" % String(reason), Color(0.98, 0.25, 0.18))
+	raid_alarm.emit(heat)
+	_refresh_hud(String(reason))
+
+func is_raid_alarm_raised() -> bool:
+	return _raid_alarm_raised
+
+
+func _tick_raid_spot_cds(delta: float) -> void:
+	var keys := _raid_spot_cd.keys()
+	for id in keys:
+		_raid_spot_cd[id] = maxf(0.0, float(_raid_spot_cd[id]) - delta)
 
 
 func _apply_honor(delta: float, reason: StringName) -> void:
@@ -314,6 +422,8 @@ func _refresh_hud(reason: String) -> void:
 	var text := "Heat %d / %d  [%s]" % [int(heat), int(max_heat), tier]
 	if inv_n > 0:
 		text += "  · investigating×%d" % inv_n
+	if _raid_alarm_raised:
+		text += "  · RAID ALARM"
 	if reason != "" and reason != "boot":
 		text += "\n(%s)" % reason
 	if _hud_label:
