@@ -47,7 +47,11 @@ Region travel spends the same day counter via [`TravelGate`](../traversal/travel
 for the horse/foot day cost from [`TravelDistances`](../traversal/travel_distances.gd),
 then updates `Game.current_region`. Multi-day trips therefore resolve overdue
 timeline events, faction need ticks, rumor decay, and cattle economy along the road.
-F5: Travel panel **G** / **B** (see traversal README); Timeline panel **T** / **Y**.
+
+Expedition **day budget** (`TravelGate.expedition_day_budget`, −1 unlimited) gates
+trips that would overspend the allotment (`insufficient_days`) and is spent on
+successful commits. F5 Travel panel shows remaining budget vs planned cost
+(**G**, **-** / **=** / **L**, **B** — see traversal README); Timeline panel **T** / **Y**.
 
 
 ---
