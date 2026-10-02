@@ -3,8 +3,8 @@ extends RefCounted
 ## Fight stamina / recover numbers — greybox tunable source of truth.
 ##
 ## CombatSystem reads max / regen / delay / sprint / attack costs+recovery /
-## block stubs from here. Damage, windup, active, and reach stay on CombatSystem
-## PROFILES (queue #2 owns hatchet directional damage/reach + charge tiers).
+## block stubs from here. Knife/goad damage/reach + all windup/active stay on
+## CombatSystem PROFILES; hatchet damage/reach live in HatchetAttackTable.
 ## Feel (anims, hitstop polish, telegraph) is Godot-owned — this file is DATA only.
 
 ## Pool size (CombatSystem + CharacterHealth session default).
