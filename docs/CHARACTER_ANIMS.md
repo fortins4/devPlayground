@@ -21,7 +21,7 @@ Follow-up: replace with authored skeletal kerne (CC0 / commissioned) when art pi
 | Layer | Driver | Notes |
 |---|---|---|
 | **Locomotion** | `KerneLocomotion` (`kerne_locomotion.gd`) | Procedural joint sinusoids each physics frame from speed / crouch / sprint. States: `idle`, `walk`, `sprint`, `crouch_idle`, `crouch_walk`, `turn`, `attack`. Idle breath + light turn-in-place when yaw changes while nearly still. |
-| **Combat weapon** | `CombatSystem._play_weapon_swing` | Existing Tween on `WeaponVisual` (windup → contact → follow → recovery). Hitbox timing unchanged. |
+| **Combat weapon** | `CombatSystem._play_weapon_swing` | Tween on `WeaponVisual` (windup → contact → follow → recovery). **Hatchet:** hold-to-charge + `StrikeDirection` top/left/right arcs; hitbox bias per direction. |
 | **Combat body** | `player_controller._on_attack_performed` | Tweened **additive** euler offsets on `right_arm` / `right_forearm` / `torso` via `KerneLocomotion.set_combat_additive`, locked for the full attack window so walk arms do not fight the swing. |
 | **Mounted (horse)** | `KerneLocomotion.tick_mounted` | While `is_mounted`: seated bind pose (hips down, legs astride, spine slight forward). On-foot walk/sprint/crouch cycles are skipped. Optional light bob scales with trot / gallop. Dismount calls `reset_to_rest` then resumes foot loco. |
 
@@ -57,5 +57,5 @@ Mount/dismount remains **E**; Shift gallop; melee still blocked while mounted.
 
 ## Controls (unchanged)
 
-WASD move · mouse look · Space jump · Shift sprint · Ctrl/C crouch · LMB light · RMB heavy ·
+WASD move · mouse look · Space jump · Shift sprint · Ctrl/C crouch · Hold LMB charge hatchet (mouse aim dir) · RMB heavy knife/goad ·
 Q cycle weapon · 1/2/3 hatchet/knife/goad · Esc mouse capture · **E** mount/dismount horse.

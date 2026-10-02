@@ -61,6 +61,12 @@ var drag_stamina_exhausted: bool = false
 var is_mounted: bool = false
 var mounted_horse: Node3D = null
 
+## Directional hatchet: hold LMB to charge; mouse aim (look) picks top|left|right.
+var _charge_aim_delta: Vector2 = Vector2.ZERO ## mouse aim offset while holding (not WASD/flick)
+var _hatchet_charge_armed: bool = false
+const CHARGE_AIM_SIDE_THRESH := 12.0 ## px horizontal aim for left/right
+const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
+
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -122,11 +128,21 @@ func _unhandled_input(event: InputEvent) -> void:
 	if is_mounted:
 		return
 
+	# Mouse aim while charging selects strike arc (top / left / right).
+	if combat.is_charging and event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_charge_aim_delta += (event as InputEventMouseMotion).relative
+		_apply_charge_direction_from_input()
+
 	if event.is_action_pressed("attack_light"):
-		combat.try_attack(&"light")
+		_begin_hatchet_or_light()
+	elif event.is_action_released("attack_light"):
+		_release_hatchet_or_ignore()
 	elif event.is_action_pressed("attack_heavy"):
-		combat.try_attack(&"heavy")
+		# Knife/goad keep RMB heavy; hatchet is hold-release only (no instant full-power).
+		_heavy_or_ignore_hatchet()
 	elif event.is_action_pressed("cycle_weapon"):
+		if combat.is_charging:
+			combat.cancel_charge()
 		combat.cycle_weapon(1)
 	elif event.is_action_pressed("weapon_hatchet"):
 		combat.set_weapon(CombatSystem.Weapon.HATCHET)
@@ -137,6 +153,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if combat and combat.is_charging and not is_mounted:
+		_apply_charge_direction_from_input()
+
 	if is_mounted:
 		# Horse owns world locomotion; keep residual velocity cleared.
 		# Rider body uses seated bind pose (KerneLocomotion.tick_mounted) driven by horse.
@@ -147,7 +166,9 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 
-	var locked := combat != null and not combat.can_move()
+	var locked := combat != null and not combat.can_move() and not (combat != null and combat.is_charging)
+	# Charging allows half-speed footwork so direction + spacing stay readable.
+	var charging_move := combat != null and combat.is_charging
 	var want_crouch := Input.is_action_pressed("crouch") and is_on_floor() and not locked
 	# Stay crouched mid-air until land if already crouching; no jump while crouched.
 	if not is_on_floor() and is_crouching:
@@ -172,6 +193,9 @@ func _physics_process(delta: float) -> void:
 	)
 	var sprinting := false
 	if want_sprint and combat:
+		if combat.is_charging:
+			combat.cancel_charge()
+			_hatchet_charge_armed = false
 		sprinting = combat.try_sprint_drain(delta)
 	elif want_sprint and combat == null:
 		sprinting = true
@@ -189,6 +213,8 @@ func _physics_process(delta: float) -> void:
 	if locked:
 		target_speed = 0.0
 		direction = Vector3.ZERO
+	elif charging_move:
+		target_speed = WALK_SPEED * 0.45
 
 	var target_vel := direction * target_speed
 	var horiz := Vector3(velocity.x, 0.0, velocity.z)
@@ -285,6 +311,68 @@ func _move_vector() -> Vector2:
 	return v.normalized()
 
 
+func _begin_hatchet_or_light() -> void:
+	if combat == null:
+		return
+	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
+		_charge_aim_delta = Vector2.ZERO
+		_hatchet_charge_armed = true
+		if not combat.begin_charge():
+			_hatchet_charge_armed = false
+			combat.try_attack(&"light", CombatSystem.StrikeDirection.TOP)
+		else:
+			_apply_charge_direction_from_input()
+	else:
+		combat.try_attack(&"light")
+
+
+func _release_hatchet_or_ignore() -> void:
+	if combat == null:
+		return
+	if not _hatchet_charge_armed and not combat.is_charging:
+		return
+	_hatchet_charge_armed = false
+	if combat.is_charging:
+		_apply_charge_direction_from_input()
+		combat.release_charged_attack()
+
+
+func _heavy_or_ignore_hatchet() -> void:
+	if combat == null:
+		return
+	# Hatchet: hold-release only — RMB does not instant full-power.
+	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
+		return
+	if combat.is_charging:
+		combat.cancel_charge()
+		_hatchet_charge_armed = false
+	combat.try_attack(&"heavy")
+
+
+func _apply_charge_direction_from_input() -> void:
+	if combat == null or not combat.is_charging:
+		return
+	combat.set_charge_direction(_resolve_strike_direction())
+
+
+func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
+	## Mouse aim only (no WASD / flick): look offset while charging + camera pitch.
+	## Aim left/right → side chops; aim up or pitch up → top; neutral → top.
+	var mx := _charge_aim_delta.x
+	var my := _charge_aim_delta.y
+	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
+
+	if absf(mx) >= CHARGE_AIM_SIDE_THRESH and absf(mx) >= absf(my) * 0.9:
+		if mx < 0.0:
+			return CombatSystem.StrikeDirection.LEFT
+		return CombatSystem.StrikeDirection.RIGHT
+
+	if my <= -CHARGE_AIM_TOP_THRESH or pitch_up:
+		return CombatSystem.StrikeDirection.TOP
+
+	return CombatSystem.StrikeDirection.TOP
+
+
 func _on_weapon_changed(weapon: StringName) -> void:
 	_sync_back_goad_visibility()
 	# Hide belt knife mesh when knife is drawn as active weapon.
@@ -308,15 +396,13 @@ func _sync_back_goad_visibility() -> void:
 
 
 func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName) -> void:
-	# Body + arm follow weapon swing phases; timings match CombatSystem profiles.
+	# Body + arm follow weapon swing phases; timings match CombatSystem (post dir scale).
 	if combat == null:
 		return
-	var profile: Dictionary = CombatSystem.PROFILES[combat.current_weapon].get(
-		kind, CombatSystem.PROFILES[combat.current_weapon][&"light"]
-	)
-	var windup: float = profile["windup"]
-	var active: float = profile["active"]
-	var recovery: float = profile["recovery"]
+	var timings: Dictionary = combat.last_attack_timings()
+	var windup: float = float(timings.get("windup", 0.16))
+	var active: float = float(timings.get("active", 0.12))
+	var recovery: float = float(timings.get("recovery", 0.34))
 	var heavy := kind == &"heavy"
 	if locomotion:
 		locomotion.lock_attack(windup + active + recovery)
@@ -326,6 +412,10 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	if right_arm == null:
 		return
 
+	var direction := CombatSystem.StrikeDirection.TOP
+	if combat:
+		direction = combat.last_strike_direction()
+
 	# Stronger readable arcs than the old capsule slice.
 	var windup_delta := Vector3(deg_to_rad(-55.0 if heavy else -32.0), deg_to_rad(-15.0 if heavy else -8.0), deg_to_rad(-25.0 if heavy else -14.0))
 	var contact_delta := Vector3(deg_to_rad(25.0 if heavy else 12.0), deg_to_rad(10.0), deg_to_rad(35.0 if heavy else 22.0))
@@ -333,6 +423,31 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	var torso_windup := Vector3(deg_to_rad(-8.0 if heavy else -4.0), deg_to_rad(-12.0 if heavy else -6.0), 0.0)
 	var torso_contact := Vector3(deg_to_rad(10.0 if heavy else 5.0), deg_to_rad(8.0 if heavy else 4.0), 0.0)
 	var torso_follow := Vector3(deg_to_rad(14.0 if heavy else 8.0), deg_to_rad(12.0 if heavy else 6.0), 0.0)
+
+	if weapon == &"hatchet":
+		match direction:
+			CombatSystem.StrikeDirection.LEFT:
+				windup_delta = Vector3(deg_to_rad(-30.0 if heavy else -18.0), deg_to_rad(35.0 if heavy else 22.0), deg_to_rad(-40.0 if heavy else -25.0))
+				contact_delta = Vector3(deg_to_rad(15.0 if heavy else 8.0), deg_to_rad(-20.0), deg_to_rad(25.0 if heavy else 15.0))
+				follow_delta = Vector3(deg_to_rad(25.0 if heavy else 14.0), deg_to_rad(-45.0), deg_to_rad(40.0 if heavy else 25.0))
+				torso_windup = Vector3(deg_to_rad(-4.0), deg_to_rad(18.0 if heavy else 10.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(6.0), deg_to_rad(-10.0 if heavy else -6.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(8.0), deg_to_rad(-16.0 if heavy else -10.0), 0.0)
+			CombatSystem.StrikeDirection.RIGHT:
+				windup_delta = Vector3(deg_to_rad(-30.0 if heavy else -18.0), deg_to_rad(-40.0 if heavy else -25.0), deg_to_rad(20.0 if heavy else 12.0))
+				contact_delta = Vector3(deg_to_rad(15.0 if heavy else 8.0), deg_to_rad(25.0), deg_to_rad(-15.0 if heavy else -8.0))
+				follow_delta = Vector3(deg_to_rad(25.0 if heavy else 14.0), deg_to_rad(50.0), deg_to_rad(-25.0 if heavy else -14.0))
+				torso_windup = Vector3(deg_to_rad(-4.0), deg_to_rad(-20.0 if heavy else -12.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(6.0), deg_to_rad(12.0 if heavy else 7.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(8.0), deg_to_rad(18.0 if heavy else 10.0), 0.0)
+			_:
+				# TOP overhead — higher cock, steeper drop.
+				windup_delta = Vector3(deg_to_rad(-75.0 if heavy else -45.0), deg_to_rad(-8.0), deg_to_rad(-18.0 if heavy else -10.0))
+				contact_delta = Vector3(deg_to_rad(35.0 if heavy else 20.0), deg_to_rad(5.0), deg_to_rad(25.0 if heavy else 15.0))
+				follow_delta = Vector3(deg_to_rad(70.0 if heavy else 45.0), deg_to_rad(10.0), deg_to_rad(35.0 if heavy else 22.0))
+				torso_windup = Vector3(deg_to_rad(-14.0 if heavy else -8.0), deg_to_rad(-6.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(16.0 if heavy else 9.0), deg_to_rad(4.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(22.0 if heavy else 12.0), deg_to_rad(6.0), 0.0)
 
 	if weapon == &"goad":
 		windup_delta = Vector3(deg_to_rad(-70.0 if heavy else -40.0), deg_to_rad(-5.0), deg_to_rad(-10.0))
@@ -354,21 +469,36 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 
+	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, recovery)
+	var windup_move: float = phases["windup_move"]
+	var windup_hold: float = phases["windup_hold"]
+	var to_contact: float = phases["to_contact"]
+	var contact_hold: float = phases["contact_hold"]
+	var follow_dur: float = phases["follow"]
+
 	_arm_fore_scale = 0.35
 	_arm_tween = create_tween()
-	_arm_tween.tween_method(_apply_arm_additive, windup_delta * 0.15, windup_delta, windup).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_apply_arm_additive, windup_delta * 0.15, windup_delta, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if windup_hold > 0.0:
+		_arm_tween.tween_interval(windup_hold)
 	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.45)
-	_arm_tween.tween_method(_apply_arm_additive, windup_delta, contact_delta, active * 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_arm_tween.tween_method(_apply_arm_additive, windup_delta, contact_delta, to_contact).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if contact_hold > 0.0:
+		_arm_tween.tween_interval(contact_hold)
 	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.5)
-	_arm_tween.tween_method(_apply_arm_additive, contact_delta, follow_delta, active * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_apply_arm_additive, contact_delta, follow_delta, follow_dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.25)
 	_arm_tween.tween_method(_apply_arm_additive, follow_delta, Vector3.ZERO, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_arm_tween.tween_callback(_clear_attack_additives)
 
 	_torso_tween = create_tween()
-	_torso_tween.tween_method(_apply_torso_additive, torso_windup * 0.2, torso_windup, windup).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_torso_tween.tween_method(_apply_torso_additive, torso_windup, torso_contact, active * 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	_torso_tween.tween_method(_apply_torso_additive, torso_contact, torso_follow, active * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_torso_tween.tween_method(_apply_torso_additive, torso_windup * 0.2, torso_windup, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if windup_hold > 0.0:
+		_torso_tween.tween_interval(windup_hold)
+	_torso_tween.tween_method(_apply_torso_additive, torso_windup, torso_contact, to_contact).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if contact_hold > 0.0:
+		_torso_tween.tween_interval(contact_hold)
+	_torso_tween.tween_method(_apply_torso_additive, torso_contact, torso_follow, follow_dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_torso_tween.tween_method(_apply_torso_additive, torso_follow, Vector3.ZERO, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
@@ -397,6 +527,10 @@ func _on_hit_landed(_attacker: Node, _target: Node, damage: float, kind: StringN
 
 
 func _on_damage_taken(amount: float, _from: Node) -> void:
+	# Hit-stun cancels hatchet charge (USER LOCK).
+	if combat and combat.is_charging:
+		combat.cancel_charge()
+		_hatchet_charge_armed = false
 	_screen_punch(0.07 if amount >= 12.0 else 0.045)
 
 
