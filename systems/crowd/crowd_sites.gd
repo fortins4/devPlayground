@@ -281,6 +281,11 @@ static func region_for(site_id: StringName) -> StringName:
 	return row.get("region_id", &"") as StringName
 
 
+static func kind_for(site_id: StringName) -> StringName:
+	var row := get_site_row(site_id)
+	return row.get("kind", &"") as StringName
+
+
 static func base_density(site_id: StringName) -> float:
 	var row := get_site_row(site_id)
 	if row.is_empty():
