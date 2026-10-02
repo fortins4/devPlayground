@@ -25,8 +25,9 @@ const SLOT_COMPANION := &"companion"
 ## Protagonist vitals (slice defaults).
 var max_hp: float = 100.0
 var hp: float = 100.0
-var max_stamina: float = 100.0
-var stamina: float = 100.0
+## Mirrors StaminaEconomy.MAX_STAMINA (CombatSystem fight pool).
+var max_stamina: float = StaminaEconomy.MAX_STAMINA
+var stamina: float = StaminaEconomy.MAX_STAMINA
 ## Soft injury counter (0..MAX_WOUNDS). Not a full injury sim.
 var wounds: int = 0
 const MAX_WOUNDS: int = 5

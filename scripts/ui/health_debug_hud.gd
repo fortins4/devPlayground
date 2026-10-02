@@ -5,7 +5,8 @@ extends CanvasLayer
 ## Travel bottom-right).
 ##
 ## Keys (when this node is in the tree):
-##   V — show / hide panel
+##   V — show / hide panel (includes StaminaEconomy fight numbers)
+##   ` (backtick / QuoteLeft) — print StaminaEconomy dump to Output
 ##   9 / 0 — HP −10 / +10
 ##   7 / 8 — stamina −10 / +10
 ##   6 — add wound
@@ -55,6 +56,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_V:
 				_toggle()
+				get_viewport().set_input_as_handled()
+			KEY_QUOTELEFT:
+				_dump_stamina_economy()
 				get_viewport().set_input_as_handled()
 			KEY_9:
 				if CharacterHealth:
@@ -128,6 +132,16 @@ func _on_companion(_active: bool, _id: StringName) -> void:
 	_refresh()
 
 
+func _dump_stamina_economy() -> void:
+	var combat := _find_player_combat()
+	if combat and combat.has_method("dump_stamina_economy"):
+		combat.dump_stamina_economy()
+	else:
+		var cur := CharacterHealth.stamina if CharacterHealth else -1.0
+		print(StaminaEconomy.get_debug_text(cur))
+	_refresh()
+
+
 func _refresh() -> void:
 	if label == null:
 		return
@@ -139,6 +153,12 @@ func _refresh() -> void:
 	var bridge := _find_player_bridge()
 	if bridge:
 		text += "\n" + bridge.get_debug_text()
+	var combat := _find_player_combat()
+	if combat and combat.has_method("get_stamina_economy_debug_text"):
+		text += "\n" + combat.get_stamina_economy_debug_text()
+	else:
+		var cur := CharacterHealth.stamina if CharacterHealth else -1.0
+		text += "\n" + StaminaEconomy.get_debug_text(cur)
 	label.text = text
 
 
@@ -149,3 +169,13 @@ func _find_player_bridge() -> HealthCombatBridge:
 	if player == null:
 		return null
 	return player.get_node_or_null("HealthCombatBridge") as HealthCombatBridge
+
+
+func _find_player_combat() -> CombatSystem:
+	if not is_inside_tree():
+		return null
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null:
+		return null
+	var node := player.get_node_or_null("CombatSystem")
+	return node as CombatSystem if node is CombatSystem else null
