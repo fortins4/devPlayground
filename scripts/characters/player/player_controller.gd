@@ -85,6 +85,8 @@ func _ready() -> void:
 		combat.damage_taken.connect(_on_damage_taken)
 		combat.died.connect(_on_died)
 		combat.weapon_changed.connect(_on_weapon_changed)
+		combat.charge_updated.connect(_on_charge_updated)
+		combat.charge_cancelled.connect(_on_charge_cancelled)
 	if collision_shape and collision_shape.shape is CapsuleShape3D:
 		_capsule_shape = collision_shape.shape as CapsuleShape3D
 	if hurtbox_shape and hurtbox_shape.shape is CapsuleShape3D:
@@ -261,15 +263,34 @@ func _physics_process(delta: float) -> void:
 		_sync_weapon_to_hand()
 
 
+func _process(_delta: float) -> void:
+	# CombatSystem charge pose runs in _process; re-glue hatchet to the posed arm after it.
+	if is_mounted:
+		return
+	if combat and combat.is_charging and not combat.is_attacking:
+		_sync_weapon_to_hand()
+
+
 func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked: bool) -> void:
 	if locomotion == null:
 		return
-	var attacking := combat != null and combat.is_attacking
+	# Charge locks walk-arm swing so aim cock reads cleanly; swing uses same path.
+	var attacking := combat != null and (combat.is_attacking or combat.is_charging)
 	var local_dir := Vector3.ZERO
 	var input_dir := _move_vector()
 	if not locked:
 		local_dir = Vector3(input_dir.x, 0.0, input_dir.y)
 	locomotion.tick(delta, horiz_speed, sprinting, is_crouching, attacking, local_dir)
+	# Idle hatchet ready-hold when standing (not charging / swinging).
+	if (
+		combat
+		and combat.current_weapon == CombatSystem.Weapon.HATCHET
+		and not combat.is_charging
+		and not combat.is_attacking
+		and horiz_speed < 0.25
+		and not is_mounted
+	):
+		_apply_idle_hatchet_hold()
 
 
 func _apply_crouch_visual(delta: float) -> void:
@@ -397,6 +418,54 @@ func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
 	return CombatSystem.StrikeDirection.TOP
 
 
+func _on_charge_updated(ratio: float, direction: StringName) -> void:
+	## Arm + torso track hatchet aim face while charging (procedural, not a static stick).
+	if combat == null or not combat.is_charging or combat.is_attacking:
+		return
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+	var dir_enum := CombatSystem.StrikeDirection.TOP
+	match direction:
+		&"left":
+			dir_enum = CombatSystem.StrikeDirection.LEFT
+		&"right":
+			dir_enum = CombatSystem.StrikeDirection.RIGHT
+		_:
+			dir_enum = CombatSystem.StrikeDirection.TOP
+	var pose: Dictionary = CombatSystem.hatchet_charge_arm_pose(dir_enum, ratio)
+	_arm_fore_scale = float(pose.get("fore_scale", 0.4))
+	_apply_arm_additive(pose["right_arm"] as Vector3)
+	# Forearm uses explicit pose (not only scale-from-arm) for a clearer cock.
+	if locomotion:
+		locomotion.set_combat_additive("right_forearm", pose["right_forearm"] as Vector3)
+	_apply_torso_additive(pose["torso"] as Vector3)
+	if locomotion:
+		locomotion.lock_attack(0.05)
+
+
+func _on_charge_cancelled(_weapon: StringName) -> void:
+	if combat and combat.is_attacking:
+		return
+	_clear_attack_additives()
+	# Snap back toward idle ready if hatchet still drawn.
+	if combat and combat.current_weapon == CombatSystem.Weapon.HATCHET:
+		_apply_idle_hatchet_hold()
+
+
+func _apply_idle_hatchet_hold() -> void:
+	if locomotion == null:
+		return
+	if _arm_tween and _arm_tween.is_valid():
+		return  # swing owns the arm
+	var pose: Dictionary = CombatSystem.hatchet_idle_arm_pose()
+	_arm_fore_scale = 0.3
+	locomotion.set_combat_additive("right_arm", pose["right_arm"] as Vector3)
+	locomotion.set_combat_additive("right_forearm", pose["right_forearm"] as Vector3)
+	locomotion.set_combat_additive("torso", pose["torso"] as Vector3)
+
+
 func _on_weapon_changed(weapon: StringName) -> void:
 	_sync_back_goad_visibility()
 	# Hide belt knife mesh when knife is drawn as active weapon.
@@ -451,27 +520,27 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	if weapon == &"hatchet":
 		match direction:
 			CombatSystem.StrikeDirection.LEFT:
-				windup_delta = Vector3(deg_to_rad(-30.0 if heavy else -18.0), deg_to_rad(35.0 if heavy else 22.0), deg_to_rad(-40.0 if heavy else -25.0))
-				contact_delta = Vector3(deg_to_rad(15.0 if heavy else 8.0), deg_to_rad(-20.0), deg_to_rad(25.0 if heavy else 15.0))
-				follow_delta = Vector3(deg_to_rad(25.0 if heavy else 14.0), deg_to_rad(-45.0), deg_to_rad(40.0 if heavy else 25.0))
-				torso_windup = Vector3(deg_to_rad(-4.0), deg_to_rad(18.0 if heavy else 10.0), 0.0)
-				torso_contact = Vector3(deg_to_rad(6.0), deg_to_rad(-10.0 if heavy else -6.0), 0.0)
-				torso_follow = Vector3(deg_to_rad(8.0), deg_to_rad(-16.0 if heavy else -10.0), 0.0)
+				windup_delta = Vector3(deg_to_rad(-42.0 if heavy else -24.0), deg_to_rad(48.0 if heavy else 30.0), deg_to_rad(-55.0 if heavy else -34.0))
+				contact_delta = Vector3(deg_to_rad(20.0 if heavy else 12.0), deg_to_rad(-28.0), deg_to_rad(34.0 if heavy else 22.0))
+				follow_delta = Vector3(deg_to_rad(34.0 if heavy else 20.0), deg_to_rad(-58.0), deg_to_rad(50.0 if heavy else 32.0))
+				torso_windup = Vector3(deg_to_rad(-6.0), deg_to_rad(24.0 if heavy else 14.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(8.0), deg_to_rad(-14.0 if heavy else -8.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(10.0), deg_to_rad(-22.0 if heavy else -14.0), 0.0)
 			CombatSystem.StrikeDirection.RIGHT:
-				windup_delta = Vector3(deg_to_rad(-30.0 if heavy else -18.0), deg_to_rad(-40.0 if heavy else -25.0), deg_to_rad(20.0 if heavy else 12.0))
-				contact_delta = Vector3(deg_to_rad(15.0 if heavy else 8.0), deg_to_rad(25.0), deg_to_rad(-15.0 if heavy else -8.0))
-				follow_delta = Vector3(deg_to_rad(25.0 if heavy else 14.0), deg_to_rad(50.0), deg_to_rad(-25.0 if heavy else -14.0))
-				torso_windup = Vector3(deg_to_rad(-4.0), deg_to_rad(-20.0 if heavy else -12.0), 0.0)
-				torso_contact = Vector3(deg_to_rad(6.0), deg_to_rad(12.0 if heavy else 7.0), 0.0)
-				torso_follow = Vector3(deg_to_rad(8.0), deg_to_rad(18.0 if heavy else 10.0), 0.0)
+				windup_delta = Vector3(deg_to_rad(-48.0 if heavy else -26.0), deg_to_rad(-55.0 if heavy else -34.0), deg_to_rad(28.0 if heavy else 16.0))
+				contact_delta = Vector3(deg_to_rad(20.0 if heavy else 12.0), deg_to_rad(34.0), deg_to_rad(-22.0 if heavy else -12.0))
+				follow_delta = Vector3(deg_to_rad(34.0 if heavy else 20.0), deg_to_rad(62.0), deg_to_rad(-34.0 if heavy else -20.0))
+				torso_windup = Vector3(deg_to_rad(-6.0), deg_to_rad(-26.0 if heavy else -16.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(8.0), deg_to_rad(16.0 if heavy else 10.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(10.0), deg_to_rad(24.0 if heavy else 14.0), 0.0)
 			_:
-				# TOP overhead — higher cock, steeper drop.
-				windup_delta = Vector3(deg_to_rad(-75.0 if heavy else -45.0), deg_to_rad(-8.0), deg_to_rad(-18.0 if heavy else -10.0))
-				contact_delta = Vector3(deg_to_rad(35.0 if heavy else 20.0), deg_to_rad(5.0), deg_to_rad(25.0 if heavy else 15.0))
-				follow_delta = Vector3(deg_to_rad(70.0 if heavy else 45.0), deg_to_rad(10.0), deg_to_rad(35.0 if heavy else 22.0))
-				torso_windup = Vector3(deg_to_rad(-14.0 if heavy else -8.0), deg_to_rad(-6.0), 0.0)
-				torso_contact = Vector3(deg_to_rad(16.0 if heavy else 9.0), deg_to_rad(4.0), 0.0)
-				torso_follow = Vector3(deg_to_rad(22.0 if heavy else 12.0), deg_to_rad(6.0), 0.0)
+				# TOP overhead — higher cock, steeper drop (readable arc on greybox kerne).
+				windup_delta = Vector3(deg_to_rad(-95.0 if heavy else -58.0), deg_to_rad(-10.0), deg_to_rad(-22.0 if heavy else -14.0))
+				contact_delta = Vector3(deg_to_rad(48.0 if heavy else 28.0), deg_to_rad(6.0), deg_to_rad(32.0 if heavy else 20.0))
+				follow_delta = Vector3(deg_to_rad(88.0 if heavy else 55.0), deg_to_rad(12.0), deg_to_rad(42.0 if heavy else 28.0))
+				torso_windup = Vector3(deg_to_rad(-18.0 if heavy else -10.0), deg_to_rad(-8.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(20.0 if heavy else 12.0), deg_to_rad(5.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(28.0 if heavy else 16.0), deg_to_rad(8.0), 0.0)
 
 	if weapon == &"goad":
 		windup_delta = Vector3(deg_to_rad(-70.0 if heavy else -40.0), deg_to_rad(-5.0), deg_to_rad(-10.0))
@@ -501,8 +570,12 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	var follow_dur: float = phases["follow"]
 
 	_arm_fore_scale = 0.35
+	# Start from current charge cock (or a light pre-windup) so release feels continuous.
+	var arm_from := windup_delta * 0.55
+	if locomotion and locomotion.has_combat_additive("right_arm"):
+		arm_from = locomotion.get_combat_additive("right_arm")
 	_arm_tween = create_tween()
-	_arm_tween.tween_method(_apply_arm_additive, windup_delta * 0.15, windup_delta, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_apply_arm_additive, arm_from, windup_delta, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	if windup_hold > 0.0:
 		_arm_tween.tween_interval(windup_hold)
 	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.45)
@@ -541,6 +614,13 @@ func _apply_torso_additive(v: Vector3) -> void:
 func _clear_attack_additives() -> void:
 	if locomotion:
 		locomotion.clear_combat_additives()
+	if (
+		combat
+		and combat.current_weapon == CombatSystem.Weapon.HATCHET
+		and not combat.is_charging
+		and not combat.is_attacking
+	):
+		_apply_idle_hatchet_hold()
 
 
 func _on_hit_landed(_attacker: Node, _target: Node, damage: float, kind: StringName) -> void:
@@ -591,9 +671,35 @@ func _sync_weapon_to_hand() -> void:
 	# Tip of forearm in player local space
 	var tip_global := forearm.to_global(Vector3(0.0, -0.28, 0.05))
 	weapon_visual.global_position = tip_global
-	# Preserve roughly upright kit rest; yaw follows body
-	weapon_visual.rotation = Vector3(deg_to_rad(-10.0), 0.0, deg_to_rad(-8.0))
+
+	var rot := Vector3(deg_to_rad(-12.0), deg_to_rad(6.0), deg_to_rad(-14.0))  # idle ready grip
+	if combat and combat.is_charging:
+		var t := clampf(combat.charge_ratio, 0.0, 1.0)
+		t = t * t
+		match combat.charge_direction:
+			CombatSystem.StrikeDirection.LEFT:
+				rot = Vector3(
+					deg_to_rad(lerpf(-12.0, -48.0, t)),
+					deg_to_rad(lerpf(6.0, 78.0, t)),
+					deg_to_rad(lerpf(-14.0, 36.0, t))
+				)
+			CombatSystem.StrikeDirection.RIGHT:
+				rot = Vector3(
+					deg_to_rad(lerpf(-12.0, -52.0, t)),
+					deg_to_rad(lerpf(6.0, -68.0, t)),
+					deg_to_rad(lerpf(-14.0, -48.0, t))
+				)
+			_:
+				rot = Vector3(
+					deg_to_rad(lerpf(-12.0, -118.0, t)),
+					deg_to_rad(lerpf(6.0, 18.0, t)),
+					deg_to_rad(lerpf(-14.0, 70.0, t))
+				)
+	weapon_visual.rotation = rot
 	_weapon_base_y = weapon_visual.position.y
+	# Keep combat idle rest in sync while not charging so recovery returns to grip.
+	if combat and not combat.is_charging:
+		combat.set_weapon_rest_transform(weapon_visual.transform)
 
 func begin_drag(body: Node3D) -> void:
 	if body == null or is_mounted:
