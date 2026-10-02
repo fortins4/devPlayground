@@ -1,5 +1,5 @@
 extends CharacterBody3D
-## Sparring foe: faces player, BLOCKS frontal hits, open to flanks; telegraphs + weak counters.
+## Sparring foe: switches which face (top/left/right) they block; other faces open.
 
 const CorpseSpawnerScript := preload("res://systems/stealth/corpse_spawner.gd")
 
@@ -11,6 +11,7 @@ const COUNTER_COOLDOWN := 2.35
 const TELEGRAPH_TIME := 0.48
 const COUNTER_TELEGRAPH_TIME := 0.38
 const STAGGER_TIME := 0.35
+const GUARD_SWITCH_SECS := 2.75
 
 enum State { IDLE, CHASE, TELEGRAPH, RECOVER, STAGGER }
 
@@ -31,6 +32,14 @@ var _is_counter: bool = false
 var _weapon_rest: Transform3D
 var _telegraph_meshes: Array[MeshInstance3D] = []
 var _warn_label: Label3D
+var _guard_hint: Label3D
+var _guard_switch_left: float = 0.0
+var _guard_faces: Array = [
+	CombatSystem.StrikeDirection.TOP,
+	CombatSystem.StrikeDirection.LEFT,
+	CombatSystem.StrikeDirection.RIGHT,
+]
+var _guard_idx: int = 0
 
 
 func _ready() -> void:
@@ -40,7 +49,8 @@ func _ready() -> void:
 		combat.team = 1
 		combat.starting_weapon = CombatSystem.Weapon.HATCHET
 		combat.set_weapon(CombatSystem.Weapon.HATCHET)
-		combat.enable_block = true  # Face-block sparring (flanks still hurt)
+		combat.enable_block = true  # Directional face-block sparring
+		_set_guard_face(CombatSystem.StrikeDirection.TOP)
 		combat.died.connect(_on_died)
 		combat.damage_taken.connect(_on_damage_taken)
 		combat.attack_performed.connect(_on_attack_performed)
@@ -88,7 +98,7 @@ func _physics_process(delta: float) -> void:
 		var turn_rate := 8.0 if _state == State.TELEGRAPH else 6.0
 		rotation.y = lerp_angle(rotation.y, target_yaw, turn_rate * delta)
 
-	# Hold block while facing the player and not mid-swing — flanks still connect.
+	# Hold block on current guarded face; cycle face on a readable timer.
 	if combat and not combat.is_dead:
 		var can_block := (
 			_state != State.TELEGRAPH
@@ -98,6 +108,12 @@ func _physics_process(delta: float) -> void:
 			and dist < AGGRO_RANGE
 		)
 		combat.set_blocking(can_block)
+		if can_block:
+			_guard_switch_left -= delta
+			if _guard_switch_left <= 0.0:
+				_guard_idx = (_guard_idx + 1) % _guard_faces.size()
+				_set_guard_face(_guard_faces[_guard_idx])
+				_guard_switch_left = GUARD_SWITCH_SECS
 
 	_state_time += delta
 	match _state:
@@ -279,16 +295,16 @@ func _ensure_warn_label() -> void:
 	_warn_label.position = Vector3(0.0, 2.15, 0.0)
 	_warn_label.visible = false
 	add_child(_warn_label)
-	var hint := Label3D.new()
-	hint.name = "SparringHint"
-	hint.text = "BLOCKS FACE — flank me"
-	hint.font_size = 28
-	hint.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	hint.no_depth_test = true
-	hint.pixel_size = 0.004
-	hint.position = Vector3(0.0, 2.45, 0.0)
-	hint.modulate = Color(0.75, 0.9, 1.0, 1.0)
-	add_child(hint)
+	_guard_hint = Label3D.new()
+	_guard_hint.name = "SparringHint"
+	_guard_hint.text = "GUARD TOP"
+	_guard_hint.font_size = 28
+	_guard_hint.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_guard_hint.no_depth_test = true
+	_guard_hint.pixel_size = 0.004
+	_guard_hint.position = Vector3(0.0, 2.45, 0.0)
+	_guard_hint.modulate = Color(0.75, 0.9, 1.0, 1.0)
+	add_child(_guard_hint)
 
 
 func _find_player() -> void:
@@ -316,3 +332,18 @@ func _spawn_corpse_on_death() -> void:
 		corpse.call("_apply_ground_pose")
 	if corpse.has_method("_refresh_labels"):
 		corpse.call("_refresh_labels")
+
+
+func _set_guard_face(direction: CombatSystem.StrikeDirection) -> void:
+	if combat:
+		combat.set_guard_direction(direction)
+	var name := "TOP"
+	match direction:
+		CombatSystem.StrikeDirection.LEFT:
+			name = "LEFT"
+		CombatSystem.StrikeDirection.RIGHT:
+			name = "RIGHT"
+		_:
+			name = "TOP"
+	if _guard_hint:
+		_guard_hint.text = "GUARD %s — other faces open" % name

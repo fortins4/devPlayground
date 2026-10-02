@@ -49,6 +49,8 @@ const WEAPON_NAMES := {
 @export var knockback_heavy: float = 4.6
 @export var hit_stop_light: float = 0.045
 @export var hit_stop_heavy: float = 0.075
+@export var hit_stop_charged: float = 0.11 ## Extra freeze on charged/heavy hatchet contact
+@export var charged_impact_scale: float = 0.05 ## Engine time_scale during charged hit-stop
 @export var show_damage_numbers: bool = true
 @export var charge_full_secs: float = 0.75 ## Hold time to reach full power (hatchet) — USER LOCK
 @export var charge_min_release_secs: float = 0.08 ## Below this = tap light
@@ -59,6 +61,8 @@ var stamina: float = StaminaEconomy.MAX_STAMINA
 var current_weapon: Weapon = Weapon.HATCHET
 var is_dead: bool = false
 var is_blocking: bool = false
+## Which strike face is guarded when blocking (top/left/right). Mismatch = open.
+var guard_direction: StrikeDirection = StrikeDirection.TOP
 var is_attacking: bool = false
 var attack_recovery_left: float = 0.0
 var hitbox_active_left: float = 0.0
@@ -483,15 +487,30 @@ func set_blocking(holding: bool) -> void:
 	is_blocking = holding and stamina > StaminaEconomy.BLOCK_MIN_STAMINA
 
 
-func apply_damage(amount: float, from: Node = null, frontal: bool = true) -> float:
+func set_guard_direction(direction: StrikeDirection) -> void:
+	guard_direction = direction
+
+
+func guard_direction_name() -> StringName:
+	return DIRECTION_NAMES.get(guard_direction, &"top")
+
+
+func apply_damage(
+	amount: float,
+	from: Node = null,
+	frontal: bool = true,
+	strike_direction: StrikeDirection = StrikeDirection.TOP
+) -> float:
 	if is_dead or amount <= 0.0:
 		return 0.0
 	# Hit-stun: drop any in-progress charge.
 	if is_charging:
 		cancel_charge()
 	var mitigated := 0.0
-	if enable_block and is_blocking and frontal and stamina > 0.0:
-		mitigated = amount * 0.75
+	# Block only the guarded face (top/left/right). Wrong face or open guard = full damage.
+	var face_match := strike_direction == guard_direction
+	if enable_block and is_blocking and face_match and stamina > 0.0:
+		mitigated = amount * 0.85
 		amount -= mitigated
 		_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
 		blocked.emit(_owner_body, from, mitigated)
@@ -626,7 +645,14 @@ func _try_damage_target(target: Node, damage: float, kind: StringName) -> void:
 		return
 	_hit_this_swing[id] = true
 	var facing_ok := _is_frontal(other)
-	var dealt := other.apply_damage(damage, _owner_body, facing_ok)
+	var strike_dir := _last_strike_direction
+	if _hitbox and _hitbox.has_meta("direction"):
+		var dname: StringName = _hitbox.get_meta("direction")
+		for key in DIRECTION_NAMES:
+			if DIRECTION_NAMES[key] == dname:
+				strike_dir = key
+				break
+	var dealt := other.apply_damage(damage, _owner_body, facing_ok, strike_dir)
 	if dealt > 0.0:
 		hit_landed.emit(_owner_body, other.get_parent(), dealt, kind)
 		_apply_hit_tags(other, kind)
@@ -1063,15 +1089,23 @@ func _play_hurt_feedback(amount: float, from: Node) -> void:
 
 
 func _play_hit_confirm(kind: StringName) -> void:
-	# Brief hit-stop so contact reads; ignore_time_scale timer restores scale.
+	# Brief hit-stop so contact reads; charged/heavy gets stronger freeze + juice.
 	if _hit_stop_running:
 		return
-	var dur := hit_stop_heavy if kind == &"heavy" else hit_stop_light
+	var charged := kind == &"heavy" and current_weapon == Weapon.HATCHET
+	var dur := hit_stop_charged if charged else (hit_stop_heavy if kind == &"heavy" else hit_stop_light)
 	if dur <= 0.0:
 		return
 	_hit_stop_running = true
 	var prev := Engine.time_scale
-	Engine.time_scale = 0.08 if kind == &"heavy" else 0.12
+	Engine.time_scale = charged_impact_scale if charged else (0.08 if kind == &"heavy" else 0.12)
+	# Small weapon kick on charged contact for readable impact.
+	if charged and _weapon_visual:
+		var kick := _weapon_visual.position + Vector3(0.0, 0.04, -0.06)
+		var tw := create_tween()
+		tw.set_ignore_time_scale(true)
+		tw.tween_property(_weapon_visual, "position", kick, 0.03).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tw.tween_property(_weapon_visual, "position", _weapon_rest_transform.origin, 0.08).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	await get_tree().create_timer(dur, true, false, true).timeout
 	Engine.time_scale = prev if prev > 0.01 else 1.0
 	_hit_stop_running = false

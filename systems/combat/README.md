@@ -283,3 +283,15 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 - **Stamina cost + recovery:** `StaminaEconomy` (hatchet recovery synced to timing polish 0.34 / 0.58)
 - **Charge full:** 0.75s hold
 - **Side hitboxes:** widened for flank chops vs face-blocking sparring foe
+
+## Switchable block faces (#4)
+
+Sparring dummy cycles **TOP → LEFT → RIGHT** every ~2.75s while guarding. Only matching hatchet strike directions are blocked; other faces take full damage.
+
+## Charge footwork step (#5)
+
+While charging, **tap WASD** for a short step (does not cancel). Holding still drifts slowly. **Sprint still cancels** charge.
+
+## Charged hit-stop / impact juice (#6)
+
+Charged hatchet contacts use longer hit-stop (`hit_stop_charged`), deeper time scale freeze, a short weapon kick, and a stronger camera punch.
