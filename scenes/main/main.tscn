@@ -1,4 +1,4 @@
-[gd_scene load_steps=33 format=3 uid="uid://cq8riochtmain0001"]
+[gd_scene load_steps=34 format=3 uid="uid://cq8riochtmain0001"]
 
 [ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtdummy01" path="res://scenes/characters/npcs/dummy_fighter.tscn" id="2_dummy"]
@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" uid="uid://cq8riochtrumdbg01" path="res://scenes/ui/rumors_debug_hud.tscn" id="6_rumors_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochttravdbg01" path="res://scenes/ui/travel_debug_hud.tscn" id="6b_travel_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochthlthdbg01" path="res://scenes/ui/health_debug_hud.tscn" id="6c_health_dbg"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtcrowdbg01" path="res://scenes/ui/crowd_debug_hud.tscn" id="6d_crowd_dbg"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtsentry01" path="res://scenes/characters/npcs/sentry.tscn" id="7_sentry"]
 [ext_resource type="Script" path="res://systems/stealth/bog_zone.gd" id="8_bog"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtcorpse01" path="res://scenes/characters/npcs/draggable_corpse.tscn" id="11_corpse"]
@@ -207,6 +208,8 @@ modulate = Color(0.55, 0.7, 0.5, 1)
 [node name="TravelDebugHUD" parent="." instance=ExtResource("6b_travel_dbg")]
 
 [node name="HealthDebugHUD" parent="." instance=ExtResource("6c_health_dbg")]
+
+[node name="CrowdDebugHUD" parent="." instance=ExtResource("6d_crowd_dbg")]
 
 [node name="PathToRingfort" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0.12, 0)
