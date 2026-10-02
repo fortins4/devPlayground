@@ -17,13 +17,13 @@ No starting sword or shield. `CombatSystem.enable_block` stays off until shield 
 
 | Input | Action |
 |---|---|
-| WASD | Move (camera-relative yaw on body). **While charging:** A = left strike, D = right, W = top |
-| Mouse | Look |
+| WASD | Move (camera-relative yaw on body). **Not** used for strike direction |
+| Mouse | Look + **aim strike dir while charging** (look left/right/up → left/right/top) |
 | **Hold LMB** | **Charge** hatchet (power scales 0→1 over ~0.55s). Release to strike |
-| **Release LMB** | Strike in chosen direction; tap (~short hold) = light, long hold = power |
-| **Mouse flick** during charge | Up / left / right also selects **top / left / right** (with WASD) |
-| Camera pitch up | Favors **top** overhead when no A/D bias |
-| RMB | Instant full-power strike in current aimed direction (hatchet) / heavy (knife·goad) |
+| **Release LMB** | Strike in aimed direction; tap (~short hold) = light, long hold = power |
+| Camera pitch up | Favors **top** overhead |
+| RMB | Heavy for **knife/goad only** — hatchet has **no** instant full-power (hold-release only) |
+| Sprint / hit-stun | **Cancels** an in-progress hatchet charge |
 | Space | Jump |
 | Shift | Sprint (drains stamina) |
 | Q | Cycle weapon (hatchet → knife → goad) |
@@ -33,9 +33,7 @@ No starting sword or shield. `CombatSystem.enable_block` stays off until shield 
 
 ### Directional hatchet (feel notes)
 
-Third-person scheme: **hold attack to charge**, pick arc with **WASD lateral** or a **mouse flick** while holding, **release to commit**. Neutral / looking up defaults to **top** (overhead chop). Charging allows half-speed footwork. Knife and goad keep the older tap light / RMB heavy path for now (hatchet-first pass).
-
-**Controls unchanged** from the directional-charge pass (hold LMB / release / WASD·flick / RMB full-power).
+Third-person scheme: **hold attack to charge**, **aim with the mouse** while holding (left/right/up), **release to commit**. Neutral defaults to **top**. Charging allows half-speed footwork. Sprint or taking a hit **cancels** charge. Knife/goad keep tap light / RMB heavy for now (scheme TBD later).
 
 ### Hatchet timing polish (#2)
 
@@ -71,7 +69,7 @@ Wire under a `CharacterBody3D` with optional `Hitbox`, `Hurtbox`, and `WeaponVis
 
 ## Test
 
-Open `scenes/main/main.tscn` (F5). A dummy fighter stands a few meters ahead — hold LMB to charge the hatchet, flick or hold A/D for side chops, release for power. Swap weapons, sprint, and watch HP/STA + CHARGE% on the HUD.
+Open `scenes/main/main.tscn` (F5). A dummy fighter stands a few meters ahead — hold LMB to charge the hatchet, aim left/right/up with the mouse, release for power. Sprint or getting hit cancels charge. Swap weapons and watch HP/STA + CHARGE% on the HUD.
 
 Headless smoke:
 

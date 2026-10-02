@@ -221,5 +221,34 @@ func _run() -> void:
 		return
 	print("SMOKE cancel_charge ok")
 
+	# Hit-stun cancels charge
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL begin_charge for hitstun")
+		quit(1)
+		return
+	combat.apply_damage(5.0, null, true)
+	if combat.is_charging:
+		push_error("SMOKE_FAIL apply_damage did not cancel charge")
+		quit(1)
+		return
+	print("SMOKE hitstun_cancel ok")
+
+	# Sprint cancels charge
+	combat.stamina = combat.max_stamina
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL begin_charge for sprint")
+		quit(1)
+		return
+	var sprinted := combat.try_sprint_drain(0.05)
+	if not sprinted:
+		push_error("SMOKE_FAIL sprint drain failed")
+		quit(1)
+		return
+	if combat.is_charging:
+		push_error("SMOKE_FAIL sprint did not cancel charge")
+		quit(1)
+		return
+	print("SMOKE sprint_cancel ok")
+
 	print("DIRECTIONAL_HATCHET_SMOKE_OK")
 	quit(0)

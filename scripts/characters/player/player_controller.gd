@@ -61,10 +61,11 @@ var drag_stamina_exhausted: bool = false
 var is_mounted: bool = false
 var mounted_horse: Node3D = null
 
-## Directional hatchet: hold LMB to charge; mouse flick / WASD picks top|left|right.
-var _charge_mouse_accum: Vector2 = Vector2.ZERO
+## Directional hatchet: hold LMB to charge; mouse aim (look) picks top|left|right.
+var _charge_aim_delta: Vector2 = Vector2.ZERO ## mouse aim offset while holding (not WASD/flick)
 var _hatchet_charge_armed: bool = false
-const CHARGE_DIR_MOUSE_THRESH := 28.0 ## px of relative mouse during hold
+const CHARGE_AIM_SIDE_THRESH := 12.0 ## px horizontal aim for left/right
+const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
 
 
 func _ready() -> void:
@@ -127,9 +128,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if is_mounted:
 		return
 
-	# Accumulate mouse delta while charging so flick direction can pick the arc.
+	# Mouse aim while charging selects strike arc (top / left / right).
 	if combat.is_charging and event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		_charge_mouse_accum += (event as InputEventMouseMotion).relative
+		_charge_aim_delta += (event as InputEventMouseMotion).relative
 		_apply_charge_direction_from_input()
 
 	if event.is_action_pressed("attack_light"):
@@ -137,8 +138,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_released("attack_light"):
 		_release_hatchet_or_ignore()
 	elif event.is_action_pressed("attack_heavy"):
-		# RMB: instant full-power strike in current aimed direction (no hold).
-		_instant_power_strike()
+		# Knife/goad keep RMB heavy; hatchet is hold-release only (no instant full-power).
+		_heavy_or_ignore_hatchet()
 	elif event.is_action_pressed("cycle_weapon"):
 		if combat.is_charging:
 			combat.cancel_charge()
@@ -192,6 +193,9 @@ func _physics_process(delta: float) -> void:
 	)
 	var sprinting := false
 	if want_sprint and combat:
+		if combat.is_charging:
+			combat.cancel_charge()
+			_hatchet_charge_armed = false
 		sprinting = combat.try_sprint_drain(delta)
 	elif want_sprint and combat == null:
 		sprinting = true
@@ -311,7 +315,7 @@ func _begin_hatchet_or_light() -> void:
 	if combat == null:
 		return
 	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
-		_charge_mouse_accum = Vector2.ZERO
+		_charge_aim_delta = Vector2.ZERO
 		_hatchet_charge_armed = true
 		if not combat.begin_charge():
 			_hatchet_charge_armed = false
@@ -333,49 +337,39 @@ func _release_hatchet_or_ignore() -> void:
 		combat.release_charged_attack()
 
 
-func _instant_power_strike() -> void:
+func _heavy_or_ignore_hatchet() -> void:
 	if combat == null:
+		return
+	# Hatchet: hold-release only — RMB does not instant full-power.
+	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
 		return
 	if combat.is_charging:
 		combat.cancel_charge()
 		_hatchet_charge_armed = false
-	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
-		var direction := _resolve_strike_direction(true)
-		combat.try_attack(&"heavy", direction, 1.0)
-	else:
-		combat.try_attack(&"heavy")
+	combat.try_attack(&"heavy")
 
 
 func _apply_charge_direction_from_input() -> void:
 	if combat == null or not combat.is_charging:
 		return
-	combat.set_charge_direction(_resolve_strike_direction(false))
+	combat.set_charge_direction(_resolve_strike_direction())
 
 
-func _resolve_strike_direction(instant: bool) -> CombatSystem.StrikeDirection:
-	## Priority: WASD lateral (A/D) → mouse flick during charge → camera pitch (up = top).
-	## Neutral defaults to TOP (classic hatchet overhead).
-	var move := _move_vector()
-	if move.x <= -0.45:
-		return CombatSystem.StrikeDirection.LEFT
-	if move.x >= 0.45:
-		return CombatSystem.StrikeDirection.RIGHT
-	if move.y <= -0.45:
-		return CombatSystem.StrikeDirection.TOP
+func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
+	## Mouse aim only (no WASD / flick): look offset while charging + camera pitch.
+	## Aim left/right → side chops; aim up or pitch up → top; neutral → top.
+	var mx := _charge_aim_delta.x
+	var my := _charge_aim_delta.y
+	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
 
-	var mx := _charge_mouse_accum.x
-	var my := _charge_mouse_accum.y
-	if not instant and _charge_mouse_accum.length() >= CHARGE_DIR_MOUSE_THRESH:
-		if absf(my) > absf(mx) * 0.85 and my < 0.0:
-			return CombatSystem.StrikeDirection.TOP
-		if mx <= -CHARGE_DIR_MOUSE_THRESH * 0.55:
+	if absf(mx) >= CHARGE_AIM_SIDE_THRESH and absf(mx) >= absf(my) * 0.9:
+		if mx < 0.0:
 			return CombatSystem.StrikeDirection.LEFT
-		if mx >= CHARGE_DIR_MOUSE_THRESH * 0.55:
-			return CombatSystem.StrikeDirection.RIGHT
+		return CombatSystem.StrikeDirection.RIGHT
 
-	# Camera pitched up favors overhead even without a flick.
-	if pivot and pivot.rotation.x <= deg_to_rad(-12.0):
+	if my <= -CHARGE_AIM_TOP_THRESH or pitch_up:
 		return CombatSystem.StrikeDirection.TOP
+
 	return CombatSystem.StrikeDirection.TOP
 
 
@@ -533,6 +527,10 @@ func _on_hit_landed(_attacker: Node, _target: Node, damage: float, kind: StringN
 
 
 func _on_damage_taken(amount: float, _from: Node) -> void:
+	# Hit-stun cancels hatchet charge (USER LOCK).
+	if combat and combat.is_charging:
+		combat.cancel_charge()
+		_hatchet_charge_armed = false
 	_screen_punch(0.07 if amount >= 12.0 else 0.045)
 
 

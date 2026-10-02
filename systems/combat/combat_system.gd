@@ -216,6 +216,8 @@ func cycle_weapon(direction: int = 1) -> void:
 func try_sprint_drain(delta: float) -> bool:
 	if is_dead or is_attacking:
 		return false
+	if is_charging:
+		cancel_charge()
 	var cost := sprint_stamina_per_sec * delta
 	if stamina < cost * 0.5:
 		return false
@@ -385,6 +387,9 @@ func set_blocking(holding: bool) -> void:
 func apply_damage(amount: float, from: Node = null, frontal: bool = true) -> float:
 	if is_dead or amount <= 0.0:
 		return 0.0
+	# Hit-stun: drop any in-progress charge.
+	if is_charging:
+		cancel_charge()
 	var mitigated := 0.0
 	if enable_block and is_blocking and frontal and stamina > 0.0:
 		mitigated = amount * 0.75
