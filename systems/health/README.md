@@ -32,7 +32,9 @@ mirrors into this autoload (NPCs stay on independent `CombatSystem` vitals).
 | `set_hp(value)` / `modify_hp(delta)` | Set or delta; clamp 0..max; returns applied delta |
 | `set_max_hp(value, fill := false)` | Raise / lower ceiling |
 | `get_stamina()` / `modify_stamina(delta)` / `set_stamina(value)` | Same pattern for stamina |
-| `get_wounds()` / `add_wound()` / `modify_wounds(delta)` / `clear_wounds()` | Soft injury counter 0..`MAX_WOUNDS` (5) |
+| `get_wounds()` / `add_wound()` / `modify_wounds(delta)` / `clear_wounds()` | Soft injury counter 0..`MAX_WOUNDS` (5); `clear_wounds` also clears named tags |
+| `apply_wound_tag(tag)` / `apply_stagger_tag(tag)` / `apply_combat_tags(tags)` | CombatTags hooks — soft-counter delta + signals; see combat README |
+| `get_wound_tags()` / `clear_wound_tags()` | Recent named wound-tag list (stub, max 8) |
 | `is_alive()` / `get_is_downed()` / `get_is_dead()` | Stub flags for HUD |
 | `set_downed(downed, mark_dead := false)` | Scripted downed / dead without fancy scene |
 | `revive(fill_vitals := true)` | Clear dead/downed; optional full refill |
@@ -58,6 +60,8 @@ Band warriors stay in `BandUpkeep` — this slot is for a named companion beat
 CharacterHealth.health_changed.connect(func(cur, mx): ...)
 CharacterHealth.stamina_changed.connect(func(cur, mx): ...)
 CharacterHealth.wounds_changed.connect(func(count): ...)
+CharacterHealth.wound_tag_applied.connect(func(tag, delta): ...)
+CharacterHealth.stagger_applied.connect(func(tag, dur, strength): ...)
 CharacterHealth.vital_depleted.connect(func(vital): ...)   # &"hp" | &"stamina"
 CharacterHealth.vital_restored.connect(func(vital): ...)
 CharacterHealth.downed_changed.connect(func(is_downed): ...)
@@ -120,6 +124,20 @@ print(bridge.get_debug_text())
 Signals: `bound_changed(is_bound)`, `synced(direction, hp, stamina)` where
 `direction` is `&"combat_to_session"`, `&"session_to_combat"`, or `&"heal"`.
 
+
+### Stagger / wound tags (session hooks)
+
+`CharacterHealth` keeps the integer soft-wound counter and adds optional named
+tag bookkeeping for HUD / feel — **not** a full injury sim:
+
+- `wound_tag_applied(tag, wound_delta)` / `stagger_applied(tag, duration_sec, interrupt_strength)`
+- `wound_tags` list (capped) + `last_wound_tag` / `last_stagger_*`
+- Cleared by `clear_wounds()` / `restore_full()` / `clear_wound_tags()`
+
+Catalog + hatchet mapping live in `CombatTags` (`systems/combat/combat_tags.gd`).
+`CombatSystem` applies tags on successful hatchet (and simple knife/goad) hits;
+player session receives tags when the player is the target.
+
 ---
 
 ## F5 test path (CharacterHealth debug)
@@ -146,9 +164,12 @@ Signals: `bound_changed(is_bound)`, `synced(direction, hp, stamina)` where
    ```
 10. Press **V** again to hide the panel.
 
-Keys: **V** toggle (includes `StaminaEconomy` fight numbers) · **backtick** print stamina dump ·
+Keys: **V** toggle (includes `StaminaEconomy` / hatchet / CombatTags) · **backtick** stamina dump ·
+**F6** hatchet table · **F7** stagger/wound tags dump ·
 **9** / **0** HP −10 / +10 · **7** / **8** STA −10 / +10 ·
 **6** wound+ · **5** restore full · **4** force downed stub.
+
+Named stagger/wound tags (CombatTags) are documented in [`systems/combat/README.md`](../combat/README.md#stagger--wound-tags-combat-support-data). `restore_full` / `clear_wounds` clear the tagged-wound stub list.
 
 Session `max_stamina` defaults from `StaminaEconomy.MAX_STAMINA` (see [`systems/combat/README.md`](../combat/README.md#stamina-economy-fight-numbers)).
 

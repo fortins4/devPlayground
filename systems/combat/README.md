@@ -185,6 +185,66 @@ Key map (no collision with stamina **V** / **backtick**, Honor **H**, Timeline
 **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F6** print hatchet table dump.
 
+## Stagger / wound tags (combat-support data)
+
+Tunable greybox catalog — **`systems/combat/combat_tags.gd`** (`class_name CombatTags`).
+Named tags hits can apply alongside `CharacterHealth`’s integer wound counter.
+Feel (anims, hitstop, dummy telegraph cancel) stays Godot-owned; Systems owns
+tag data + a small apply path on `CombatSystem` hit.
+
+### Stagger tags (short CC / interrupt)
+
+| Tag | Duration | Interrupt | Notes |
+|---|---|---|---|
+| `&"stagger_light"` | 0.35 s | 1 | Tap / jab hitch |
+| `&"stagger_heavy"` | 0.75 s | 2 | Charged / max hitch |
+
+`CombatSystem.apply_stagger_tag` sets `stagger_left` (countdown). `can_move()`
+gates while staggered — minimal CC hook so dummy AI that already respects
+`can_move` pauses without a full rewrite.
+
+### Wound tags (soft counter flavour)
+
+| Tag | `wound_delta` | Notes |
+|---|---|---|
+| `&"bruise"` | 0 | Tag only — no soft-counter tick |
+| `&"cut"` | +1 | Edge bite |
+| `&"deep"` | +2 | Charged overhead / heavy bite |
+
+Player hits feed `CharacterHealth.apply_wound_tag` / `apply_stagger_tag` (signals
+`wound_tag_applied`, `stagger_applied` + short tag list). NPCs get stagger stub
+only (no session wound counter).
+
+### Hatchet direction × tier → default tags
+
+| Direction | Tier | Tags |
+|---|---|---|
+| top / left / right | tap | `bruise`, `stagger_light` |
+| top | charged / max | `deep`, `stagger_heavy` |
+| left / right | charged / max | `cut`, `stagger_heavy` |
+
+Knife / goad simple defaults: knife → `cut` + `stagger_light`; goad light →
+`bruise` + `stagger_light`; goad heavy → `bruise` + `stagger_heavy`.
+
+API: `tags_for_hit(weapon, kind, direction, tier)`, `hatchet_tags(dir, tier)`,
+`stagger_entry` / `wound_entry`, `to_debug_dict()`, `get_debug_text(...)`.
+
+Edit catalog / mapping in `CombatTags` only — do not retune `StaminaEconomy` or
+`HatchetAttackTable` numbers here.
+
+### F5 probe (combat tags)
+
+1. Open `scenes/main/main.tscn` and press **F5**.
+2. Press **V** — panel appends the CombatTags catalog + last applied hit tags.
+3. Press **F7** — prints the same dump (+ CharacterHealth last tags) to Output
+   (`CombatSystem.dump_combat_tags()` / `CombatTags.get_debug_text()`).
+4. Swing hatchet into the dummy (or take a hit); confirm last applied shows
+   expected tags; player soft wounds tick on `cut` / `deep` when *you* are hit.
+
+Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, Honor
+**H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F7** print combat tags dump.
+
 ## Dummy counter
 
 `dummy_fighter` telegraphs every swing (weapon cock + warm tint + `!` / `...` Label3D), then releases a weak light hatchet. Taking a hit in range triggers a reactive counter telegraph (shorter). Hitting the dummy during telegraph staggers/cancels — learnable timing, still beatable.
