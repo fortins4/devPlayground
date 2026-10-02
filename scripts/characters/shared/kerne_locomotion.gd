@@ -75,9 +75,26 @@ func lock_attack(duration: float) -> void:
 
 func set_combat_additive(joint: String, euler: Vector3) -> void:
 	_combat_overrides[joint] = euler
+	# Apply immediately so charge/aim reads without waiting for the next loco tick.
+	var n: Node3D = joints.get(joint) as Node3D
+	if n and _rest.has(joint):
+		n.rotation = (_rest[joint]["rot"] as Vector3) + euler
+
+
+func get_combat_additive(joint: String) -> Vector3:
+	return _combat_overrides.get(joint, Vector3.ZERO) as Vector3
+
+
+func has_combat_additive(joint: String) -> bool:
+	return _combat_overrides.has(joint)
 
 
 func clear_combat_additives() -> void:
+	# Snap overridden joints back to rest before clearing so we don't freeze mid-pose.
+	for key in _combat_overrides.keys():
+		var n: Node3D = joints.get(key) as Node3D
+		if n and _rest.has(key):
+			n.rotation = _rest[key]["rot"] as Vector3
 	_combat_overrides.clear()
 
 

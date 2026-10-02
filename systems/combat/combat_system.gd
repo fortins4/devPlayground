@@ -366,7 +366,9 @@ func release_charged_attack() -> bool:
 	is_charging = false
 	charge_time = 0.0
 	charge_ratio = 0.0
-	_clear_charge_pose()
+	# Keep weapon/arm at charge cock — swing continues from current pose (no rest snap).
+	if _charge_pose_tween and _charge_pose_tween.is_valid():
+		_charge_pose_tween.kill()
 	var kind: StringName = &"light" if held < charge_min_release_secs or ratio < 0.22 else &"heavy"
 	# Blend: short hold still light; mid/full uses heavy profile with scaled damage/cost.
 	# Near-full charge maps to HatchetAttackTable &"max" tier via power >= 0.95.
@@ -635,8 +637,10 @@ func _on_posture_break() -> void:
 		"stagger_left": stagger_left,
 	}
 	# Session bus when this CombatSystem is the player (sparring self-break rare but wired).
-	if _combat_owner_is_player(self) and CharacterHealth:
-		CharacterHealth.apply_stagger_tag(tag)
+	if _combat_owner_is_player(self):
+		var ch := _session_character_health()
+		if ch:
+			ch.apply_stagger_tag(tag)
 	posture_broken.emit(_owner_body, tag, dur)
 
 
@@ -903,9 +907,8 @@ func _play_weapon_swing(
 		_swing_tween.kill()
 	if _charge_pose_tween and _charge_pose_tween.is_valid():
 		_charge_pose_tween.kill()
-	# Refresh rest from current hand-follow pose so swings start at the gripped weapon.
-	_weapon_rest_transform = _weapon_visual.transform
-	_weapon_visual.transform = _weapon_rest_transform
+	# Keep authored idle rest for recovery. Current transform may already be a charge cock
+	# (hand-follow + arm pose) — swing arcs from here instead of snapping to rest first.
 
 	var poses := _swing_poses(kind, direction)
 	var windup_rot: Vector3 = poses["windup_rot"]
@@ -1080,13 +1083,89 @@ func _hatchet_directional_poses(heavy: bool, direction: StrikeDirection, rest_po
 			}
 
 
+
+## Idle grip rest used by recovery / cancel. Player hand-follow updates this while idle.
+func set_weapon_rest_transform(xf: Transform3D) -> void:
+	_weapon_rest_transform = xf
+
+
+func get_weapon_rest_transform() -> Transform3D:
+	return _weapon_rest_transform
+
+
+## Procedural right-arm / torso additives for hatchet charge aim (radians).
+## Blends rest→full cock by charge_ratio so full charge reads clearly cocked.
+static func hatchet_charge_arm_pose(direction: StrikeDirection, ratio: float) -> Dictionary:
+	var t := clampf(ratio, 0.0, 1.0)
+	t = t * t  # ease early cock so taps don't look charged
+	var arm := Vector3.ZERO
+	var torso := Vector3.ZERO
+	var fore_scale := 0.35
+	match direction:
+		StrikeDirection.LEFT:
+			# Open-side cock: arm lifted out to the character's left.
+			arm = Vector3(
+				deg_to_rad(lerpf(-10.0, -55.0, t)),
+				deg_to_rad(lerpf(8.0, 70.0, t)),
+				deg_to_rad(lerpf(-14.0, -75.0, t))
+			)
+			torso = Vector3(
+				deg_to_rad(lerpf(0.0, -8.0, t)),
+				deg_to_rad(lerpf(0.0, 28.0, t)),
+				deg_to_rad(lerpf(0.0, -6.0, t))
+			)
+			fore_scale = lerpf(0.3, 0.6, t)
+		StrikeDirection.RIGHT:
+			# Cross-body cock: arm hauled back over the right shoulder.
+			arm = Vector3(
+				deg_to_rad(lerpf(-10.0, -62.0, t)),
+				deg_to_rad(lerpf(-8.0, -72.0, t)),
+				deg_to_rad(lerpf(-14.0, 42.0, t))
+			)
+			torso = Vector3(
+				deg_to_rad(lerpf(0.0, -8.0, t)),
+				deg_to_rad(lerpf(0.0, -32.0, t)),
+				deg_to_rad(lerpf(0.0, 6.0, t))
+			)
+			fore_scale = lerpf(0.3, 0.6, t)
+		_:
+			# TOP overhead cock — nearly vertical raise.
+			arm = Vector3(
+				deg_to_rad(lerpf(-14.0, -125.0, t)),
+				deg_to_rad(lerpf(-4.0, -6.0, t)),
+				deg_to_rad(lerpf(-16.0, -18.0, t))
+			)
+			torso = Vector3(
+				deg_to_rad(lerpf(0.0, -20.0, t)),
+				deg_to_rad(lerpf(0.0, -6.0, t)),
+				0.0
+			)
+			fore_scale = lerpf(0.35, 0.7, t)
+	return {
+		"right_arm": arm,
+		"right_forearm": Vector3(arm.x * fore_scale, 0.0, 0.0),
+		"torso": torso,
+		"fore_scale": fore_scale,
+	}
+
+
+## Idle hatchet ready-hold (radians) — avoids dead T-pose when standing with kit drawn.
+static func hatchet_idle_arm_pose() -> Dictionary:
+	var arm := Vector3(deg_to_rad(-22.0), deg_to_rad(10.0), deg_to_rad(-24.0))
+	return {
+		"right_arm": arm,
+		"right_forearm": Vector3(deg_to_rad(-8.0), 0.0, 0.0),
+		"torso": Vector3(deg_to_rad(2.0), deg_to_rad(4.0), 0.0),
+	}
+
+
 func _update_charge_pose(ratio: float, direction: StrikeDirection) -> void:
 	if _weapon_visual == null or is_attacking:
 		return
-	# Cock toward the chosen direction's windup as charge builds (readable telegraph).
+	# Fallback weapon cock for capture/smoke hosts without player hand-follow.
+	# Live player overwrites this each frame by parenting the hatchet to the posed arm.
 	var poses := _swing_poses(&"heavy" if ratio > 0.55 else &"light", direction)
 	var t := clampf(ratio, 0.0, 1.0)
-	# Ease early cock so tap releases don't look charged.
 	var blend := t * t
 	var windup_rot: Vector3 = poses["windup_rot"]
 	var windup_pos: Vector3 = poses["windup_pos"]
