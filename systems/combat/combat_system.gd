@@ -77,6 +77,13 @@ var _last_attack_direction: StringName = &""
 var _last_attack_tier: StringName = &""
 var _last_attack_damage: float = -1.0
 var _last_attack_reach: float = -1.0
+## Last CombatTags applied on a successful hit (attacker-side probe).
+var _last_hit_tags: Array[StringName] = []
+var _last_hit_tags_weapon: StringName = &""
+## Target-local stagger stub (seconds left). Godot / dummy can poll; no full CC sim.
+var stagger_left: float = 0.0
+var last_stagger_tag: StringName = &""
+var last_stagger_interrupt: int = 0
 var knockback_vel: Vector3 = Vector3.ZERO
 var _hurt_flash_tween: Tween
 var _hit_stop_running: bool = false
@@ -155,6 +162,9 @@ func _physics_process(delta: float) -> void:
 	else:
 		knockback_vel = Vector3.ZERO
 
+	if stagger_left > 0.0:
+		stagger_left = maxf(0.0, stagger_left - delta)
+
 	if is_dead:
 		return
 
@@ -202,7 +212,8 @@ func weapon_name() -> StringName:
 
 
 func can_move() -> bool:
-	return not is_dead and attack_recovery_left <= 0.05
+	## Stagger stub gates movement/AI the same way recovery does (minimal CC hook).
+	return not is_dead and attack_recovery_left <= 0.05 and stagger_left <= 0.0
 
 
 func can_strafe_while_charging() -> bool:
@@ -506,7 +517,8 @@ func _activate_hitbox_after(
 		_position_hitbox(reach, direction)
 		_hitbox.set_meta("damage", damage)
 		_hitbox.set_meta("kind", kind)
-		_hitbox.set_meta("direction", DIRECTION_NAMES[direction])
+		_hitbox.set_meta("direction", DIRECTION_NAMES.get(direction, &"top"))
+		_hitbox.set_meta("tier", _last_attack_tier)
 		_hitbox.monitoring = true
 		hitbox_active_left = active
 		# Immediate overlap check (bodies already inside)
@@ -598,6 +610,7 @@ func _try_damage_target(target: Node, damage: float, kind: StringName) -> void:
 	var dealt := other.apply_damage(damage, _owner_body, facing_ok)
 	if dealt > 0.0:
 		hit_landed.emit(_owner_body, other.get_parent(), dealt, kind)
+		_apply_hit_tags(other, kind)
 		if enable_hit_feedback:
 			_play_hit_confirm(kind)
 
@@ -919,6 +932,86 @@ func get_hatchet_attack_table_debug_text() -> String:
 func dump_hatchet_attack_table() -> void:
 	## Cheap F5 probe — print hatchet direction×tier table + last resolved cell.
 	print(get_hatchet_attack_table_debug_text())
+
+
+func get_combat_tags_debug_text() -> String:
+	return CombatTags.get_debug_text(
+		_last_hit_tags, _last_hit_tags_weapon, _last_attack_direction, _last_attack_tier
+	)
+
+
+func dump_combat_tags() -> void:
+	## Cheap F5 probe — print CombatTags catalog + last applied hit tags.
+	print(get_combat_tags_debug_text())
+	if CharacterHealth:
+		var names: PackedStringArray = PackedStringArray()
+		for tag in CharacterHealth.get_wound_tags():
+			names.append(String(tag))
+		print(
+			"CharacterHealth tags: wounds=[%s] last_wound=%s stagger=%s (%.2fs / int=%d)" % [
+				", ".join(names),
+				String(CharacterHealth.last_wound_tag),
+				String(CharacterHealth.last_stagger_tag),
+				CharacterHealth.last_stagger_duration_sec,
+				CharacterHealth.last_stagger_interrupt,
+			]
+		)
+
+
+## Apply a stagger tag onto this entity (short CC stub countdown).
+func apply_stagger_tag(tag: StringName) -> Dictionary:
+	var entry: Dictionary = CombatTags.stagger_entry(tag)
+	if entry.is_empty():
+		return {}
+	last_stagger_tag = tag
+	last_stagger_interrupt = int(entry.get("interrupt_strength", 0))
+	stagger_left = maxf(stagger_left, float(entry.get("duration_sec", 0.0)))
+	return entry
+
+
+func is_staggered() -> bool:
+	return stagger_left > 0.0
+
+
+func _apply_hit_tags(target: CombatSystem, kind: StringName) -> void:
+	## Resolve CombatTags for this swing and push onto target (+ session if player).
+	if target == null or not is_instance_valid(target):
+		return
+	var wname: StringName = WEAPON_NAMES[current_weapon]
+	var direction: StringName = _last_attack_direction
+	var tier: StringName = _last_attack_tier
+	if _hitbox:
+		direction = StringName(str(_hitbox.get_meta("direction", direction)))
+		tier = StringName(str(_hitbox.get_meta("tier", tier)))
+	var tags: Array[StringName] = CombatTags.tags_for_hit(wname, kind, direction, tier)
+	_last_hit_tags = tags.duplicate()
+	_last_hit_tags_weapon = wname
+	if tags.is_empty():
+		return
+	var target_is_player := _combat_owner_is_player(target)
+	for tag in tags:
+		if CombatTags.is_stagger(tag):
+			target.apply_stagger_tag(tag)
+			if target_is_player and CharacterHealth:
+				CharacterHealth.apply_stagger_tag(tag)
+		elif CombatTags.is_wound(tag):
+			# Soft wound counter is session-level (player). NPCs skip integer wounds.
+			if target_is_player and CharacterHealth:
+				CharacterHealth.apply_wound_tag(tag)
+
+
+func _combat_owner_is_player(combat: CombatSystem) -> bool:
+	if combat == null:
+		return false
+	var body := combat.get_parent()
+	if body == null:
+		return false
+	if body.is_in_group("player"):
+		return true
+	# Fallback: player team 0 with CharacterHealth bridge sibling.
+	if combat.team == 0 and body.get_node_or_null("HealthCombatBridge") != null:
+		return true
+	return false
 
 
 func reset_weapon_pose() -> void:

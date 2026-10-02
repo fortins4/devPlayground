@@ -9,6 +9,10 @@ extends Node
 signal health_changed(current: float, maximum: float)
 signal stamina_changed(current: float, maximum: float)
 signal wounds_changed(count: int)
+## Named wound tag applied (CombatTags); wound_delta already fed into add_wound when > 0.
+signal wound_tag_applied(tag: StringName, wound_delta: int)
+## Stagger CC tag applied (CombatTags); duration/interrupt for Godot feel hooks.
+signal stagger_applied(tag: StringName, duration_sec: float, interrupt_strength: int)
 signal vital_depleted(vital: StringName)
 signal vital_restored(vital: StringName)
 signal downed_changed(is_downed: bool)
@@ -31,6 +35,13 @@ var stamina: float = StaminaEconomy.MAX_STAMINA
 ## Soft injury counter (0..MAX_WOUNDS). Not a full injury sim.
 var wounds: int = 0
 const MAX_WOUNDS: int = 5
+## Recent named wound tags (CombatTags) — stub list, cleared on restore/clear_wounds.
+const MAX_WOUND_TAGS: int = 8
+var wound_tags: Array[StringName] = []
+var last_wound_tag: StringName = &""
+var last_stagger_tag: StringName = &""
+var last_stagger_duration_sec: float = 0.0
+var last_stagger_interrupt: int = 0
 
 ## Death / downed stub — HUD can show "downed"; no fancy scene.
 var is_downed: bool = false
@@ -168,6 +179,73 @@ func add_wound(count: int = 1) -> int:
 
 func clear_wounds() -> void:
 	set_wounds(0)
+	clear_wound_tags()
+
+
+# --- Named combat tags (CombatTags stub) --------------------------------------
+
+func get_wound_tags() -> Array[StringName]:
+	return wound_tags.duplicate()
+
+
+func clear_wound_tags() -> void:
+	wound_tags.clear()
+	last_wound_tag = &""
+	last_stagger_tag = &""
+	last_stagger_duration_sec = 0.0
+	last_stagger_interrupt = 0
+
+
+## Apply a CombatTags wound tag: optional soft-counter tick + list/signal.
+## Returns applied wound delta (after clamp via add_wound).
+func apply_wound_tag(tag: StringName) -> int:
+	var entry: Dictionary = CombatTags.wound_entry(tag)
+	if entry.is_empty():
+		push_warning("CharacterHealth.apply_wound_tag: unknown wound tag %s" % String(tag))
+		return 0
+	var delta := int(entry.get("wound_delta", 0))
+	var applied := 0
+	if delta != 0:
+		applied = add_wound(delta)
+	last_wound_tag = tag
+	wound_tags.append(tag)
+	while wound_tags.size() > MAX_WOUND_TAGS:
+		wound_tags.pop_front()
+	wound_tag_applied.emit(tag, delta)
+	return applied
+
+
+## Record a CombatTags stagger for HUD / feel listeners (no full CC sim here).
+func apply_stagger_tag(tag: StringName) -> Dictionary:
+	var entry: Dictionary = CombatTags.stagger_entry(tag)
+	if entry.is_empty():
+		push_warning("CharacterHealth.apply_stagger_tag: unknown stagger tag %s" % String(tag))
+		return {}
+	last_stagger_tag = tag
+	last_stagger_duration_sec = float(entry.get("duration_sec", 0.0))
+	last_stagger_interrupt = int(entry.get("interrupt_strength", 0))
+	stagger_applied.emit(tag, last_stagger_duration_sec, last_stagger_interrupt)
+	return entry
+
+
+## Apply a mixed list of CombatTags ids (wound and/or stagger).
+func apply_combat_tags(tags: Array) -> Dictionary:
+	var wounds_applied := 0
+	var staggers: Array[StringName] = []
+	var wound_names: Array[StringName] = []
+	for item in tags:
+		var tag: StringName = item as StringName if typeof(item) == TYPE_STRING_NAME else StringName(str(item))
+		if CombatTags.is_wound(tag):
+			wounds_applied += apply_wound_tag(tag)
+			wound_names.append(tag)
+		elif CombatTags.is_stagger(tag):
+			apply_stagger_tag(tag)
+			staggers.append(tag)
+	return {
+		"wound_tags": wound_names,
+		"stagger_tags": staggers,
+		"wounds_applied": wounds_applied,
+	}
 
 
 # --- Downed / death stub -------------------------------------------------------
@@ -315,6 +393,11 @@ func to_debug_dict() -> Dictionary:
 		"companion_hp": companion_hp,
 		"companion_max_hp": companion_max_hp,
 		"companion_is_downed": companion_is_downed,
+		"wound_tags": _wound_tags_as_strings(),
+		"last_wound_tag": String(last_wound_tag),
+		"last_stagger_tag": String(last_stagger_tag),
+		"last_stagger_duration_sec": last_stagger_duration_sec,
+		"last_stagger_interrupt": last_stagger_interrupt,
 		"debug_visible": debug_visible,
 	}
 
@@ -348,9 +431,28 @@ func get_debug_text() -> String:
 		)
 	else:
 		lines.append("Companion: (none)")
-	lines.append("V toggle · 9/0 HP ±10 · 7/8 STA ±10 · 6 wound+ · 5 restore · 4 downed stub")
+	var tag_names: PackedStringArray = PackedStringArray()
+	for t in wound_tags:
+		tag_names.append(String(t))
+	lines.append(
+		"Tags: wounds=[%s] last_wound=%s  stagger=%s (%.2fs / int=%d)" % [
+			", ".join(tag_names),
+			String(last_wound_tag) if last_wound_tag != &"" else "-",
+			String(last_stagger_tag) if last_stagger_tag != &"" else "-",
+			last_stagger_duration_sec,
+			last_stagger_interrupt,
+		]
+	)
+	lines.append("V toggle · 9/0 HP ±10 · 7/8 STA ±10 · 6 wound+ · 5 restore · 4 downed stub · F7 tags")
 	lines.append("≠ CombatSystem alone (per-entity melee; player bridged). ≠ BandUpkeep (roster).")
 	return "\n".join(lines)
+
+
+func _wound_tags_as_strings() -> Array:
+	var out: Array = []
+	for t in wound_tags:
+		out.append(String(t))
+	return out
 
 
 func toggle_debug_visible() -> bool:
