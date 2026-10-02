@@ -11,7 +11,7 @@ This folder ships:
 | `cattle_raid_outcomes.gd` (`class_name CattleRaidOutcomes`) | Loot via `gain_cattle`, goods, band deltas, Honor/Factions heat, retaliation **data** hooks, **heat → tagged Rumors** |
 | `../economy/cattle_economy.gd` | Owns a `raid_outcomes` instance + facade (`resolve_raid_success` / `resolve_raid_failure`) |
 | `../../scripts/world/raid/cattle_raid_director.gd` | F5 greybox state machine (phases + E start + deliver) |
-| `../../scripts/world/raid/raid_cow.gd` | Placeholder cattle (idle wander → driven follow) |
+| `../../scripts/world/raid/raid_cow.gd` | Hybrid cattle (idle → herded → **goad / proximity drove** + light path bias) |
 | `../../scenes/world/raid/cattle_raid_lane.tscn` | Victim pens, herd, path stubs, home return zone, **watchmen** |
 | `raid_heat_bridge.gd` | Drove-gated watchmen → shared HeatTracker · heat≥85 ATTACK (no auto-fail) |
 | `../../scenes/ui/cattle_raid_hud.tscn` | Phase strip + outcome banner + raid alert line |
@@ -29,7 +29,7 @@ Lane is instanced on `scenes/main/main.tscn` as **CattleRaidLane** at roughly **
 |---|---|
 | 1 Approach | Follow the gold **Cattle raid ↓ south** sign from spawn |
 | 2 Start | Enter victim pens · **E** start raid (5 placeholder head) |
-| 3 Drive | Cattle follow as a drove · walk the path markers **west / NW** · skirt **watchmen** LOS |
+| 3 Drive | Draw **goad (3)** · LMB/RMB prod (or face+near pressure) · herd peels along path **west / NW** · skirt **watchmen** LOS |
 | 4 Heat | Pre-raid light pens heat · mid-drove LOS → SUSPICIOUS / **RAID ALARM** · heat ≥85 → watchmen **ATTACK** (raid still completable) |
 | 5 Deliver | Reach **Home pens** pad (near ringfort) with ≥3 head · auto-resolve success (if not blown) |
 | 6 Outcome | HUD banner + `CattleEconomy.resolve_raid_success(&"local_clan_herd", heads)` |
@@ -42,7 +42,9 @@ Lane is instanced on `scenes/main/main.tscn` as **CattleRaidLane** at roughly **
 |---|---|
 | WASD / mouse | Move / look (unchanged) |
 | **E** (interact) | Start raid at pens · reset/retry after resolve |
-| 3 / goad | Optional flavour (goad weapon exists; drive is proximity follow this slice) |
+| **3 / goad** | Select cattle goad (reach staff) |
+| **LMB / RMB** | Prod / heavy prod — impulse + peel on herd |
+| Face + near | Soft proximity steer while goad is drawn (marks drove after ~0.45s) |
 
 Combat lane (−Z), stealth (+X), ringfort muster (−X / E recruit / H follow) stay intact.
 Band slice locks unchanged: cap 3, kerne-only, presentational, no save — this raid does **not** spawn followers.
@@ -140,6 +142,32 @@ Failure outcomes add `cattle_lost` and set `success: false` / `reason: raid_fail
 
 ---
 
+
+---
+
+## Goad physics (hybrid drove)
+
+Standing polish after the follow-drove stand-in: cattle no longer auto-trail the player on raid start.
+
+| Layer | Behaviour |
+|---|---|
+| **Raid start (E)** | `begin_herd()` — cows marked **herd**, idle mill at pens |
+| **Goad hit** | Combat hitbox → `apply_goad` (Hurtbox layer 4) — impulse along facing + lateral peel by `cow_id` |
+| **Proximity** | Goad drawn + facing toward cow within ~3.4 m → soft push; after ~0.45 s marks **drove** |
+| **Path bias** | Driven cows take a light steer toward Path0→1→2 → ReturnZone (completable without pixel-perfect prods) |
+| **Soft follow** | Weak trail slot only while driven — goad + path own authority |
+| **Feedback** | Flash + `prodded!` / `drove!` label + spark VFX; HUD tip `Goad (3) · LMB/RMB prod` |
+| **Hooks** | `CattleRaidDirector.cow_goaded` reserved for later watchmen / raid-heat (unmerged) |
+
+Hatchet / knife swings **ignore** `raid_cattle` (no slaughtering the loot). Delivery / timeout / CattleEconomy resolve unchanged. Completable: prod ≥3 head (or proximity-mark them), walk west; path bias keeps the drove moving toward home pens within the 90 s window.
+
+```gdscript
+# Per-cow
+cow.apply_goad(player.global_position, -player.global_transform.basis.z, 1.0, &"light")
+cow.begin_herd()
+cow.set_path_bias([path0, path1, path2], return_zone.global_position)
+```
+
 ## Tools
 
 | Script | Purpose |
@@ -148,13 +176,16 @@ Failure outcomes add `cattle_lost` and set `success: false` / `reason: raid_fail
 | `tools/capture_watchmen_heat_screenshots.gd` | Watchmen idle / spotted / heat UI / calm success → `…/watchmen-heat/` |
 | `tools/smoke_cattle_raid.gd` | Begin → force deliver → assert economy loot |
 | `tools/smoke_watchmen_raid_heat.gd` | Spot mid-drove → heat rises; undetected deliver still succeeds |
+| `tools/smoke_goad_physics.gd` | Begin herd (0 driven) → goad ≥3 → force deliver |
+| `tools/capture_goad_physics_screenshots.gd` | Proof shots → `/workspace/riocht-builds/screenshots/goad-physics/` |
 
 ```bash
-cd /workspace/riocht-wt/cattle-raid
+cd /workspace/riocht-wt/goad-physics
 # Smoke OK headless (Dummy renderer).
 DISPLAY=:1 /workspace/tools/Godot_v4.4.1-stable_linux.x86_64 --headless --path . --script res://tools/smoke_cattle_raid.gd
+DISPLAY=:1 /workspace/tools/Godot_v4.4.1-stable_linux.x86_64 --headless --path . --script res://tools/smoke_goad_physics.gd
 # Screenshots need a real GL context (omit --headless on Xvfb).
-DISPLAY=:1 /workspace/tools/Godot_v4.4.1-stable_linux.x86_64 --path . --script res://tools/capture_cattle_raid_screenshots.gd
+DISPLAY=:1 /workspace/tools/Godot_v4.4.1-stable_linux.x86_64 --path . --script res://tools/capture_goad_physics_screenshots.gd
 ```
 
 ---
@@ -270,10 +301,9 @@ lane.get_raid_heat()
 - Dogs / fog / night FOV during the drove
 - Executing counter-raids or patrol spawns (retaliation is data-only)
 - Full procedural raid generator
-- Mounted cattle-drive / goad physics herding (goad weapon exists; follow-drove is the greybox stand-in)
-- Separate raid-only heat meter (intentionally shared with stealth)
-
+- Mounted cattle-drive (on-foot goad hybrid is in; mounted combat deferred)
+- Separate raid-only heat meter (**locked:** one shared HeatTracker — if one enemy alerted, all alerted)
 
 ### Follow-ups (locked)
-- **Q3:** split a **separate raid heat meter** from bog `HeatTracker` — after this merge.
-- Q1/Q2/Q4 applied on this branch: soft-fail attack @85, light pre-raid pens heat, facing pass + light calm cover.
+- **Q3:** ~~split separate raid heat meter~~ — **rejected**; keep shared HeatTracker / shared Heat HUD.
+- Q1/Q2/Q4 applied: soft-fail attack @85, light pre-raid pens heat, facing pass + light calm cover.

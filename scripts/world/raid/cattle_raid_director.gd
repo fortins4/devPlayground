@@ -1,8 +1,9 @@
 extends Node3D
-## Greybox cattle-raid loop: approach herd → start raid → drive cattle home → resolve.
+## Greybox cattle-raid loop: approach herd → start raid → goad-drive cattle home → resolve.
 ## Wires into ringfort CattleEconomy.resolve_raid_success / resolve_raid_failure.
+## Hybrid drove: light path bias + cattle-goad / proximity authority (not pure follow).
 ## Watchmen on the lane raise shared HeatTracker during DRIVING (see raid_heat_bridge.gd).
-## Does not touch band muster caps; presentational drove only.
+## Does not touch band muster caps.
 
 enum Phase {
 	IDLE,
@@ -21,6 +22,8 @@ const ABANDON_DIST := 55.0
 signal phase_changed(phase: int, label: String)
 signal raid_outcome(outcome: Dictionary)
 signal hud_refresh(text: String)
+## Optional hook for later heat / watchmen reactivity (no-op consumers OK).
+signal cow_goaded(cow_id: int, kind: StringName)
 
 @export var return_zone_path: NodePath = ^"ReturnZone"
 @export var start_zone_path: NodePath = ^"StartZone"
@@ -67,9 +70,7 @@ func _ready() -> void:
 func _deferred_bind() -> void:
 	_find_player()
 	_find_economy()
-	for cow in _cows:
-		if cow and cow.has_method("set_player"):
-			cow.call("set_player", _player)
+	_push_cow_context()
 
 
 func _process(delta: float) -> void:
@@ -128,11 +129,11 @@ func get_hud_text() -> String:
 	var delivered := _delivered_count()
 	match phase:
 		Phase.IDLE:
-			return "Cattle raid → south  ·  approach pens · E start"
+			return "Cattle raid → south  ·  E start · goad (3) to drove"
 		Phase.APPROACH:
 			return "E — Start cattle raid (local túath pens)"
 		Phase.RAIDING, Phase.DRIVING:
-			var base := "Drive cattle to home pens  ·  %d/%d head  ·  %.0fs" % [
+			var base := "Goad (3) · LMB/RMB prod  ·  %d/%d head  ·  %.0fs  ·  home ← west" % [
 				driven + delivered, MIN_DELIVER, maxf(0.0, time_left)
 			]
 			return base + _heat_hud_suffix()
@@ -183,15 +184,18 @@ func _begin_raid() -> void:
 	_player_in_return = false
 	if _heat_bridge and _heat_bridge.has_method("reset_for_new_raid"):
 		_heat_bridge.call("reset_for_new_raid")
+	_push_cow_context()
 	var started := 0
 	for cow in _cows:
-		if cow and cow.has_method("set_player"):
-			cow.call("set_player", _player)
-		if cow and cow.has_method("start_driven"):
+		if cow and cow.has_method("begin_herd"):
+			cow.call("begin_herd")
+			started += 1
+		elif cow and cow.has_method("start_driven"):
+			# Fallback if older cow script
 			cow.call("start_driven")
 			started += 1
 	_set_phase(Phase.DRIVING if started > 0 else Phase.RAIDING)
-	_flash_status("Raid on — drive the herd west to home pens!")
+	_flash_status("Raid on — draw goad (3) and prod the herd west!")
 	_refresh_labels()
 
 
@@ -303,8 +307,28 @@ func _collect_cows() -> void:
 	if herd == null:
 		return
 	for child in herd.get_children():
-		if child.is_in_group("raid_cattle") or child.has_method("start_driven"):
+		if child.is_in_group("raid_cattle") or child.has_method("begin_herd") or child.has_method("start_driven"):
 			_cows.append(child)
+
+
+
+func _push_cow_context() -> void:
+	_find_player()
+	var points: Array = []
+	for path_name in ["Path0", "Path1", "Path2"]:
+		var marker := get_node_or_null(path_name) as Node3D
+		if marker:
+			points.append(marker.global_position)
+	var home := global_position
+	if _return_zone:
+		home = _return_zone.global_position
+	for cow in _cows:
+		if cow == null or not is_instance_valid(cow):
+			continue
+		if cow.has_method("set_player"):
+			cow.call("set_player", _player)
+		if cow.has_method("set_path_bias"):
+			cow.call("set_path_bias", points, home)
 
 
 func _find_player() -> void:
@@ -423,7 +447,7 @@ func _refresh_labels() -> void:
 				prompt_label.visible = false
 	if status_label and phase != Phase.SUCCESS and phase != Phase.FAILED:
 		if phase == Phase.DRIVING or phase == Phase.RAIDING:
-			var st := "Drove %d · need %d · %.0fs · home pens ← west" % [
+			var st := "Goad drove %d · need %d · %.0fs · prod / face+near" % [
 				_driven_count() + _delivered_count(), MIN_DELIVER, maxf(0.0, time_left)
 			]
 			var hs := _heat_hud_suffix()
