@@ -1,5 +1,5 @@
 extends CharacterBody3D
-## Greybox dummy: faces the player, telegraphs swings, and weakly counters on hit.
+## Sparring foe: faces player, BLOCKS frontal hits, open to flanks; telegraphs + weak counters.
 
 const CorpseSpawnerScript := preload("res://systems/stealth/corpse_spawner.gd")
 
@@ -40,6 +40,7 @@ func _ready() -> void:
 		combat.team = 1
 		combat.starting_weapon = CombatSystem.Weapon.HATCHET
 		combat.set_weapon(CombatSystem.Weapon.HATCHET)
+		combat.enable_block = true  # Face-block sparring (flanks still hurt)
 		combat.died.connect(_on_died)
 		combat.damage_taken.connect(_on_damage_taken)
 		combat.attack_performed.connect(_on_attack_performed)
@@ -86,6 +87,17 @@ func _physics_process(delta: float) -> void:
 		var target_yaw := atan2(-dir.x, -dir.z)
 		var turn_rate := 8.0 if _state == State.TELEGRAPH else 6.0
 		rotation.y = lerp_angle(rotation.y, target_yaw, turn_rate * delta)
+
+	# Hold block while facing the player and not mid-swing — flanks still connect.
+	if combat and not combat.is_dead:
+		var can_block := (
+			_state != State.TELEGRAPH
+			and _state != State.RECOVER
+			and _state != State.STAGGER
+			and not combat.is_attacking
+			and dist < AGGRO_RANGE
+		)
+		combat.set_blocking(can_block)
 
 	_state_time += delta
 	match _state:
@@ -267,6 +279,16 @@ func _ensure_warn_label() -> void:
 	_warn_label.position = Vector3(0.0, 2.15, 0.0)
 	_warn_label.visible = false
 	add_child(_warn_label)
+	var hint := Label3D.new()
+	hint.name = "SparringHint"
+	hint.text = "BLOCKS FACE — flank me"
+	hint.font_size = 28
+	hint.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	hint.no_depth_test = true
+	hint.pixel_size = 0.004
+	hint.position = Vector3(0.0, 2.45, 0.0)
+	hint.modulate = Color(0.75, 0.9, 1.0, 1.0)
+	add_child(hint)
 
 
 func _find_player() -> void:

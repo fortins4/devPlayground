@@ -19,7 +19,7 @@ No starting sword or shield. `CombatSystem.enable_block` stays off until shield 
 |---|---|
 | WASD | Move (camera-relative yaw on body). **Not** used for strike direction |
 | Mouse | Look + **aim strike dir while charging** (look left/right/up → left/right/top) |
-| **Hold LMB** | **Charge** hatchet (power scales 0→1 over ~0.55s). Release to strike |
+| **Hold LMB** | **Charge** hatchet (power scales 0→1 over ~0.75s). Release to strike |
 | **Release LMB** | Strike in aimed direction; tap (~short hold) = light, long hold = power |
 | Camera pitch up | Favors **top** overhead |
 | RMB | Heavy for **knife/goad only** — hatchet has **no** instant full-power (hold-release only) |
@@ -276,3 +276,10 @@ do not attach the bridge to dummy / sentry / band scenes. See
 ## Character anims
 
 Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS.md`](../../docs/CHARACTER_ANIMS.md).
+
+## Systems data hooks
+
+- **Damage / reach (hatchet):** `HatchetAttackTable` (direction × tap/charged/max)
+- **Stamina cost + recovery:** `StaminaEconomy` (hatchet recovery synced to timing polish 0.34 / 0.58)
+- **Charge full:** 0.75s hold
+- **Side hitboxes:** widened for flank chops vs face-blocking sparring foe

@@ -25,6 +25,7 @@ const BLOCK_MIN_STAMINA: float = 5.0
 ## Keys match CombatSystem.WEAPON_NAMES values.
 const ATTACK: Dictionary = {
 	&"hatchet": {
+		# Synced with CombatSystem hatchet timing polish (base TOP recovery).
 		&"light": {"cost": 12.0, "recovery": 0.34},
 		&"heavy": {"cost": 28.0, "recovery": 0.58},
 	},

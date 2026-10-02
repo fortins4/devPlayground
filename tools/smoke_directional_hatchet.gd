@@ -1,6 +1,9 @@
 extends SceneTree
 ## Smoke: hatchet hold-to-charge + top/left/right strike directions + power scaling.
 
+const StaminaEconomy := preload("res://systems/combat/stamina_economy.gd")
+const HatchetAttackTable := preload("res://systems/combat/hatchet_attack_table.gd")
+
 
 func _initialize() -> void:
 	_run()
@@ -39,6 +42,17 @@ func _run() -> void:
 		push_error("SMOKE_FAIL expected hatchet")
 		quit(1)
 		return
+	if absf(combat.charge_full_secs - 0.75) > 0.001:
+		push_error("SMOKE_FAIL charge_full_secs expected 0.75 got %.3f" % combat.charge_full_secs)
+		quit(1)
+		return
+	# Table damage for top tap
+	var table_dmg := HatchetAttackTable.damage(&"top", &"tap")
+	if table_dmg < 10.0:
+		push_error("SMOKE_FAIL HatchetAttackTable missing")
+		quit(1)
+		return
+	print("SMOKE charge_full=", combat.charge_full_secs, " table_top_tap=", table_dmg)
 
 	# --- Charge begins ---
 	if not combat.begin_charge():
@@ -51,8 +65,8 @@ func _run() -> void:
 		return
 	print("SMOKE charge_started ok")
 
-	# Simulate hold to mid charge
-	for _i in 20:
+	# Simulate hold to mid charge (~0.35s of 0.75s full)
+	for _i in 25:
 		await physics_frame
 	var mid_ratio := combat.get_charge_ratio()
 	print("SMOKE mid_charge_ratio=", mid_ratio)
@@ -75,8 +89,8 @@ func _run() -> void:
 	combat.set_charge_direction(CombatSystem.StrikeDirection.TOP)
 	print("SMOKE directions ok top/left/right")
 
-	# Hold to near-full then release
-	for _i in 40:
+	# Hold to near-full then release (charge_full=0.75s)
+	for _i in 55:
 		await physics_frame
 	var full_ratio := combat.get_charge_ratio()
 	print("SMOKE full_charge_ratio=", full_ratio)
@@ -186,8 +200,8 @@ func _run() -> void:
 
 	# Power scaling: damage meta via profile lerp — compare costs by attempting mid vs full
 	combat.stamina = combat.max_stamina
-	var light_cost: float = float(CombatSystem.PROFILES[CombatSystem.Weapon.HATCHET][&"light"]["cost"])
-	var heavy_cost: float = float(CombatSystem.PROFILES[CombatSystem.Weapon.HATCHET][&"heavy"]["cost"])
+	var light_cost: float = StaminaEconomy.attack_cost(&"hatchet", &"light")
+	var heavy_cost: float = StaminaEconomy.attack_cost(&"hatchet", &"heavy")
 	var mid_power := 0.5
 	var expected_mid := lerpf(light_cost, heavy_cost, mid_power)
 	var sta0 := combat.stamina
