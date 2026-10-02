@@ -138,7 +138,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if is_mounted:
-		# Horse owns locomotion; keep residual velocity cleared.
+		# Horse owns world locomotion; keep residual velocity cleared.
+		# Rider body uses seated bind pose (KerneLocomotion.tick_mounted) driven by horse.
 		velocity = Vector3.ZERO
 		_noise_level = 0.35  # mounted presence — audible but not sprint-loud
 		return
@@ -502,13 +503,27 @@ func prepare_for_mount(horse: Node3D) -> void:
 	_jump_buffered = false
 	# Snap crouch visuals back to stand while seated.
 	_apply_crouch_visual(1.0)
+	# Immediate seated bind pose (hips down / legs astride) — skips on-foot loco.
+	if locomotion:
+		locomotion.tick_mounted(0.0, 0.0, false)
 
 
 func clear_mount() -> void:
 	is_mounted = false
 	mounted_horse = null
 	velocity = Vector3.ZERO
+	# Restore on-foot rest pose so walk cycles resume cleanly.
+	if locomotion:
+		locomotion.reset_to_rest()
 
 
 func set_mounted_velocity_zero() -> void:
 	velocity = Vector3.ZERO
+
+
+## Called by HorseController each physics frame while riding.
+func tick_mounted_rider_pose(delta: float, horse_speed: float, galloping: bool) -> void:
+	if not is_mounted or locomotion == null:
+		return
+	locomotion.tick_mounted(delta, horse_speed, galloping)
+	_sync_weapon_to_hand()

@@ -26,8 +26,12 @@ Playable mount for open-world traversal feel — not full cavalry combat.
 |---|---|
 | Horse scene | [`scenes/characters/horse/horse.tscn`](../../scenes/characters/horse/horse.tscn) |
 | Controller | [`scripts/characters/horse/horse_controller.gd`](../../scripts/characters/horse/horse_controller.gd) |
-| Player mount hooks | `prepare_for_mount` / `clear_mount` on `player_controller.gd` |
+| Player mount hooks | `prepare_for_mount` / `clear_mount` / `tick_mounted_rider_pose` on `player_controller.gd` |
+| Seated rider pose | `KerneLocomotion.tick_mounted` — hips down, legs astride, slight forward lean; trot/gallop bob |
 | F5 wiring | `HorseLane` near spawn in [`scenes/main/main.tscn`](../../scenes/main/main.tscn) (+Z / SE of player) |
+
+While mounted, on-foot `KerneLocomotion.tick` is skipped; dismount restores rest pose + foot loco.
+See also [`docs/CHARACTER_ANIMS.md`](../../docs/CHARACTER_ANIMS.md) (Mounted rider pose C2).
 
 ### Controls
 

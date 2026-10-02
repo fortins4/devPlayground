@@ -106,7 +106,11 @@ func _physics_process(delta: float) -> void:
 		velocity.y = JUMP_VELOCITY
 
 	move_and_slide()
-	_update_status(gallop, horiz2.length())
+	var ride_speed := horiz2.length()
+	_update_status(gallop, ride_speed)
+	# Drive rider seated pose + optional trot/gallop bob.
+	if rider.has_method("tick_mounted_rider_pose"):
+		rider.call("tick_mounted_rider_pose", delta, ride_speed, gallop)
 
 
 func mount(player: CharacterBody3D) -> void:
@@ -124,9 +128,10 @@ func mount(player: CharacterBody3D) -> void:
 	var seat: Node3D = mount_seat if mount_seat else self
 	player.get_parent().remove_child(player)
 	seat.add_child(player)
-	# Sink so hips sit on the blanket (player origin is at feet).
-	player.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, -0.95, 0.08))
-	# Sit roughly upright on the saddle; slight forward lean vibe via seat marker.
+	# Sink so seated hips land on the blanket (player origin is at feet).
+	# Joint seated pose (KerneLocomotion.tick_mounted) handles astride legs + lean;
+	# this Y offset is no longer a stand-in for the bind pose.
+	player.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, -0.88, 0.06))
 	if player.has_node("CollisionShape3D"):
 		(player.get_node("CollisionShape3D") as CollisionShape3D).disabled = true
 	if player.has_node("Hurtbox/CollisionShape3D"):
@@ -137,6 +142,9 @@ func mount(player: CharacterBody3D) -> void:
 		_rider_cam_base = _rider_cam.position
 		_rider_cam.position = _mounted_cam_offset
 		_rider_cam.current = true
+
+	if player.has_method("tick_mounted_rider_pose"):
+		player.call("tick_mounted_rider_pose", 0.0, 0.0, false)
 
 	_refresh_prompt()
 	if status_label:

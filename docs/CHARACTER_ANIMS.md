@@ -23,8 +23,10 @@ Follow-up: replace with authored skeletal kerne (CC0 / commissioned) when art pi
 | **Locomotion** | `KerneLocomotion` (`kerne_locomotion.gd`) | Procedural joint sinusoids each physics frame from speed / crouch / sprint. States: `idle`, `walk`, `sprint`, `crouch_idle`, `crouch_walk`, `turn`, `attack`. Idle breath + light turn-in-place when yaw changes while nearly still. |
 | **Combat weapon** | `CombatSystem._play_weapon_swing` | Existing Tween on `WeaponVisual` (windup → contact → follow → recovery). Hitbox timing unchanged. |
 | **Combat body** | `player_controller._on_attack_performed` | Tweened **additive** euler offsets on `right_arm` / `right_forearm` / `torso` via `KerneLocomotion.set_combat_additive`, locked for the full attack window so walk arms do not fight the swing. |
+| **Mounted (horse)** | `KerneLocomotion.tick_mounted` | While `is_mounted`: seated bind pose (hips down, legs astride, spine slight forward). On-foot walk/sprint/crouch cycles are skipped. Optional light bob scales with trot / gallop. Dismount calls `reset_to_rest` then resumes foot loco. |
 
 Player calls `locomotion.tick(...)` after `move_and_slide()`. Dummy does the same for chase walk.
+Horse calls `player.tick_mounted_rider_pose(...)` each physics frame while riding.
 
 ### Why not AnimationTree yet
 
@@ -41,7 +43,19 @@ hatchet / knife / goad body English while keeping stamina light/heavy timings.
 - `scenes/characters/npcs/dummy_fighter.tscn`
 - `systems/combat/combat_system.gd` (weapon Tween + hit feedback; unchanged contract)
 
+## Mounted rider pose (C2)
+
+Greybox horse mount previously only applied a Y-offset (standing on the saddle). This slice
+locks a **seated bind pose** while `is_mounted`:
+
+- `HorseController` → `player.tick_mounted_rider_pose(delta, speed, gallop)`
+- `KerneLocomotion.tick_mounted` drives joints; states `mounted_idle` / `mounted_trot` / `mounted_gallop`
+- Light vertical bob + shin post on trot/gallop (feel only; no cavalry combat anims)
+- `clear_mount` → `reset_to_rest()` so foot walk cycles resume on dismount
+
+Mount/dismount remains **E**; Shift gallop; melee still blocked while mounted.
+
 ## Controls (unchanged)
 
 WASD move · mouse look · Space jump · Shift sprint · Ctrl/C crouch · LMB light · RMB heavy ·
-Q cycle weapon · 1/2/3 hatchet/knife/goad · Esc mouse capture.
+Q cycle weapon · 1/2/3 hatchet/knife/goad · Esc mouse capture · **E** mount/dismount horse.
