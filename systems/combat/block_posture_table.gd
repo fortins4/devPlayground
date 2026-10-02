@@ -20,8 +20,13 @@ const DEFAULT_FACE: StringName = &"open"
 ## Shared posture pool (separate from stamina). Break when emptied.
 const MAX_POSTURE: float = 100.0
 const REGEN_PER_SEC: float = 12.0
-## Stun / open window after posture hits 0 (data — Godot / CombatSystem stub).
-const BREAK_STUN_SEC: float = 0.70
+## Stun / open window after posture hits 0.
+## Aligned to CombatTags stagger_heavy (0.75s) — break applies that existing stagger
+## tag via CombatSystem (no parallel CC). Prefer break_stun_sec() so retunes follow
+## the CombatTags catalog.
+const BREAK_STUN_SEC: float = 0.75
+## Existing CombatTags stagger applied on posture break (reuse — do not invent new).
+const BREAK_STAGGER_TAG: StringName = &"stagger_heavy"
 
 ## Per-face numbers.
 ## damage_mitigation: fraction stripped on face-match (0..1). Remaining = full*(1-m).
@@ -137,6 +142,22 @@ static func window_sec_for(guard_face: StringName) -> float:
 	return float(face_entry(guard_face)["window_sec"])
 
 
+static func break_stagger_tag() -> StringName:
+	## CombatTags stagger applied when posture pool empties.
+	return BREAK_STAGGER_TAG
+
+
+static func break_stun_sec() -> float:
+	## Break open-window duration — driven by CombatTags stagger duration when known.
+	var d := CombatTags.duration_sec(BREAK_STAGGER_TAG)
+	return d if d > 0.0 else BREAK_STUN_SEC
+
+
+static func break_stagger_entry() -> Dictionary:
+	## Catalog entry for the break → stagger link (empty if tag missing).
+	return CombatTags.stagger_entry(BREAK_STAGGER_TAG)
+
+
 ## Resolve a guard absorb attempt. Pure data — caller applies costs / HP.
 ## Returns matched, open_side, mitigation, mitigated_amount, remaining_damage,
 ## stamina_cost, posture_chip, face entry fields.
@@ -189,10 +210,15 @@ static func to_debug_dict(current_posture: float = -1.0, guard_face: StringName 
 	var faces_out: Dictionary = {}
 	for f in FACES:
 		faces_out[String(f)] = face_entry(f)
+	var stagger_e := break_stagger_entry()
 	return {
 		"max_posture": MAX_POSTURE,
 		"regen_per_sec": REGEN_PER_SEC,
-		"break_stun_sec": BREAK_STUN_SEC,
+		"break_stun_sec": break_stun_sec(),
+		"break_stun_sec_const": BREAK_STUN_SEC,
+		"break_stagger_tag": String(BREAK_STAGGER_TAG),
+		"break_stagger_duration_sec": float(stagger_e.get("duration_sec", 0.0)),
+		"break_stagger_interrupt": int(stagger_e.get("interrupt_strength", 0)),
 		"faces": faces_out,
 		"default_face": DEFAULT_FACE,
 		"current_posture": cur,
@@ -200,6 +226,7 @@ static func to_debug_dict(current_posture: float = -1.0, guard_face: StringName 
 		"top_absorbs_to_break": top_absorbs_to_break(),
 		"regen_empty_to_full_sec": regen_empty_to_full_sec(),
 		"open_side_note": "mismatch/open → full damage × FlankBonusTable (flank only when unmitigated)",
+		"break_stagger_note": "posture break → CombatTags %s (stagger_left + can_move gate)" % String(BREAK_STAGGER_TAG),
 	}
 
 
@@ -215,6 +242,13 @@ static func get_debug_text(
 		"POSTURE %.0f/%.0f   regen %.0f/s   break_stun %.2fs" % [
 			float(d["current_posture"]), float(d["max_posture"]),
 			float(d["regen_per_sec"]), float(d["break_stun_sec"]),
+		]
+	)
+	lines.append(
+		"break → CombatTags stagger: %s  dur=%.2fs  interrupt=%d" % [
+			str(d["break_stagger_tag"]),
+			float(d["break_stagger_duration_sec"]),
+			int(d["break_stagger_interrupt"]),
 		]
 	)
 	lines.append("face            mit   sta   chip  recov  window")
@@ -256,5 +290,5 @@ static func get_debug_text(
 		)
 	else:
 		lines.append("last resolve: (none yet)")
-	lines.append("F5 probe: press F8 — block/posture dump (see systems/combat/README.md)")
+	lines.append("F5 probe: press F8 — block/posture · F11 — posture-break→stagger link (see systems/combat/README.md)")
 	return "\n".join(lines)

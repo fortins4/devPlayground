@@ -13,6 +13,8 @@ signal damage_taken(amount: float, from: Node)
 signal stamina_changed(current: float, maximum: float)
 signal health_changed(current: float, maximum: float)
 signal blocked(defender: Node, attacker: Node, mitigated: float)
+## Posture pool emptied — CombatTags stagger applied (Godot feel / sparring AI hook).
+signal posture_broken(victim: Node, stagger_tag: StringName, duration_sec: float)
 signal died(victim: Node)
 signal weapon_changed(weapon: StringName)
 signal charge_started(weapon: StringName)
@@ -68,6 +70,8 @@ var guard_direction: StrikeDirection = StrikeDirection.TOP
 var guard_face: StringName = BlockPostureTable.DEFAULT_FACE
 var posture: float = BlockPostureTable.MAX_POSTURE
 var posture_break_left: float = 0.0
+## Last posture-break → stagger apply (probe / Godot).
+var _last_posture_break: Dictionary = {}
 var _last_guard_resolve: Dictionary = {}
 var _last_flank_resolve: Dictionary = {}
 var is_attacking: bool = false
@@ -545,8 +549,8 @@ func apply_guard_hit_cost(attack_dir: StringName, incoming_damage: float) -> Dic
 		posture = maxf(0.0, posture - chip)
 		if posture <= 0.01:
 			posture = 0.0
-			posture_break_left = maxf(posture_break_left, BlockPostureTable.BREAK_STUN_SEC)
 			guard_face = &"open"
+			_on_posture_break()
 	return resolved
 
 
@@ -560,6 +564,32 @@ func _tick_face_guard_posture(delta: float) -> void:
 		return
 	var rate := BlockPostureTable.REGEN_PER_SEC * BlockPostureTable.recover_rate_for(guard_face)
 	posture = minf(BlockPostureTable.MAX_POSTURE, posture + rate * delta)
+
+
+## Posture pool emptied: open window + existing CombatTags stagger (no parallel CC).
+## Duration driven by BlockPostureTable.break_stun_sec() (= CombatTags stagger_heavy).
+func _on_posture_break() -> void:
+	var tag: StringName = BlockPostureTable.break_stagger_tag()
+	var dur := BlockPostureTable.break_stun_sec()
+	posture_break_left = maxf(posture_break_left, dur)
+	var entry: Dictionary = apply_stagger_tag(tag)
+	# Keep break stun and stagger_left linked (same window).
+	if not entry.is_empty():
+		var tag_dur := float(entry.get("duration_sec", dur))
+		dur = maxf(dur, tag_dur)
+		posture_break_left = maxf(posture_break_left, dur)
+		stagger_left = maxf(stagger_left, dur)
+	_last_posture_break = {
+		"stagger_tag": tag,
+		"duration_sec": dur,
+		"interrupt_strength": int(entry.get("interrupt_strength", 0)) if not entry.is_empty() else 0,
+		"posture_break_left": posture_break_left,
+		"stagger_left": stagger_left,
+	}
+	# Session bus when this CombatSystem is the player (sparring self-break rare but wired).
+	if _combat_owner_is_player(self) and CharacterHealth:
+		CharacterHealth.apply_stagger_tag(tag)
+	posture_broken.emit(_owner_body, tag, dur)
 
 
 func apply_damage(
@@ -1108,14 +1138,62 @@ func dump_block_posture_table() -> void:
 	## Cheap F5 probe — print BlockPostureTable + current posture / last resolve.
 	print(get_block_posture_debug_text())
 	print(
-		"CombatSystem face_guard: enable=%s guard=%s posture=%.0f/%.0f break_left=%.2fs" % [
+		"CombatSystem face_guard: enable=%s guard=%s posture=%.0f/%.0f break_left=%.2fs stagger_left=%.2fs" % [
 			str(enable_face_guard),
 			String(guard_face),
 			posture,
 			BlockPostureTable.MAX_POSTURE,
 			posture_break_left,
+			stagger_left,
 		]
 	)
+
+
+func get_posture_break_stagger_debug_text() -> String:
+	## Document break → CombatTags stagger link for Lead / Godot sparring feel.
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("=== Posture break → CombatTags stagger ===")
+	lines.append(
+		"link: posture pool 0 → apply CombatTags %s (reuse existing stagger — no parallel CC)" % [
+			String(BlockPostureTable.BREAK_STAGGER_TAG),
+		]
+	)
+	lines.append(
+		"durations: break_stun=%.2fs  tag_dur=%.2fs  (aligned; stagger_left driven with break)" % [
+			BlockPostureTable.break_stun_sec(),
+			CombatTags.duration_sec(BlockPostureTable.BREAK_STAGGER_TAG),
+		]
+	)
+	lines.append(
+		"live: enable_face_guard=%s posture=%.0f/%.0f break_left=%.2fs stagger_left=%.2fs last_stagger=%s" % [
+			str(enable_face_guard),
+			posture,
+			BlockPostureTable.MAX_POSTURE,
+			posture_break_left,
+			stagger_left,
+			String(last_stagger_tag) if last_stagger_tag != &"" else "-",
+		]
+	)
+	if _last_posture_break.is_empty():
+		lines.append("last break: (none yet)")
+	else:
+		lines.append(
+			"last break: tag=%s dur=%.2fs interrupt=%d break_left=%.2fs stagger_left=%.2fs" % [
+				String(_last_posture_break.get("stagger_tag", &"")),
+				float(_last_posture_break.get("duration_sec", 0.0)),
+				int(_last_posture_break.get("interrupt_strength", 0)),
+				float(_last_posture_break.get("posture_break_left", 0.0)),
+				float(_last_posture_break.get("stagger_left", 0.0)),
+			]
+		)
+	lines.append("Godot: can_move() false while stagger_left>0; posture_broken signal for feel/VFX")
+	lines.append("F5 probe: press F11 — this dump (see systems/combat/README.md)")
+	return "\n".join(lines)
+
+
+func dump_posture_break_stagger() -> void:
+	## Cheap F5 probe — posture break → stagger link + live timers.
+	print(get_posture_break_stagger_debug_text())
 
 
 func get_flank_bonus_debug_text() -> String:
