@@ -34,7 +34,8 @@ mirrors into this autoload (NPCs stay on independent `CombatSystem` vitals).
 | `get_stamina()` / `modify_stamina(delta)` / `set_stamina(value)` | Same pattern for stamina |
 | `get_wounds()` / `add_wound()` / `modify_wounds(delta)` / `clear_wounds()` | Soft injury counter 0..`MAX_WOUNDS` (5); `clear_wounds` also clears named tags |
 | `apply_wound_tag(tag)` / `apply_stagger_tag(tag)` / `apply_combat_tags(tags)` | CombatTags hooks — soft-counter delta + signals; see combat README |
-| `get_wound_tags()` / `clear_wound_tags()` | Recent named wound-tag list (stub, max 8) |
+| `get_wound_tags()` / `clear_wound_tags()` | Recent named wound-tag list (stub, max 8); clear also wipes decay timers |
+| `enable_wound_decay` / `set_in_combat(bool)` / `dump_wound_decay_table()` | Bleed + soft decay tick (`WoundDecayTable`); see combat README |
 | `is_alive()` / `get_is_downed()` / `get_is_dead()` | Stub flags for HUD |
 | `set_downed(downed, mark_dead := false)` | Scripted downed / dead without fancy scene |
 | `revive(fill_vitals := true)` | Clear dead/downed; optional full refill |
@@ -138,6 +139,17 @@ Catalog + hatchet mapping live in `CombatTags` (`systems/combat/combat_tags.gd`)
 `CombatSystem` applies tags on successful hatchet (and simple knife/goad) hits;
 player session receives tags when the player is the target.
 
+### Bleed / wound decay (session tick)
+
+`WoundDecayTable` (`systems/combat/wound_decay_table.gd`) drives a light
+`CharacterHealth` `_process` tick when wounds/tags are present:
+
+- Active cut/deep tags bleed HP at table rates (bruise = 0); tags clear after `decay_sec`
+- Soft wound counter **ALWAYS** −1 every **30 s** while `wounds > 0` (stub; OOC gate off)
+- `clear_wounds` / `restore_full` / `clear_wound_tags` wipe ages + bleed/soft accumulators
+
+Full numbers + F10 probe: [`systems/combat/README.md`](../combat/README.md#bleed--wound-decay-over-time).
+
 ---
 
 ## F5 test path (CharacterHealth debug)
@@ -164,8 +176,8 @@ player session receives tags when the player is the target.
    ```
 10. Press **V** again to hide the panel.
 
-Keys: **V** toggle (includes `StaminaEconomy` / hatchet / CombatTags) · **backtick** stamina dump ·
-**F6** hatchet table · **F7** stagger/wound tags dump ·
+Keys: **V** toggle (includes `StaminaEconomy` / hatchet / CombatTags / wound decay) · **backtick** stamina dump ·
+**F6** hatchet table · **F7** stagger/wound tags dump · **F8** block/posture · **F9** flank · **F10** wound decay ·
 **9** / **0** HP −10 / +10 · **7** / **8** STA −10 / +10 ·
 **6** wound+ · **5** restore full · **4** force downed stub.
 

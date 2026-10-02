@@ -7,7 +7,8 @@ extends RefCounted
 ## DATA + lookup helpers. CombatSystem wires a small apply path on hatchet hit;
 ## knife/goad get simple defaults.
 ##
-## Out of scope: full injury/limb sim, bleed ticks, permanent scars.
+## Bleed / decay rates live in WoundDecayTable (cut/deep bleed; bruise=0).
+## Out of scope here: full injury/limb sim, permanent scars, medical minigame.
 
 ## Short CC / interrupt tags (duration + optional interrupt_strength).
 const STAGGER: Dictionary = {
@@ -27,15 +28,15 @@ const STAGGER: Dictionary = {
 const WOUND: Dictionary = {
 	&"bruise": {
 		"wound_delta": 0,
-		"notes": "blunt / glancing — tag only, no soft-counter tick",
+		"notes": "blunt / glancing — tag only; WoundDecayTable bleed=0, decays ~20s",
 	},
 	&"cut": {
 		"wound_delta": 1,
-		"notes": "edge bite — +1 soft wound",
+		"notes": "edge bite — +1 soft wound; bleed from WoundDecayTable (cut)",
 	},
 	&"deep": {
 		"wound_delta": 2,
-		"notes": "charged overhead / heavy bite — +2 soft wounds",
+		"notes": "charged overhead / heavy bite — +2 soft wounds; bleed from WoundDecayTable (deep)",
 	},
 }
 
@@ -98,12 +99,18 @@ static func wound_entry(tag: StringName) -> Dictionary:
 	if not WOUND.has(tag):
 		return {}
 	var e: Dictionary = WOUND[tag]
-	return {
+	var out := {
 		"tag": tag,
 		"kind": &"wound",
 		"wound_delta": int(e.get("wound_delta", 0)),
 		"notes": String(e.get("notes", "")),
 	}
+	# Optional link to WoundDecayTable bleed / decay (do not retune here).
+	var decay: Dictionary = WoundDecayTable.entry(tag)
+	if not decay.is_empty():
+		out["bleed_hp_per_sec"] = float(decay.get("bleed_hp_per_sec", 0.0))
+		out["decay_sec"] = float(decay.get("decay_sec", 0.0))
+	return out
 
 
 static func entry(tag: StringName) -> Dictionary:
@@ -214,9 +221,11 @@ static func get_debug_text(
 	lines.append("wound:")
 	for k in WOUND.keys():
 		var w := wound_entry(k)
+		var bleed := float(w.get("bleed_hp_per_sec", 0.0))
+		var dsec := float(w.get("decay_sec", 0.0))
 		lines.append(
-			"  %-14s delta=%+d  — %s" % [
-				String(k), int(w["wound_delta"]), String(w["notes"]),
+			"  %-14s delta=%+d  bleed=%.2f hp/s  decay=%.0fs  — %s" % [
+				String(k), int(w["wound_delta"]), bleed, dsec, String(w["notes"]),
 			]
 		)
 	lines.append("hatchet dir×tier → tags:")
