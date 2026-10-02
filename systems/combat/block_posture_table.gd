@@ -7,8 +7,7 @@ extends RefCounted
 ## for the cattle-farm starter kit. This table is the sparring foe resource:
 ## hold a face aligned with HatchetAttackTable dirs (&"top"/&"left"/&"right");
 ## matching attack dir → mitigate + chip posture + stamina cost; mismatch or
-## &"open" → full damage (open-side / flank bonus math is queue #2 — documented
-## only here).
+## &"open" → full damage + FlankBonusTable open-side multiplier (see flank_bonus_table.gd).
 ##
 ## Feel (anims, dummy face-switch AI, telegraph) stays Godot-owned — DATA +
 ## lookup helpers only. CombatSystem.enable_face_guard (default false) opts in.
@@ -64,7 +63,7 @@ const FACE_TABLE: Dictionary = {
 		"posture_chip": 0.0,
 		"recover_rate": 1.15,
 		"window_sec": 0.0,
-		"notes": "no guard — full damage; faster posture regen; flank bonus later (q2)",
+		"notes": "no guard — full damage + FlankBonusTable open_guard mult; faster posture regen",
 	},
 }
 
@@ -93,7 +92,7 @@ static func faces_match(guard_face: StringName, attack_dir: StringName) -> bool:
 
 static func is_open_side(guard_face: StringName, attack_dir: StringName) -> bool:
 	## True when attack does not hit the guarded face (mismatch or open guard).
-	## Queue #2 may attach flank bonus math to open-side hits — numbers TBD.
+	## Open-side hits get FlankBonusTable.bonus_for (CombatSystem applies when unmitigated).
 	return not faces_match(guard_face, attack_dir)
 
 
@@ -200,7 +199,7 @@ static func to_debug_dict(current_posture: float = -1.0, guard_face: StringName 
 		"guard_face": String(normalize_face(guard_face)) if guard_face != &"" else "",
 		"top_absorbs_to_break": top_absorbs_to_break(),
 		"regen_empty_to_full_sec": regen_empty_to_full_sec(),
-		"open_side_note": "mismatch/open → full damage; flank bonus formula = queue #2",
+		"open_side_note": "mismatch/open → full damage × FlankBonusTable (flank only when unmitigated)",
 	}
 
 
@@ -235,7 +234,7 @@ static func get_debug_text(
 		"match: guard_face == attack_dir (top/left/right) → mitigate; open/mismatch → full dmg"
 	)
 	lines.append(
-		"design: ~%d matched top absorbs to break · empty→full ~%.1fs · open-side flank = q2" % [
+		"design: ~%d matched top absorbs to break · empty→full ~%.1fs · open-side → FlankBonusTable" % [
 			int(d["top_absorbs_to_break"]),
 			float(d["regen_empty_to_full_sec"]),
 		]

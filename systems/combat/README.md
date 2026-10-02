@@ -110,7 +110,7 @@ Edit numbers in `StaminaEconomy` only; do not scatter magic floats back into
    panel (`CombatSystem.dump_stamina_economy()` / `StaminaEconomy.get_debug_text()`).
 4. Swing / sprint and confirm STA drops; after recover + delay, regen resumes at 18/s.
 
-Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**):
+Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**, flank **F9**):
 **V** show table · **backtick** print stamina dump.
 
 ## Hatchet damage / reach table (directional + charge)
@@ -182,7 +182,7 @@ costs here (queue #1 owns those).
    `dir=top tier=tap|charged` with matching dmg/reach.
 
 Key map (no collision with stamina **V** / **backtick**, tags **F7**, block
-**F8**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F8**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F6** print hatchet table dump.
 
 ## Stagger / wound tags (combat-support data)
@@ -242,7 +242,7 @@ Edit catalog / mapping in `CombatTags` only — do not retune `StaminaEconomy` o
    expected tags; player soft wounds tick on `cut` / `deep` when *you* are hit.
 
 Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, block
-**F8**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F8**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F7** print combat tags dump.
 
 ## Block / posture face-guard numbers (sparring)
@@ -290,8 +290,8 @@ Design notes:
 
 - **Face match**: `guard_face == attack_dir` (both `top`/`left`/`right`) →
   strip `damage_mitigation` fraction, spend STA, chip posture.
-- **Open / mismatch**: full damage. **Open-side / flank bonus formula = queue #2**
-  (document only — no math here).
+- **Open / mismatch**: full damage, then **FlankBonusTable** multiplier (see
+  flank section below). Matched face absorb → no flank bonus.
 - **~4 matched top absorbs** to break (`floor(100/22)`). Empty → full ~8.3 s at
   12/s (before face recover_rate / break stun).
 - Lighter than full shield stub (~0.75 mitigate / hit cost 12) — face covers one
@@ -325,8 +325,63 @@ stubs or `HatchetAttackTable` here.
    posture chip.
 
 Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
-**F7**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F7**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F8** print block/posture dump.
+
+## Flank bonus (open-side hits)
+
+Tunable greybox data — **`systems/combat/flank_bonus_table.gd`**
+(`class_name FlankBonusTable`). When attack direction does not match the
+defender's face guard (or guard is `&"open"`), multiply remaining damage.
+Godot owns sparring feel; Systems owns this table / lookup + a light wire on
+`CombatSystem.apply_damage`.
+
+### Resolve order (locked)
+
+1. **Face-guard mitigate first** via `BlockPostureTable` (matched face only).
+2. **Flank bonus applies only when face guard does NOT mitigate** — open guard,
+   wrong-face mismatch, or posture-broken (treated as open). Matched absorb →
+   multiplier `1.0` (no flank).
+3. Optional **rear** (world-space behind defender, `frontal == false`) uses the
+   rear mult when the hit is already open-side. Hatchet has no dedicated back
+   strike axis — rear is facing, not a table direction.
+
+### Multipliers (greybox defaults)
+
+| Kind | When | Mult |
+|---|---|---|
+| matched | `guard_face == attack_dir` (real faces) | **1.00** |
+| open_guard | guard is `&"open"` (or broken posture) | **1.25** |
+| wrong_face | holding a face, hit on a different axis | **1.20** |
+| rear | open-side + attacker behind defender | **1.35** |
+
+Examples (tap top dmg 15, face-guard on):
+
+- Guard **top**, atk **top** → mitigate 60% → remaining 6.0 × **1.00** = 6.0
+- Guard **top**, atk **left** → no mitigate → 15 × **1.20** = 18.0
+- Guard **open**, atk **left** → 15 × **1.25** = 18.75
+- Guard **open**, atk **left**, rear → 15 × **1.35** = 20.25
+
+API: `bonus_for(guard_face, attack_dir, is_rear := false) -> float`,
+`classify(...)`, `resolve(...)`, `to_debug_dict()`, `get_debug_text(...)`.
+
+Edit numbers in `FlankBonusTable` only — do not retune `BlockPostureTable` /
+`StaminaEconomy` / `HatchetAttackTable` here.
+
+### F5 probe (flank bonus)
+
+1. Open `scenes/main/main.tscn` and press **F5**.
+2. Press **V** — panel appends the FlankBonusTable + last open-side resolve.
+3. Press **F9** — prints the same dump to the Output panel
+   (`CombatSystem.dump_flank_bonus_table()` /
+   `FlankBonusTable.get_debug_text()`).
+4. (Optional) Enable `enable_face_guard` on a sparring foe, set a face, swing
+   matching / mismatching / from behind; confirm matched = no flank, open /
+   wrong-face / rear multiply remaining damage.
+
+Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
+**F7**, block **F8**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F9** print flank bonus dump.
 
 ## Dummy counter
 
@@ -364,6 +419,8 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 
 - **Damage / reach (hatchet):** `HatchetAttackTable` (direction × tap/charged/max)
 - **Stamina cost + recovery:** `StaminaEconomy` (hatchet recovery synced to timing polish 0.34 / 0.58)
+- **Face-guard / posture:** `BlockPostureTable` (sparring; `enable_face_guard`)
+- **Open-side flank mult:** `FlankBonusTable` (only when face does not mitigate)
 - **Charge full:** 0.75s hold
 - **Side hitboxes:** widened for flank chops vs face-blocking sparring foe
 

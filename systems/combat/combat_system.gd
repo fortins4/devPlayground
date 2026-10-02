@@ -69,6 +69,7 @@ var guard_face: StringName = BlockPostureTable.DEFAULT_FACE
 var posture: float = BlockPostureTable.MAX_POSTURE
 var posture_break_left: float = 0.0
 var _last_guard_resolve: Dictionary = {}
+var _last_flank_resolve: Dictionary = {}
 var is_attacking: bool = false
 var attack_recovery_left: float = 0.0
 var hitbox_active_left: float = 0.0
@@ -574,15 +575,33 @@ func apply_damage(
 		cancel_charge()
 	var mitigated := 0.0
 	var attack_dir: StringName = DIRECTION_NAMES.get(strike_direction, &"top")
+	var face_mitigated := false
 	# Face-guard path (Systems BlockPostureTable). Independent of enable_block.
-	if enable_face_guard and posture_break_left <= 0.0:
-		var resolved := apply_guard_hit_cost(attack_dir, amount)
-		if bool(resolved.get("matched", false)):
-			mitigated = float(resolved.get("mitigated_amount", 0.0))
-			amount = float(resolved.get("remaining_damage", amount))
-			blocked.emit(_owner_body, from, mitigated)
-			if amount <= 0.01:
-				return 0.0
+	# Resolve order: (1) face-guard mitigate on match; (2) FlankBonusTable only when
+	# face guard does NOT mitigate (open / mismatch / posture-broken).
+	if enable_face_guard:
+		if posture_break_left <= 0.0:
+			var resolved := apply_guard_hit_cost(attack_dir, amount)
+			if bool(resolved.get("matched", false)):
+				mitigated = float(resolved.get("mitigated_amount", 0.0))
+				amount = float(resolved.get("remaining_damage", amount))
+				face_mitigated = true
+				blocked.emit(_owner_body, from, mitigated)
+				if amount <= 0.01:
+					_last_flank_resolve = {}
+					return 0.0
+		if not face_mitigated:
+			# Broken posture / open / mismatch → open-side flank bonus on remaining.
+			var guard_for_flank: StringName = (
+				&"open" if posture_break_left > 0.0 else guard_face
+			)
+			var flank: Dictionary = FlankBonusTable.resolve(
+				guard_for_flank, attack_dir, amount, not frontal
+			)
+			_last_flank_resolve = flank
+			amount = float(flank.get("dealt_damage", amount))
+		else:
+			_last_flank_resolve = {}
 	# Directional face-block (Godot sparring / enable_block): guarded face only.
 	elif enable_block and is_blocking and stamina > 0.0:
 		var face_match := strike_direction == guard_direction
@@ -1095,6 +1114,22 @@ func dump_block_posture_table() -> void:
 			posture,
 			BlockPostureTable.MAX_POSTURE,
 			posture_break_left,
+		]
+	)
+
+
+func get_flank_bonus_debug_text() -> String:
+	return FlankBonusTable.get_debug_text(_last_flank_resolve)
+
+
+func dump_flank_bonus_table() -> void:
+	## Cheap F5 probe — print FlankBonusTable + last open-side resolve.
+	print(get_flank_bonus_debug_text())
+	print(
+		"CombatSystem flank: enable_face_guard=%s guard=%s last_mult=%.2f" % [
+			str(enable_face_guard),
+			String(guard_face),
+			float(_last_flank_resolve.get("multiplier", 1.0)) if not _last_flank_resolve.is_empty() else 1.0,
 		]
 	)
 
