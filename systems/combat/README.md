@@ -337,6 +337,52 @@ Helpers: `faces_match`, `is_open_side`, `face_entry`, `resolve_guard_hit`,
 Edit numbers in `BlockPostureTable` / `CombatTags.STAGGER` only — do not retune
 `StaminaEconomy` shield stubs or `HatchetAttackTable` here.
 
+### Sparring foe defaults API (Godot)
+
+**Face-guard is the proper path** when `enable_face_guard` is true. The older
+`enable_block` + `set_blocking` frontal/directional stubs stay intact for legacy
+smoke / shield-later — do not delete them; prefer face-guard for the sparring
+dummy.
+
+Outfit a sparring dummy (or any CombatSystem) from Systems numbers — **no
+hardcoded posture/mitigation in foe scripts**:
+
+```gdscript
+# Preferred — typed CombatSystem already in hand:
+combat.apply_sparring_foe_guard_defaults()
+
+# Or pass a CombatSystem / CharacterBody3D that owns one:
+BlockPostureTable.apply_sparring_foe_guard_defaults(dummy_body)
+# equivalent:
+CombatSystem.apply_sparring_foe_guard_defaults_to(dummy_body)
+
+# Dict only (read numbers without mutating):
+var d := CombatSystem.get_sparring_foe_posture_defaults()
+# d.enable_face_guard, d.max_posture (100), d.regen_per_sec (12),
+# d.break_stun_sec (0.70), d.starting_face ("top"), d.faces[...]
+```
+
+What `apply_sparring_foe_guard_defaults` does:
+
+| Field | Value |
+|---|---|
+| `enable_face_guard` | `true` |
+| `enable_block` | **unchanged** (stubs intact; not required for sparring) |
+| `posture` | `BlockPostureTable.MAX_POSTURE` (**100**) |
+| `posture_break_left` | `0` |
+| `guard_face` / `guard_direction` | starting **`top`** / `StrikeDirection.TOP` |
+
+Per-face soak (mitigation / STA cost / posture chip / recover / window) stays on
+`BlockPostureTable.FACE_TABLE` — apply does not copy magic floats into the foe.
+
+`scripts/characters/npcs/dummy_fighter.gd` calls this in `_ready`. While holding
+guard it cycles TOP→LEFT→RIGHT via `set_guard_direction`; when not holding it
+sets `&"open"` so face-guard stops mitigating (unlike the older `is_blocking`
+gate).
+
+No new F-key — **F8** already dumps BlockPostureTable + live posture / last
+resolve (`CombatSystem.dump_block_posture_table()`).
+
 ### F5 probe (block / posture)
 
 1. Open `scenes/main/main.tscn` and press **F5**.
@@ -532,6 +578,10 @@ Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
 
 `dummy_fighter` telegraphs every swing (weapon cock + warm tint + `!` / `...` Label3D), then releases a weak light hatchet. Taking a hit in range triggers a reactive counter telegraph (shorter). Hitting the dummy during telegraph staggers/cancels — learnable timing, still beatable.
 
+Guard: `_ready` calls `combat.apply_sparring_foe_guard_defaults()` so soak/posture
+come from `BlockPostureTable` (face-guard path). See **Sparring foe defaults API**
+above.
+
 ## Test
 
 Open `scenes/main/main.tscn` (F5). A dummy fighter stands a few meters ahead — hold LMB to charge the hatchet, aim left/right/up with the mouse, release for power. Sprint or getting hit cancels charge. Swap weapons and watch HP/STA + CHARGE% on the HUD.
@@ -565,7 +615,7 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 - **Damage / reach (hatchet):** `HatchetAttackTable` (direction × tap/charged/max)
 - **Stamina cost + recovery:** `StaminaEconomy` (knife/goad + hatchet recovery 0.34 / 0.58)
 - **Charge ↔ STA spend (hatchet):** `ChargeStaminaTable` (tap 12 / charged 28 / max 34; spend on release)
-- **Face-guard / posture:** `BlockPostureTable` (sparring; `enable_face_guard`)
+- **Face-guard / posture:** `BlockPostureTable` (sparring; `enable_face_guard`; `apply_sparring_foe_guard_defaults`)
 - **Posture break → stagger:** `BREAK_STAGGER_TAG` = `stagger_heavy` via `apply_stagger_tag` (F11)
 - **Open-side flank mult:** `FlankBonusTable` (only when face does not mitigate)
 - **Bleed / wound decay:** `WoundDecayTable` (CharacterHealth tick; cut/deep bleed)
@@ -574,7 +624,9 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 
 ## Switchable block faces (#4)
 
-Sparring dummy cycles **TOP → LEFT → RIGHT** every ~2.75s while guarding. Only matching hatchet strike directions are blocked; other faces take full damage.
+Sparring dummy cycles **TOP → LEFT → RIGHT** every ~2.75s while holding
+face-guard. Matching hatchet dirs mitigate via `BlockPostureTable`; mismatch /
+`&"open"` take full damage (+ FlankBonusTable when face-guard is on).
 
 ## Charge footwork step (#5)
 

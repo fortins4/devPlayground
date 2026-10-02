@@ -1,5 +1,7 @@
 extends CharacterBody3D
-## Sparring foe: switches which face (top/left/right) they block; other faces open.
+## Sparring foe: switches which face (top/left/right) they guard; other faces open.
+## Uses Systems face-guard / BlockPostureTable via CombatSystem.apply_sparring_foe_guard_defaults().
+## enable_block stubs remain on CombatSystem for older path — face-guard is proper when enabled.
 
 const CorpseSpawnerScript := preload("res://systems/stealth/corpse_spawner.gd")
 
@@ -49,8 +51,11 @@ func _ready() -> void:
 		combat.team = 1
 		combat.starting_weapon = CombatSystem.Weapon.HATCHET
 		combat.set_weapon(CombatSystem.Weapon.HATCHET)
-		combat.enable_block = true  # Directional face-block sparring
+		# Systems API: enable face-guard + BlockPostureTable soak/posture numbers.
+		# Do not hardcode posture/mitigation here — see systems/combat/README.md.
+		combat.apply_sparring_foe_guard_defaults()
 		_set_guard_face(CombatSystem.StrikeDirection.TOP)
+		_guard_switch_left = GUARD_SWITCH_SECS
 		combat.died.connect(_on_died)
 		combat.damage_taken.connect(_on_damage_taken)
 		combat.attack_performed.connect(_on_attack_performed)
@@ -98,7 +103,8 @@ func _physics_process(delta: float) -> void:
 		var turn_rate := 8.0 if _state == State.TELEGRAPH else 6.0
 		rotation.y = lerp_angle(rotation.y, target_yaw, turn_rate * delta)
 
-	# Hold block on current guarded face; cycle face on a readable timer.
+	# Hold face-guard on current face; cycle on a readable timer.
+	# set_blocking kept for older enable_block path (no-op unless that flag is on).
 	if combat and not combat.is_dead:
 		var can_block := (
 			_state != State.TELEGRAPH
@@ -114,6 +120,14 @@ func _physics_process(delta: float) -> void:
 				_guard_idx = (_guard_idx + 1) % _guard_faces.size()
 				_set_guard_face(_guard_faces[_guard_idx])
 				_guard_switch_left = GUARD_SWITCH_SECS
+			elif combat.enable_face_guard and combat.guard_face == &"open":
+				# Re-raise held face after open windows (telegraph/recover/stagger).
+				_set_guard_face(_guard_faces[_guard_idx])
+		elif combat.enable_face_guard:
+			# Face-guard path: drop to open when not holding (unlike enable_block is_blocking).
+			combat.set_face_guard(&"open")
+			if _guard_hint:
+				_guard_hint.text = "GUARD OPEN — not holding"
 
 	_state_time += delta
 	match _state:
@@ -335,6 +349,7 @@ func _spawn_corpse_on_death() -> void:
 
 
 func _set_guard_face(direction: CombatSystem.StrikeDirection) -> void:
+	# set_guard_direction syncs StrikeDirection + BlockPostureTable face StringName.
 	if combat:
 		combat.set_guard_direction(direction)
 	var name := "TOP"
@@ -346,4 +361,4 @@ func _set_guard_face(direction: CombatSystem.StrikeDirection) -> void:
 		_:
 			name = "TOP"
 	if _guard_hint:
-		_guard_hint.text = "GUARD %s — other faces open" % name
+		_guard_hint.text = "GUARD %s — other faces open (face-guard)" % name
