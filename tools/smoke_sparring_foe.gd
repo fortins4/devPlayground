@@ -42,22 +42,24 @@ func _run() -> void:
 	await process_frame
 
 	def.set_blocking(true)
+	def.set_guard_direction(CombatSystem.StrikeDirection.TOP)
 	var hp0 := def.health
-	var frontal := def.apply_damage(20.0, attacker_body, true)
-	if frontal >= 19.0:
-		push_error("SMOKE_FAIL frontal block did not mitigate (dealt %.1f)" % frontal)
+	var blocked := def.apply_damage(20.0, attacker_body, true, CombatSystem.StrikeDirection.TOP)
+	if blocked >= 10.0:
+		push_error("SMOKE_FAIL matching face block did not mitigate (dealt %.1f)" % blocked)
 		quit(1)
 		return
-	print("SMOKE frontal_blocked dealt=", frontal, " hp=", def.health)
+	print("SMOKE face_blocked dealt=", blocked, " hp=", def.health)
 
 	def.health = hp0
 	def.set_blocking(true)
-	var flank := def.apply_damage(20.0, attacker_body, false)
-	if flank < 19.0:
-		push_error("SMOKE_FAIL flank should be full damage (dealt %.1f)" % flank)
+	def.set_guard_direction(CombatSystem.StrikeDirection.TOP)
+	var open_face := def.apply_damage(20.0, attacker_body, true, CombatSystem.StrikeDirection.LEFT)
+	if open_face < 19.0:
+		push_error("SMOKE_FAIL wrong face should be full damage (dealt %.1f)" % open_face)
 		quit(1)
 		return
-	print("SMOKE flank_open dealt=", flank)
+	print("SMOKE wrong_face_open dealt=", open_face)
 
 	# Wider side hitbox sizing
 	atk.current_weapon = CombatSystem.Weapon.HATCHET

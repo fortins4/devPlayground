@@ -59,6 +59,8 @@ var stamina: float = StaminaEconomy.MAX_STAMINA
 var current_weapon: Weapon = Weapon.HATCHET
 var is_dead: bool = false
 var is_blocking: bool = false
+## Which strike face is guarded when blocking (top/left/right). Mismatch = open.
+var guard_direction: StrikeDirection = StrikeDirection.TOP
 var is_attacking: bool = false
 var attack_recovery_left: float = 0.0
 var hitbox_active_left: float = 0.0
@@ -483,15 +485,30 @@ func set_blocking(holding: bool) -> void:
 	is_blocking = holding and stamina > StaminaEconomy.BLOCK_MIN_STAMINA
 
 
-func apply_damage(amount: float, from: Node = null, frontal: bool = true) -> float:
+func set_guard_direction(direction: StrikeDirection) -> void:
+	guard_direction = direction
+
+
+func guard_direction_name() -> StringName:
+	return DIRECTION_NAMES.get(guard_direction, &"top")
+
+
+func apply_damage(
+	amount: float,
+	from: Node = null,
+	frontal: bool = true,
+	strike_direction: StrikeDirection = StrikeDirection.TOP
+) -> float:
 	if is_dead or amount <= 0.0:
 		return 0.0
 	# Hit-stun: drop any in-progress charge.
 	if is_charging:
 		cancel_charge()
 	var mitigated := 0.0
-	if enable_block and is_blocking and frontal and stamina > 0.0:
-		mitigated = amount * 0.75
+	# Block only the guarded face (top/left/right). Wrong face or open guard = full damage.
+	var face_match := strike_direction == guard_direction
+	if enable_block and is_blocking and face_match and stamina > 0.0:
+		mitigated = amount * 0.85
 		amount -= mitigated
 		_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
 		blocked.emit(_owner_body, from, mitigated)
@@ -626,7 +643,14 @@ func _try_damage_target(target: Node, damage: float, kind: StringName) -> void:
 		return
 	_hit_this_swing[id] = true
 	var facing_ok := _is_frontal(other)
-	var dealt := other.apply_damage(damage, _owner_body, facing_ok)
+	var strike_dir := _last_strike_direction
+	if _hitbox and _hitbox.has_meta("direction"):
+		var dname: StringName = _hitbox.get_meta("direction")
+		for key in DIRECTION_NAMES:
+			if DIRECTION_NAMES[key] == dname:
+				strike_dir = key
+				break
+	var dealt := other.apply_damage(damage, _owner_body, facing_ok, strike_dir)
 	if dealt > 0.0:
 		hit_landed.emit(_owner_body, other.get_parent(), dealt, kind)
 		_apply_hit_tags(other, kind)
