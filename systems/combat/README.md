@@ -110,7 +110,7 @@ Edit numbers in `StaminaEconomy` only; do not scatter magic floats back into
    panel (`CombatSystem.dump_stamina_economy()` / `StaminaEconomy.get_debug_text()`).
 4. Swing / sprint and confirm STA drops; after recover + delay, regen resumes at 18/s.
 
-Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**, flank **F9**, wound decay **F10**, break→stagger **F11**):
+Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**, flank **F9**, wound decay **F10**, break→stagger **F11**, charge STA **F12**):
 **V** show table · **backtick** print stamina dump.
 
 ## Hatchet damage / reach table (directional + charge)
@@ -133,17 +133,22 @@ to **`&"top"`** so existing LMB/RMB keep working without aim selection.
 
 ### Charge tiers + input mapping stub
 
-| Tier | Maps from | StaminaEconomy kind |
-|---|---|---|
-| `&"tap"` | LMB **light** | `light` cost/recovery |
-| `&"charged"` | RMB **heavy** | `heavy` cost/recovery |
-| `&"max"` | full-charge hold (future) | `heavy` cost/recovery for now |
+| Tier | Alias | Maps from (~0.75 s hold-release) | STA cost | Recovery kind |
+|---|---|---|---|---|
+| `&"tap"` | light | short release (held < ~0.08 s or ratio < 0.22) | **12** (`ChargeStaminaTable`) | `light` |
+| `&"charged"` | mid | mid hold (ratio ≥ 0.55, < 0.95) | **28** | `heavy` |
+| `&"max"` | full | full hold (ratio ≥ 0.95 / ~0.75 s) | **34** | `heavy` |
+
+Discrete charge STA lives in **`ChargeStaminaTable`** (spend on release commit).
+Recovery still comes from `StaminaEconomy` via `kind_from_tier`.
 
 API:
 
 - `CombatSystem.try_attack(kind, direction = &"top")` — legacy light/heavy; maps
   kind → tier, optional direction.
 - `CombatSystem.try_attack_directional(direction, tier)` — explicit direction×tier.
+- `CombatSystem.spend_for_charge(tier)` / `try_spend_for_charge(tier)` — STA spend
+  on release commit; returns `false` if insufficient (refuse strike).
 - Knife / goad ignore the table and keep `PROFILES` damage/reach.
 
 ### Full table (greybox defaults)
@@ -464,6 +469,65 @@ Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
 **F7**, block **F8**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F10** print wound decay dump.
 
+## Charge ↔ stamina spend (hatchet hold-release)
+
+Tunable greybox data — **`systems/combat/charge_stamina_table.gd`**
+(`class_name ChargeStaminaTable`). Discrete STA cost per hatchet charge tier,
+aligned with the existing **~0.75 s** hold-release window and
+`HatchetAttackTable` tier names (`tap` / `charged` / `max`). Godot owns feel /
+input timing; Systems owns this table + the spend-on-release API.
+
+### Costs (greybox defaults)
+
+| Tier | Alias | STA cost | ~Swings to empty (100 STA) |
+|---|---|---|---|
+| `&"tap"` | light | **12** | ~8 |
+| `&"charged"` | mid | **28** | ~3 |
+| `&"max"` | full | **34** | ~2 |
+
+`tap` / `charged` match `StaminaEconomy` hatchet light/heavy; `max` bumps above
+charged so a full 0.75 s commit costs more than a mid release.
+
+### When spend fires (Godot contract)
+
+| Moment | Spend? |
+|---|---|
+| `begin_charge` / while holding | **No** — no continuous drain |
+| `cancel_charge` (sprint / hit-stun) | **No** |
+| `release_charged_attack` → `try_attack` commit | **Yes** — discrete tier cost |
+| Explicit `spend_for_charge` / `try_spend_for_charge` | **Yes** — same path |
+
+Insufficient STA → API returns **`false`**; Godot must **refuse the strike**
+(no swing, no recovery lock). Do not call spend while the button is held.
+
+Thresholds (match `CombatSystem` defaults / `ChargeStaminaTable` constants):
+
+- tap: held < `0.08` s **or** ratio < `0.22`
+- charged (mid): ratio ≥ `0.55` and < `0.95`
+- max (full): ratio ≥ `0.95` (~full `charge_full_secs` 0.75 s)
+
+API: `cost_for_tier`, `tier_from_charge(ratio, held_secs)`, `can_afford`,
+`try_spend_preview`, `CombatSystem.can_afford_charge` /
+`spend_for_charge` / `try_spend_for_charge`, `to_debug_dict()`,
+`get_debug_text(...)`.
+
+Edit numbers in `ChargeStaminaTable` only — do not retune knife/goad
+`StaminaEconomy.ATTACK` or `HatchetAttackTable` damage/reach here.
+
+### F5 probe (charge ↔ stamina)
+
+1. Open `scenes/main/main.tscn` and press **F5**.
+2. Press **V** — panel appends the ChargeStaminaTable + last release spend.
+3. Press **F12** — prints the same dump to the Output panel
+   (`CombatSystem.dump_charge_stamina_table()` /
+   `ChargeStaminaTable.get_debug_text()`).
+4. Hold-release tap / mid / full; confirm STA drops by 12 / 28 / 34 only on
+   release. Drain STA below cost and confirm strike refuses (`false`).
+
+Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
+**F7**, block **F8**, flank **F9**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F12** print charge↔stamina spend dump.
+
 ## Dummy counter
 
 `dummy_fighter` telegraphs every swing (weapon cock + warm tint + `!` / `...` Label3D), then releases a weak light hatchet. Taking a hit in range triggers a reactive counter telegraph (shorter). Hitting the dummy during telegraph staggers/cancels — learnable timing, still beatable.
@@ -499,7 +563,8 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 ## Systems data hooks
 
 - **Damage / reach (hatchet):** `HatchetAttackTable` (direction × tap/charged/max)
-- **Stamina cost + recovery:** `StaminaEconomy` (hatchet recovery synced to timing polish 0.34 / 0.58)
+- **Stamina cost + recovery:** `StaminaEconomy` (knife/goad + hatchet recovery 0.34 / 0.58)
+- **Charge ↔ STA spend (hatchet):** `ChargeStaminaTable` (tap 12 / charged 28 / max 34; spend on release)
 - **Face-guard / posture:** `BlockPostureTable` (sparring; `enable_face_guard`)
 - **Posture break → stagger:** `BREAK_STAGGER_TAG` = `stagger_heavy` via `apply_stagger_tag` (F11)
 - **Open-side flank mult:** `FlankBonusTable` (only when face does not mitigate)

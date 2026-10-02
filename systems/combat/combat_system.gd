@@ -6,6 +6,7 @@ extends Node
 
 const StaminaEconomy := preload("res://systems/combat/stamina_economy.gd")
 const HatchetAttackTable := preload("res://systems/combat/hatchet_attack_table.gd")
+const ChargeStaminaTable := preload("res://systems/combat/charge_stamina_table.gd")
 
 signal attack_performed(attacker: Node, kind: StringName, weapon: StringName)
 signal hit_landed(attacker: Node, target: Node, damage: float, kind: StringName)
@@ -95,6 +96,9 @@ var _last_attack_direction: StringName = &""
 var _last_attack_tier: StringName = &""
 var _last_attack_damage: float = -1.0
 var _last_attack_reach: float = -1.0
+## Last hatchet charge↔STA spend (ChargeStaminaTable; set on release commit).
+var _last_charge_spend_tier: StringName = &""
+var _last_charge_spend_cost: float = -1.0
 ## Last CombatTags applied on a successful hit (attacker-side probe).
 var _last_hit_tags: Array[StringName] = []
 var _last_hit_tags_weapon: StringName = &""
@@ -118,7 +122,8 @@ var _charge_pose_tween: Tween
 # Per-weapon feel timings. Knife/goad: damage+reach live here.
 # Hatchet damage/reach: HatchetAttackTable (direction × charge tier). PROFILES
 # hatchet damage/reach kept as fallback when table unavailable.
-# Stamina cost + recovery seconds: StaminaEconomy.ATTACK (source of truth).
+# Stamina cost + recovery: StaminaEconomy.ATTACK for knife/goad light/heavy.
+# Hatchet charge-tier STA: ChargeStaminaTable (tap/charged/max) on release commit.
 const PROFILES := {
 	Weapon.HATCHET: {
 		# Timing polish: clearer windup telegraph, readable contact, non-spam recover.
@@ -352,6 +357,7 @@ func cancel_charge() -> void:
 
 func release_charged_attack() -> bool:
 	## Release hold: power scales with charge_ratio. Tap (~min secs) = light; full hold = heavy.
+	## STA spend fires inside try_attack via ChargeStaminaTable (on commit only).
 	if not is_charging:
 		return false
 	var held := charge_time
@@ -403,7 +409,8 @@ func try_attack(
 	var light_p: Dictionary = PROFILES[current_weapon][&"light"]
 	var heavy_p: Dictionary = PROFILES[current_weapon][&"heavy"]
 	# power < 0 → discrete light/heavy; else lerp light→heavy by power (0..1).
-	# Cost + recovery from StaminaEconomy; feel timings from PROFILES.
+	# Knife/goad cost+recovery: StaminaEconomy. Hatchet charge STA: ChargeStaminaTable
+	# on release commit (after tier resolve below). Feel timings from PROFILES.
 	var cost: float
 	var damage: float
 	var windup: float
@@ -434,36 +441,15 @@ func try_attack(
 		)
 		reach = lerpf(float(light_p["reach"]), float(heavy_p["reach"]), t)
 		kind = &"heavy" if t >= 0.55 else &"light"
-	# Hatchet: Systems table owns damage/reach; dir scales feel timings.
-	if current_weapon == Weapon.HATCHET and enable_directional_hatchet:
-		var tier: StringName = HatchetAttackTable.tier_from_kind(kind)
-		if power >= 0.95:
-			tier = &"max"
-		elif power >= 0.55:
-			tier = &"charged"
-		var cell: Dictionary = HatchetAttackTable.entry(DIRECTION_NAMES[direction], tier)
-		damage = float(cell["damage"])
-		reach = float(cell["reach"])
-		if power >= 0.0 and power < 0.55:
-			# Blend tap→charged for partial charge holds.
-			var tap: Dictionary = HatchetAttackTable.entry(DIRECTION_NAMES[direction], &"tap")
-			var ch: Dictionary = HatchetAttackTable.entry(DIRECTION_NAMES[direction], &"charged")
-			var bt := clampf(power / 0.55, 0.0, 1.0)
-			damage = lerpf(float(tap["damage"]), float(ch["damage"]), bt)
-			reach = lerpf(float(tap["reach"]), float(ch["reach"]), bt)
-		var scales: Dictionary = HATCHET_DIR_TIMING.get(direction, HATCHET_DIR_TIMING[StrikeDirection.TOP])
-		windup *= float(scales.get("windup", 1.0))
-		active *= float(scales.get("active", 1.0))
-		recovery *= float(scales.get("recovery", 1.0))
-	# Hatchet damage/reach from HatchetAttackTable (dir × charge tier).
+	# Hatchet: Systems tables own damage/reach + charge-tier STA; dir scales feel.
 	var resolved_dir: StringName = &""
 	var resolved_tier: StringName = &""
 	if current_weapon == Weapon.HATCHET:
 		var dir_name: StringName = DIRECTION_NAMES.get(direction, &"top")
 		var tier: StringName = HatchetAttackTable.tier_from_kind(kind)
-		if power >= 0.95:
+		if power >= ChargeStaminaTable.RATIO_MAX_MIN:
 			tier = &"max"
-		elif power >= 0.55:
+		elif power >= ChargeStaminaTable.RATIO_CHARGED_MIN:
 			tier = &"charged"
 		elif power >= 0.0:
 			tier = &"tap"
@@ -472,9 +458,28 @@ func try_attack(
 		resolved_tier = cell["tier"]
 		damage = float(cell["damage"])
 		reach = float(cell["reach"])
-	if stamina < cost:
-		return false
-	_spend_stamina(cost)
+		# Discrete charge↔STA cost (replaces light↔heavy lerp for hatchet).
+		cost = ChargeStaminaTable.cost_for_tier(resolved_tier)
+		if enable_directional_hatchet:
+			if power >= 0.0 and power < ChargeStaminaTable.RATIO_CHARGED_MIN:
+				# Blend tap→charged for partial charge holds (damage/reach only).
+				var tap: Dictionary = HatchetAttackTable.entry(dir_name, &"tap")
+				var ch: Dictionary = HatchetAttackTable.entry(dir_name, &"charged")
+				var bt := clampf(power / ChargeStaminaTable.RATIO_CHARGED_MIN, 0.0, 1.0)
+				damage = lerpf(float(tap["damage"]), float(ch["damage"]), bt)
+				reach = lerpf(float(tap["reach"]), float(ch["reach"]), bt)
+			var scales: Dictionary = HATCHET_DIR_TIMING.get(direction, HATCHET_DIR_TIMING[StrikeDirection.TOP])
+			windup *= float(scales.get("windup", 1.0))
+			active *= float(scales.get("active", 1.0))
+			recovery *= float(scales.get("recovery", 1.0))
+	# Spend fires here on strike commit (release path). Refuse if insufficient.
+	if current_weapon == Weapon.HATCHET and resolved_tier != &"":
+		if not spend_for_charge(resolved_tier):
+			return false
+	else:
+		if stamina < cost:
+			return false
+		_spend_stamina(cost)
 	is_attacking = true
 	is_blocking = false
 	_hit_this_swing.clear()
@@ -1070,8 +1075,33 @@ func _arm_stamina_regen_delay() -> void:
 	)
 
 
+## True if current STA covers the charge-tier cost (no spend).
+func can_afford_charge(tier: StringName) -> bool:
+	return ChargeStaminaTable.can_afford(stamina, tier)
+
+
+## Spend STA for a hatchet charge tier. Call on release / strike commit only —
+## never while holding, never on cancel. Returns false if insufficient (Godot
+## must refuse the strike). Updates last-spend probe fields on success.
+func spend_for_charge(tier: StringName) -> bool:
+	var preview: Dictionary = ChargeStaminaTable.try_spend_preview(stamina, tier)
+	if not bool(preview["ok"]):
+		return false
+	var cost := float(preview["cost"])
+	var resolved: StringName = preview["tier"]
+	_spend_stamina(cost)
+	_last_charge_spend_tier = resolved
+	_last_charge_spend_cost = cost
+	return true
+
+
+## Alias of spend_for_charge — try semantics for Godot hold-release callers.
+func try_spend_for_charge(tier: StringName) -> bool:
+	return spend_for_charge(tier)
+
+
 func get_attack_profile(kind: StringName = &"light", direction: StringName = &"top") -> Dictionary:
-	## Merged feel profile + stamina cost/recovery. Hatchet overlays table damage/reach.
+	## Merged feel profile + stamina cost/recovery. Hatchet overlays table damage/reach + charge STA.
 	var base: Dictionary = PROFILES[current_weapon].get(kind, PROFILES[current_weapon][&"light"]).duplicate()
 	var wname: StringName = WEAPON_NAMES[current_weapon]
 	base["cost"] = StaminaEconomy.attack_cost(wname, kind)
@@ -1083,6 +1113,8 @@ func get_attack_profile(kind: StringName = &"light", direction: StringName = &"t
 		base["reach"] = cell["reach"]
 		base["direction"] = cell["direction"]
 		base["tier"] = cell["tier"]
+		base["cost"] = ChargeStaminaTable.cost_for_tier(tier)
+		base["spend_fires"] = &"on_release_commit"
 	return base
 
 
@@ -1104,6 +1136,17 @@ func get_hatchet_attack_table_debug_text() -> String:
 func dump_hatchet_attack_table() -> void:
 	## Cheap F5 probe — print hatchet direction×tier table + last resolved cell.
 	print(get_hatchet_attack_table_debug_text())
+
+
+func get_charge_stamina_debug_text() -> String:
+	return ChargeStaminaTable.get_debug_text(
+		stamina, _last_charge_spend_tier, _last_charge_spend_cost
+	)
+
+
+func dump_charge_stamina_table() -> void:
+	## Cheap F5 probe — print charge↔STA spend table + last release spend.
+	print(get_charge_stamina_debug_text())
 
 
 func get_combat_tags_debug_text() -> String:

@@ -13,6 +13,7 @@ extends CanvasLayer
 ##   F9 — print FlankBonusTable dump + last open-side resolve
 ##   F10 — print WoundDecayTable dump + CharacterHealth live bleed/soft accum
 ##   F11 — print posture-break → CombatTags stagger link + live timers
+##   F12 — print ChargeStaminaTable dump + last release spend
 ##   9 / 0 — HP −10 / +10
 ##   7 / 8 — stamina −10 / +10
 ##   6 — add wound
@@ -83,6 +84,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			KEY_F11:
 				_dump_posture_break_stagger()
+				get_viewport().set_input_as_handled()
+			KEY_F12:
+				_dump_charge_stamina_table()
 				get_viewport().set_input_as_handled()
 			KEY_9:
 				if CharacterHealth:
@@ -226,6 +230,16 @@ func _dump_posture_break_stagger() -> void:
 	_refresh()
 
 
+func _dump_charge_stamina_table() -> void:
+	var combat := _find_player_combat()
+	if combat and combat.has_method("dump_charge_stamina_table"):
+		combat.dump_charge_stamina_table()
+	else:
+		var cur := CharacterHealth.stamina if CharacterHealth else -1.0
+		print(ChargeStaminaTable.get_debug_text(cur))
+	_refresh()
+
+
 func _refresh() -> void:
 	if label == null:
 		return
@@ -265,6 +279,11 @@ func _refresh() -> void:
 		text += "\n" + WoundDecayTable.get_debug_text()
 	if combat and combat.has_method("get_posture_break_stagger_debug_text"):
 		text += "\n" + combat.get_posture_break_stagger_debug_text()
+	if combat and combat.has_method("get_charge_stamina_debug_text"):
+		text += "\n" + combat.get_charge_stamina_debug_text()
+	else:
+		var cur2 := CharacterHealth.stamina if CharacterHealth else -1.0
+		text += "\n" + ChargeStaminaTable.get_debug_text(cur2)
 	label.text = text
 
 

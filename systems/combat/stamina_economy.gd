@@ -5,6 +5,9 @@ extends RefCounted
 ## CombatSystem reads max / regen / delay / sprint / attack costs+recovery /
 ## block stubs from here. Knife/goad damage/reach + all windup/active stay on
 ## CombatSystem PROFILES; hatchet damage/reach live in HatchetAttackTable.
+## Hatchet hold-release charge-tier STA (tap/charged/max) lives in
+## ChargeStaminaTable — spend on release commit only. ATTACK light/heavy remain
+## the knife/goad source of truth + legacy light/heavy map.
 ## Feel (anims, hitstop polish, telegraph) is Godot-owned — this file is DATA only.
 
 ## Pool size (CombatSystem + CharacterHealth session default).
@@ -26,6 +29,7 @@ const BLOCK_MIN_STAMINA: float = 5.0
 const ATTACK: Dictionary = {
 	&"hatchet": {
 		# Synced with CombatSystem hatchet timing polish (base TOP recovery).
+		# Charge-tier discrete costs: ChargeStaminaTable (tap 12 / charged 28 / max 34).
 		&"light": {"cost": 12.0, "recovery": 0.34},
 		&"heavy": {"cost": 28.0, "recovery": 0.58},
 	},

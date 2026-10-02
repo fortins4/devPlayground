@@ -8,9 +8,9 @@ extends RefCounted
 ## file is DATA / lookup API only.
 ##
 ## Input stub mapping (CombatSystem):
-##   LMB light  → tier &"tap"     (StaminaEconomy light cost/recovery)
-##   RMB heavy  → tier &"charged" (StaminaEconomy heavy cost/recovery)
-##   &"max"     → full-charge bump (same stamina as charged until charge-hold ships)
+##   LMB hold-release → tier &"tap" / &"charged" / &"max" from charge ratio
+##   STA costs: ChargeStaminaTable (tap 12 / charged 28 / max 34) on release commit
+##   Recovery still StaminaEconomy light/heavy via kind_from_tier
 ## Default direction when aim unknown: &"top".
 
 ## Overhead chop / left sideswing / right sideswing.
@@ -61,7 +61,8 @@ static func tier_from_kind(kind: StringName) -> StringName:
 			return &"tap"
 
 
-## Map charge tier → StaminaEconomy / PROFILES kind (light|heavy).
+## Map charge tier → StaminaEconomy recovery / PROFILES kind (light|heavy).
+## Discrete STA cost for hatchet hold-release: ChargeStaminaTable.cost_for_tier.
 static func kind_from_tier(tier: StringName) -> StringName:
 	match tier:
 		&"charged", &"max", &"heavy":
@@ -119,6 +120,7 @@ static func to_debug_dict() -> Dictionary:
 			"light": &"tap",
 			"heavy": &"charged",
 			"max_stamina_kind": &"heavy",
+			"charge_sta": "ChargeStaminaTable",
 		},
 		"table": cells,
 	}
@@ -141,7 +143,7 @@ static func get_debug_text(
 					String(d), String(t), float(e["damage"]), float(e["reach"]),
 				]
 			)
-	lines.append("map: LMB light→tap · RMB heavy→charged · max→heavy STA · default dir top")
+	lines.append("map: hold-release→tap/charged/max · STA ChargeStaminaTable · default dir top")
 	if last_direction != &"" and last_tier != &"":
 		lines.append(
 			"last resolved: dir=%s tier=%s dmg=%.1f reach=%.2f" % [
