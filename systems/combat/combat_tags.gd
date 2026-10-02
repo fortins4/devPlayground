@@ -20,7 +20,7 @@ const STAGGER: Dictionary = {
 	&"stagger_heavy": {
 		"duration_sec": 0.75,
 		"interrupt_strength": 2,
-		"notes": "charged / max interrupt — longer recover hitch",
+		"notes": "charged / max interrupt — also BlockPostureTable break stagger (BREAK_STAGGER_TAG)",
 	},
 }
 

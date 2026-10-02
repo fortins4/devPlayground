@@ -12,6 +12,7 @@ extends CanvasLayer
 ##   F8 — print BlockPostureTable dump + current posture / last resolve
 ##   F9 — print FlankBonusTable dump + last open-side resolve
 ##   F10 — print WoundDecayTable dump + CharacterHealth live bleed/soft accum
+##   F11 — print posture-break → CombatTags stagger link + live timers
 ##   9 / 0 — HP −10 / +10
 ##   7 / 8 — stamina −10 / +10
 ##   6 — add wound
@@ -79,6 +80,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			KEY_F10:
 				_dump_wound_decay_table()
+				get_viewport().set_input_as_handled()
+			KEY_F11:
+				_dump_posture_break_stagger()
 				get_viewport().set_input_as_handled()
 			KEY_9:
 				if CharacterHealth:
@@ -206,6 +210,22 @@ func _dump_wound_decay_table() -> void:
 	_refresh()
 
 
+func _dump_posture_break_stagger() -> void:
+	var combat := _find_player_combat()
+	if combat and combat.has_method("dump_posture_break_stagger"):
+		combat.dump_posture_break_stagger()
+	elif combat and combat.has_method("get_posture_break_stagger_debug_text"):
+		print(combat.get_posture_break_stagger_debug_text())
+	else:
+		print(
+			"Posture break → CombatTags %s (dur %.2fs) — CombatSystem dump unavailable" % [
+				String(BlockPostureTable.BREAK_STAGGER_TAG),
+				BlockPostureTable.break_stun_sec(),
+			]
+		)
+	_refresh()
+
+
 func _refresh() -> void:
 	if label == null:
 		return
@@ -243,6 +263,8 @@ func _refresh() -> void:
 		text += "\n" + CharacterHealth.get_wound_decay_debug_text()
 	else:
 		text += "\n" + WoundDecayTable.get_debug_text()
+	if combat and combat.has_method("get_posture_break_stagger_debug_text"):
+		text += "\n" + combat.get_posture_break_stagger_debug_text()
 	label.text = text
 
 

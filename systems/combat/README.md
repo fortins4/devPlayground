@@ -110,7 +110,7 @@ Edit numbers in `StaminaEconomy` only; do not scatter magic floats back into
    panel (`CombatSystem.dump_stamina_economy()` / `StaminaEconomy.get_debug_text()`).
 4. Swing / sprint and confirm STA drops; after recover + delay, regen resumes at 18/s.
 
-Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**, flank **F9**, wound decay **F10**):
+Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**, flank **F9**, wound decay **F10**, break→stagger **F11**):
 **V** show table · **backtick** print stamina dump.
 
 ## Hatchet damage / reach table (directional + charge)
@@ -182,7 +182,7 @@ costs here (queue #1 owns those).
    `dir=top tier=tap|charged` with matching dmg/reach.
 
 Key map (no collision with stamina **V** / **backtick**, tags **F7**, block
-**F8**, flank **F9**, wound decay **F10**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F8**, flank **F9**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F6** print hatchet table dump.
 
 ## Stagger / wound tags (combat-support data)
@@ -242,7 +242,7 @@ Edit catalog / mapping in `CombatTags` only — do not retune `StaminaEconomy` o
    expected tags; player soft wounds tick on `cut` / `deep` when *you* are hit.
 
 Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, block
-**F8**, flank **F9**, wound decay **F10**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F8**, flank **F9**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F7** print combat tags dump.
 
 ## Block / posture face-guard numbers (sparring)
@@ -275,7 +275,8 @@ Default face: **`&"open"`**.
 |---|---|---|
 | **Max posture** | `100` | Separate from stamina |
 | **Regen /s** | `12` | × per-face `recover_rate` |
-| **Break stun** | `0.70 s` | After posture hits 0 — forced open |
+| **Break stun** | `0.75 s` | After posture hits 0 — forced open; **aligned to** `CombatTags.stagger_heavy` |
+| **Break stagger** | `&"stagger_heavy"` | Existing CombatTags tag applied on break (no parallel CC) |
 
 ### Per-face numbers
 
@@ -307,26 +308,47 @@ Design notes:
 - `apply_damage(..., attack_dir)` uses the table when `enable_face_guard` and
   posture is not broken. Existing `enable_block` shield stubs **unchanged**.
 
+### Posture break → CombatTags stagger (feel hook)
+
+When the posture pool empties, `CombatSystem._on_posture_break()`:
+
+1. Sets `posture_break_left` from `BlockPostureTable.break_stun_sec()` (driven by
+   `CombatTags.duration_sec(&"stagger_heavy")`, fallback `BREAK_STUN_SEC` **0.75**).
+2. Forces `guard_face = &"open"`.
+3. Calls existing `apply_stagger_tag(&"stagger_heavy")` — sets `stagger_left` and
+   `last_stagger_*`. **Reuses CombatTags** — no second stagger system.
+4. Keeps `posture_break_left` and `stagger_left` on the same window.
+5. Emits `posture_broken(victim, stagger_tag, duration_sec)` for Godot VFX / AI.
+6. If the broken entity is the player, also mirrors via `CharacterHealth.apply_stagger_tag`.
+
+Godot sparring: `can_move()` is already false while `stagger_left > 0` — dummy AI
+that respects it pauses on break. Connect `posture_broken` for hitch anim / SFX.
+Do **not** invent a parallel break-stun feel path.
+
 Helpers: `faces_match`, `is_open_side`, `face_entry`, `resolve_guard_hit`,
+`break_stagger_tag`, `break_stun_sec`, `break_stagger_entry`,
 `to_debug_dict()`, `get_debug_text(...)`.
 
-Edit numbers in `BlockPostureTable` only — do not retune `StaminaEconomy` shield
-stubs or `HatchetAttackTable` here.
+Edit numbers in `BlockPostureTable` / `CombatTags.STAGGER` only — do not retune
+`StaminaEconomy` shield stubs or `HatchetAttackTable` here.
 
 ### F5 probe (block / posture)
 
 1. Open `scenes/main/main.tscn` and press **F5**.
-2. Press **V** — panel appends the BlockPostureTable + current posture / last resolve.
+2. Press **V** — panel appends the BlockPostureTable + current posture / last resolve
+   (+ posture-break→stagger link dump).
 3. Press **F8** — prints the same dump to the Output panel
    (`CombatSystem.dump_block_posture_table()` /
    `BlockPostureTable.get_debug_text()`).
-4. (Optional) Enable `enable_face_guard` on a sparring foe CombatSystem, set a
-   face, swing matching / mismatching dirs; confirm mitigate vs full damage and
-   posture chip.
+4. Press **F11** — prints the posture-break → CombatTags stagger link + live
+   `break_left` / `stagger_left` (`CombatSystem.dump_posture_break_stagger()`).
+5. (Optional) Enable `enable_face_guard` on a sparring foe CombatSystem, set a
+   face, swing matching dirs until posture breaks; confirm `stagger_heavy`
+   applied, `can_move()` gated, and F11 shows last break.
 
 Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
-**F7**, flank **F9**, wound decay **F10**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
-**F8** print block/posture dump.
+**F7**, flank **F9**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F8** print block/posture dump · **F11** posture-break→stagger link.
 
 ## Flank bonus (open-side hits)
 
@@ -380,7 +402,7 @@ Edit numbers in `FlankBonusTable` only — do not retune `BlockPostureTable` /
    wrong-face / rear multiply remaining damage.
 
 Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
-**F7**, block **F8**, wound decay **F10**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F7**, block **F8**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F9** print flank bonus dump.
 
 ## Bleed / wound decay over time
@@ -479,6 +501,7 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 - **Damage / reach (hatchet):** `HatchetAttackTable` (direction × tap/charged/max)
 - **Stamina cost + recovery:** `StaminaEconomy` (hatchet recovery synced to timing polish 0.34 / 0.58)
 - **Face-guard / posture:** `BlockPostureTable` (sparring; `enable_face_guard`)
+- **Posture break → stagger:** `BREAK_STAGGER_TAG` = `stagger_heavy` via `apply_stagger_tag` (F11)
 - **Open-side flank mult:** `FlankBonusTable` (only when face does not mitigate)
 - **Bleed / wound decay:** `WoundDecayTable` (CharacterHealth tick; cut/deep bleed)
 - **Charge full:** 0.75s hold
