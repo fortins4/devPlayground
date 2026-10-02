@@ -68,9 +68,10 @@ Wire under a `CharacterBody3D` with optional `Hitbox`, `Hurtbox`, and `WeaponVis
 
 Tunable greybox pool — **data only** in `systems/combat/stamina_economy.gd`
 (`class_name StaminaEconomy`). `CombatSystem` reads max / regen / delay / sprint /
-attack **cost + recovery** / block stubs from that table. Damage, windup, active,
-and reach stay on `CombatSystem.PROFILES` (queue #2 owns hatchet directional
-damage/reach + charge tiers). Feel (anims, hitstop, telegraph) stays Godot-owned.
+attack **cost + recovery** / block stubs from that table. Knife/goad damage,
+windup, active, and reach stay on `CombatSystem.PROFILES`. **Hatchet** damage/reach
+come from `HatchetAttackTable` (direction × charge tier); windup/active stay on
+PROFILES. Feel (anims, hitstop, telegraph) stays Godot-owned.
 
 | Knob | Value | Notes |
 |---|---|---|
@@ -109,8 +110,80 @@ Edit numbers in `StaminaEconomy` only; do not scatter magic floats back into
    panel (`CombatSystem.dump_stamina_economy()` / `StaminaEconomy.get_debug_text()`).
 4. Swing / sprint and confirm STA drops; after recover + delay, regen resumes at 18/s.
 
-Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
-**V** show table · **backtick** print dump.
+Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**):
+**V** show table · **backtick** print stamina dump.
+
+## Hatchet damage / reach table (directional + charge)
+
+Tunable greybox data — **`systems/combat/hatchet_attack_table.gd`**
+(`class_name HatchetAttackTable`). Per-cell `damage` + `reach` for directional
+axes × charge tiers. Godot owns feel (anims, hitstop, telegraph); Systems owns
+this table / lookup API only.
+
+### Directions (SCOPE directional combat)
+
+| Direction | Meaning |
+|---|---|
+| `&"top"` | Overhead chop axis (default when aim unknown) |
+| `&"left"` | Left sideswing |
+| `&"right"` | Right sideswing |
+
+Godot will drive direction from mouse-aim / stick later. Greybox stub defaults
+to **`&"top"`** so existing LMB/RMB keep working without aim selection.
+
+### Charge tiers + input mapping stub
+
+| Tier | Maps from | StaminaEconomy kind |
+|---|---|---|
+| `&"tap"` | LMB **light** | `light` cost/recovery |
+| `&"charged"` | RMB **heavy** | `heavy` cost/recovery |
+| `&"max"` | full-charge hold (future) | `heavy` cost/recovery for now |
+
+API:
+
+- `CombatSystem.try_attack(kind, direction = &"top")` — legacy light/heavy; maps
+  kind → tier, optional direction.
+- `CombatSystem.try_attack_directional(direction, tier)` — explicit direction×tier.
+- Knife / goad ignore the table and keep `PROFILES` damage/reach.
+
+### Full table (greybox defaults)
+
+Derived from prior hatchet light **14 / 1.35** and heavy **28 / 1.5**:
+top = slightly higher damage, shorter lateral reach; left/right = balanced;
+charged > tap; max = modest bump.
+
+| Direction | Tier | Damage | Reach |
+|---|---|---|---|
+| top | tap | 15 | 1.25 |
+| top | charged | 30 | 1.40 |
+| top | max | 34 | 1.45 |
+| left | tap | 14 | 1.35 |
+| left | charged | 28 | 1.50 |
+| left | max | 32 | 1.55 |
+| right | tap | 14 | 1.35 |
+| right | charged | 28 | 1.50 |
+| right | max | 32 | 1.55 |
+
+Helpers: `entry(direction, tier)`, `damage(...)`, `reach(...)`, `to_debug_dict()`,
+`tier_from_kind` / `kind_from_tier`.
+
+Edit numbers in `HatchetAttackTable.TABLE` only — do not retune `StaminaEconomy`
+costs here (queue #1 owns those).
+
+### F5 probe (hatchet table)
+
+1. Open `scenes/main/main.tscn` and press **F5**.
+2. Press **V** — CharacterHealth panel also appends the hatchet direction×tier
+   table + last resolved cell (when a hatchet swing has fired).
+3. Press **F6** — prints the same dump to the Output panel
+   (`CombatSystem.dump_hatchet_attack_table()` /
+   `HatchetAttackTable.get_debug_text()`).
+4. Swing LMB/RMB with hatchet equipped; confirm last resolved shows
+   `dir=top tier=tap|charged` with matching dmg/reach.
+
+Key map (no collision with stamina **V** / **backtick**, Honor **H**, Timeline
+**T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F6** print hatchet table dump.
 
 ## Dummy counter
 

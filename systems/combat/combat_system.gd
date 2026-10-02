@@ -73,6 +73,10 @@ var _last_attack_kind: StringName = &"light"
 var _last_windup: float = 0.16
 var _last_active: float = 0.12
 var _last_recovery: float = 0.34
+var _last_attack_direction: StringName = &""
+var _last_attack_tier: StringName = &""
+var _last_attack_damage: float = -1.0
+var _last_attack_reach: float = -1.0
 var knockback_vel: Vector3 = Vector3.ZERO
 var _hurt_flash_tween: Tween
 var _hit_stop_running: bool = false
@@ -86,7 +90,9 @@ var charge_direction: StrikeDirection = StrikeDirection.TOP
 var _last_strike_direction: StrikeDirection = StrikeDirection.TOP
 var _charge_pose_tween: Tween
 
-# Per-weapon feel timings + damage/reach (queue #2 owns hatchet directional tiers).
+# Per-weapon feel timings. Knife/goad: damage+reach live here.
+# Hatchet damage/reach: HatchetAttackTable (direction × charge tier). PROFILES
+# hatchet damage/reach kept as fallback when table unavailable.
 # Stamina cost + recovery seconds: StaminaEconomy.ATTACK (source of truth).
 const PROFILES := {
 	Weapon.HATCHET: {
@@ -324,9 +330,30 @@ func release_charged_attack() -> bool:
 	_clear_charge_pose()
 	var kind: StringName = &"light" if held < charge_min_release_secs or ratio < 0.22 else &"heavy"
 	# Blend: short hold still light; mid/full uses heavy profile with scaled damage/cost.
+	# Near-full charge maps to HatchetAttackTable &"max" tier via power >= 0.95.
 	var power := 0.0 if kind == &"light" else clampf(ratio, 0.22, 1.0)
 	charge_released.emit(power if kind == &"heavy" else 0.0, DIRECTION_NAMES[direction], kind)
 	return try_attack(kind, direction, power)
+
+
+func try_attack_directional(direction: StringName, tier: StringName) -> bool:
+	## Directional + charge-tier entry (StringName API for table probes / future aim).
+	var dir_enum := StrikeDirection.TOP
+	match HatchetAttackTable.normalize_direction(direction):
+		&"left":
+			dir_enum = StrikeDirection.LEFT
+		&"right":
+			dir_enum = StrikeDirection.RIGHT
+		_:
+			dir_enum = StrikeDirection.TOP
+	var kind: StringName = HatchetAttackTable.kind_from_tier(tier)
+	var power := -1.0
+	var nt := HatchetAttackTable.normalize_tier(tier)
+	if nt == &"max":
+		power = 1.0
+	elif nt == &"charged":
+		power = 0.7
+	return try_attack(kind, dir_enum, power)
 
 
 func try_attack(
@@ -380,6 +407,23 @@ func try_attack(
 		windup *= float(scales.get("windup", 1.0))
 		active *= float(scales.get("active", 1.0))
 		recovery *= float(scales.get("recovery", 1.0))
+	# Hatchet damage/reach from HatchetAttackTable (dir × charge tier).
+	var resolved_dir: StringName = &""
+	var resolved_tier: StringName = &""
+	if current_weapon == Weapon.HATCHET:
+		var dir_name: StringName = DIRECTION_NAMES.get(direction, &"top")
+		var tier: StringName = HatchetAttackTable.tier_from_kind(kind)
+		if power >= 0.95:
+			tier = &"max"
+		elif power >= 0.55:
+			tier = &"charged"
+		elif power >= 0.0:
+			tier = &"tap"
+		var cell: Dictionary = HatchetAttackTable.entry(dir_name, tier)
+		resolved_dir = cell["direction"]
+		resolved_tier = cell["tier"]
+		damage = float(cell["damage"])
+		reach = float(cell["reach"])
 	if stamina < cost:
 		return false
 	_spend_stamina(cost)
@@ -392,10 +436,15 @@ func try_attack(
 	_last_windup = windup
 	_last_active = active
 	_last_recovery = recovery
+	_last_attack_direction = resolved_dir
+	_last_attack_tier = resolved_tier
+	_last_attack_damage = damage
+	_last_attack_reach = reach
 	_play_weapon_swing(kind, windup, active, recovery, direction)
 	attack_performed.emit(_owner_body, kind, wname)
 	_activate_hitbox_after(windup, active, reach, damage, kind, direction)
 	return true
+
 
 
 func set_blocking(holding: bool) -> void:
@@ -836,12 +885,19 @@ func _arm_stamina_regen_delay() -> void:
 	)
 
 
-func get_attack_profile(kind: StringName = &"light") -> Dictionary:
-	## Merged feel profile + stamina cost/recovery from StaminaEconomy.
+func get_attack_profile(kind: StringName = &"light", direction: StringName = &"top") -> Dictionary:
+	## Merged feel profile + stamina cost/recovery. Hatchet overlays table damage/reach.
 	var base: Dictionary = PROFILES[current_weapon].get(kind, PROFILES[current_weapon][&"light"]).duplicate()
 	var wname: StringName = WEAPON_NAMES[current_weapon]
 	base["cost"] = StaminaEconomy.attack_cost(wname, kind)
 	base["recovery"] = StaminaEconomy.attack_recovery(wname, kind)
+	if current_weapon == Weapon.HATCHET:
+		var tier := HatchetAttackTable.tier_from_kind(kind)
+		var cell: Dictionary = HatchetAttackTable.entry(direction, tier)
+		base["damage"] = cell["damage"]
+		base["reach"] = cell["reach"]
+		base["direction"] = cell["direction"]
+		base["tier"] = cell["tier"]
 	return base
 
 
@@ -852,6 +908,17 @@ func get_stamina_economy_debug_text() -> String:
 func dump_stamina_economy() -> void:
 	## Cheap F5 probe — print economy constants + current STA.
 	print(get_stamina_economy_debug_text())
+
+
+func get_hatchet_attack_table_debug_text() -> String:
+	return HatchetAttackTable.get_debug_text(
+		_last_attack_direction, _last_attack_tier, _last_attack_damage, _last_attack_reach
+	)
+
+
+func dump_hatchet_attack_table() -> void:
+	## Cheap F5 probe — print hatchet direction×tier table + last resolved cell.
+	print(get_hatchet_attack_table_debug_text())
 
 
 func reset_weapon_pose() -> void:

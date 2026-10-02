@@ -7,6 +7,7 @@ extends CanvasLayer
 ## Keys (when this node is in the tree):
 ##   V — show / hide panel (includes StaminaEconomy fight numbers)
 ##   ` (backtick / QuoteLeft) — print StaminaEconomy dump to Output
+##   F6 — print HatchetAttackTable dump + last resolved dir/tier/dmg/reach
 ##   9 / 0 — HP −10 / +10
 ##   7 / 8 — stamina −10 / +10
 ##   6 — add wound
@@ -59,6 +60,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			KEY_QUOTELEFT:
 				_dump_stamina_economy()
+				get_viewport().set_input_as_handled()
+			KEY_F6:
+				_dump_hatchet_attack_table()
 				get_viewport().set_input_as_handled()
 			KEY_9:
 				if CharacterHealth:
@@ -142,6 +146,15 @@ func _dump_stamina_economy() -> void:
 	_refresh()
 
 
+func _dump_hatchet_attack_table() -> void:
+	var combat := _find_player_combat()
+	if combat and combat.has_method("dump_hatchet_attack_table"):
+		combat.dump_hatchet_attack_table()
+	else:
+		print(HatchetAttackTable.get_debug_text())
+	_refresh()
+
+
 func _refresh() -> void:
 	if label == null:
 		return
@@ -159,6 +172,10 @@ func _refresh() -> void:
 	else:
 		var cur := CharacterHealth.stamina if CharacterHealth else -1.0
 		text += "\n" + StaminaEconomy.get_debug_text(cur)
+	if combat and combat.has_method("get_hatchet_attack_table_debug_text"):
+		text += "\n" + combat.get_hatchet_attack_table_debug_text()
+	else:
+		text += "\n" + HatchetAttackTable.get_debug_text()
 	label.text = text
 
 
