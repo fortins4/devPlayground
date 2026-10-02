@@ -279,9 +279,14 @@ func _soft_season_id() -> StringName:
 	return &""
 
 
+## Kind metadata only — must NOT call get_by_id / list_sites (those attach
+## effective_density via get_effective_density → _season_bias_for_site → here).
 func _site_kind(site_id: StringName) -> StringName:
-	var row := get_by_id(site_id)
-	return row.get("kind", &"") as StringName
+	if CrowdSites.is_known_site(site_id):
+		return CrowdSites.kind_for(site_id)
+	if _runtime_sites.has(site_id):
+		return (_runtime_sites[site_id] as Dictionary).get("kind", &"") as StringName
+	return &""
 
 
 # --- Register -----------------------------------------------------------------
