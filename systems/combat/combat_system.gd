@@ -509,6 +509,49 @@ func set_guard_direction(direction: StrikeDirection) -> void:
 	set_face_guard(DIRECTION_NAMES.get(direction, &"top"))
 
 
+## Godot API: outfit this CombatSystem as a sparring foe using BlockPostureTable
+## soak/posture numbers. Enables face-guard (proper path). Leaves enable_block
+## stubs intact — do not hardcode posture/mitigation in foe scripts.
+func apply_sparring_foe_guard_defaults() -> Dictionary:
+	return _apply_sparring_foe_guard_defaults_internal(
+		BlockPostureTable.get_sparring_foe_posture_defaults()
+	)
+
+
+func _apply_sparring_foe_guard_defaults_internal(defaults: Dictionary) -> Dictionary:
+	enable_face_guard = true
+	# enable_block intentionally untouched (older frontal/directional path).
+	posture = BlockPostureTable.MAX_POSTURE
+	posture_break_left = 0.0
+	_last_guard_resolve = {}
+	var start: StringName = BlockPostureTable.SPARRING_FOE_STARTING_FACE
+	# Sync StringName face + StrikeDirection enum (dummy cycles TOP/LEFT/RIGHT).
+	match start:
+		&"left":
+			set_guard_direction(StrikeDirection.LEFT)
+		&"right":
+			set_guard_direction(StrikeDirection.RIGHT)
+		_:
+			set_guard_direction(StrikeDirection.TOP)
+	var out := defaults.duplicate(true)
+	out["applied_to"] = str(get_path()) if is_inside_tree() else name
+	out["guard_face"] = String(guard_face)
+	out["posture"] = posture
+	out["enable_face_guard"] = enable_face_guard
+	out["enable_block"] = enable_block
+	return out
+
+
+## Static/dict form — same numbers without requiring a live CombatSystem.
+static func get_sparring_foe_posture_defaults() -> Dictionary:
+	return BlockPostureTable.get_sparring_foe_posture_defaults()
+
+
+## Outfit a CombatSystem or a body that owns one (CharacterBody3D + child).
+static func apply_sparring_foe_guard_defaults_to(node: Object) -> Dictionary:
+	return BlockPostureTable.apply_sparring_foe_guard_defaults(node)
+
+
 func guard_direction_name() -> StringName:
 	return DIRECTION_NAMES.get(guard_direction, &"top")
 
@@ -1076,6 +1119,15 @@ func dump_hatchet_attack_table() -> void:
 	print(get_hatchet_attack_table_debug_text())
 
 
+
+## Resolve CharacterHealth autoload without a bare global (keeps -s smokes / check-only compiling).
+func _session_character_health() -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return null
+	return tree.root.get_node_or_null("CharacterHealth")
+
+
 func get_combat_tags_debug_text() -> String:
 	return CombatTags.get_debug_text(
 		_last_hit_tags, _last_hit_tags_weapon, _last_attack_direction, _last_attack_tier
@@ -1085,17 +1137,18 @@ func get_combat_tags_debug_text() -> String:
 func dump_combat_tags() -> void:
 	## Cheap F5 probe — print CombatTags catalog + last applied hit tags.
 	print(get_combat_tags_debug_text())
-	if CharacterHealth:
+	var ch := _session_character_health()
+	if ch:
 		var names: PackedStringArray = PackedStringArray()
-		for tag in CharacterHealth.get_wound_tags():
+		for tag in ch.get_wound_tags():
 			names.append(String(tag))
 		print(
 			"CharacterHealth tags: wounds=[%s] last_wound=%s stagger=%s (%.2fs / int=%d)" % [
 				", ".join(names),
-				String(CharacterHealth.last_wound_tag),
-				String(CharacterHealth.last_stagger_tag),
-				CharacterHealth.last_stagger_duration_sec,
-				CharacterHealth.last_stagger_interrupt,
+				String(ch.last_wound_tag),
+				String(ch.last_stagger_tag),
+				ch.last_stagger_duration_sec,
+				ch.last_stagger_interrupt,
 			]
 		)
 
@@ -1165,15 +1218,16 @@ func _apply_hit_tags(target: CombatSystem, kind: StringName) -> void:
 	if tags.is_empty():
 		return
 	var target_is_player := _combat_owner_is_player(target)
+	var ch := _session_character_health() if target_is_player else null
 	for tag in tags:
 		if CombatTags.is_stagger(tag):
 			target.apply_stagger_tag(tag)
-			if target_is_player and CharacterHealth:
-				CharacterHealth.apply_stagger_tag(tag)
+			if ch:
+				ch.apply_stagger_tag(tag)
 		elif CombatTags.is_wound(tag):
 			# Soft wound counter is session-level (player). NPCs skip integer wounds.
-			if target_is_player and CharacterHealth:
-				CharacterHealth.apply_wound_tag(tag)
+			if ch:
+				ch.apply_wound_tag(tag)
 
 
 func _combat_owner_is_player(combat: CombatSystem) -> bool:

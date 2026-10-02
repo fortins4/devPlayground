@@ -184,6 +184,93 @@ static func top_absorbs_to_break() -> int:
 	return int(floor(MAX_POSTURE / chip))
 
 
+## Sparring foe starting face when outfit (not DEFAULT_FACE/open — dummy opens TOP).
+const SPARRING_FOE_STARTING_FACE: StringName = &"top"
+
+## Dict of soak / posture numbers + flags Godot needs to outfit a sparring dummy.
+## Numbers come from this table — do not hardcode in foe scripts.
+static func get_sparring_foe_posture_defaults() -> Dictionary:
+	var faces_out: Dictionary = {}
+	for f in FACES:
+		faces_out[String(f)] = face_entry(f)
+	return {
+		"enable_face_guard": true,
+		## Older enable_block path stays available but is NOT the sparring default.
+		"enable_block": false,
+		"max_posture": MAX_POSTURE,
+		"regen_per_sec": REGEN_PER_SEC,
+		"break_stun_sec": BREAK_STUN_SEC,
+		"starting_face": SPARRING_FOE_STARTING_FACE,
+		"default_face": DEFAULT_FACE,
+		"faces": faces_out,
+		"top_absorbs_to_break": top_absorbs_to_break(),
+		"regen_empty_to_full_sec": regen_empty_to_full_sec(),
+		"notes": (
+			"Call BlockPostureTable.apply_sparring_foe_guard_defaults(combat) "
+			+ "or CombatSystem.apply_sparring_foe_guard_defaults() to outfit. "
+			+ "Face-guard is the proper path when enable_face_guard; "
+			+ "enable_block stubs remain for older frontal/directional block."
+		),
+	}
+
+
+## Outfit a CombatSystem (or a CharacterBody3D that owns one) with sparring
+## face-guard defaults from this table. Returns the defaults dict applied.
+## Does not touch AI / feel — Godot owns face-switch timing and telegraph.
+## Prefer CombatSystem.apply_sparring_foe_guard_defaults() when you already
+## hold the combat node (typed StrikeDirection sync).
+static func apply_sparring_foe_guard_defaults(node: Object) -> Dictionary:
+	var defaults := get_sparring_foe_posture_defaults()
+	var combat: Object = _resolve_combat_system(node)
+	if combat == null:
+		push_warning(
+			"BlockPostureTable.apply_sparring_foe_guard_defaults: no CombatSystem on %s"
+			% str(node)
+		)
+		return defaults
+	# Prefer typed CombatSystem path when available.
+	if combat.has_method("_apply_sparring_foe_guard_defaults_internal"):
+		return combat.call("_apply_sparring_foe_guard_defaults_internal", defaults)
+	# Duck-typed fallback (tests / remote).
+	combat.set("enable_face_guard", true)
+	# Leave enable_block unchanged (stubs intact). Face-guard path wins in apply_damage.
+	combat.set("posture", MAX_POSTURE)
+	combat.set("posture_break_left", 0.0)
+	var start: StringName = SPARRING_FOE_STARTING_FACE
+	if combat.has_method("set_face_guard"):
+		combat.call("set_face_guard", start)
+	else:
+		combat.set("guard_face", normalize_face(start))
+	defaults["applied_to"] = _node_path_str(combat)
+	defaults["guard_face"] = String(combat.get("guard_face"))
+	defaults["posture"] = float(combat.get("posture"))
+	defaults["enable_face_guard"] = bool(combat.get("enable_face_guard"))
+	return defaults
+
+
+static func _node_path_str(obj: Object) -> String:
+	if obj is Node:
+		return str((obj as Node).get_path())
+	return str(obj)
+
+
+static func _resolve_combat_system(node: Object) -> Object:
+	if node == null:
+		return null
+	# Direct CombatSystem (duck-type: enable_face_guard + posture).
+	if ("enable_face_guard" in node) and ("posture" in node):
+		return node
+	if node is Node:
+		var n := node as Node
+		var child: Node = n.get_node_or_null("CombatSystem")
+		if child != null and ("enable_face_guard" in child) and ("posture" in child):
+			return child
+		for c in n.get_children():
+			if ("enable_face_guard" in c) and ("posture" in c):
+				return c
+	return null
+
+
 static func to_debug_dict(current_posture: float = -1.0, guard_face: StringName = &"") -> Dictionary:
 	var cur := current_posture if current_posture >= 0.0 else MAX_POSTURE
 	var faces_out: Dictionary = {}
