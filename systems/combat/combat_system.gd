@@ -637,8 +637,10 @@ func _on_posture_break() -> void:
 		"stagger_left": stagger_left,
 	}
 	# Session bus when this CombatSystem is the player (sparring self-break rare but wired).
-	if _combat_owner_is_player(self) and CharacterHealth:
-		CharacterHealth.apply_stagger_tag(tag)
+	if _combat_owner_is_player(self):
+		var ch := _session_character_health()
+		if ch:
+			ch.apply_stagger_tag(tag)
 	posture_broken.emit(_owner_body, tag, dur)
 
 
