@@ -59,6 +59,35 @@ trips that would overspend the allotment (`insufficient_days`) and is spent on
 successful commits. F5 Travel panel shows remaining budget vs planned cost
 (**G**, **-** / **=** / **L**, **B** — see traversal README); Timeline panel **T** / **Y**.
 
+### Season stub (not climate sim)
+
+Simple four-season model on `WorldClock` for later gameplay hooks (travel mud,
+cattle calving / drove windows, hunger/security seasonal bias). **Not** a weather
+or crop simulation.
+
+| Assumption | Value |
+|---|---|
+| Stub year length | **360** days (`WorldClock.DAYS_PER_YEAR`) |
+| Season length | **90** days each (`WorldClock.DAYS_PER_SEASON`) |
+| Season order | `spring` → `summer` → `autumn` → `winter` (then wrap) |
+| Day 0 | Start of **spring** (landing window treated as early-season stub; May 1169 / Beltane offset can come later without changing the query API) |
+| Advance | `advance_day` derives season from `day`; emits `season_changed(season, previous)` on boundaries |
+
+```gdscript
+WorldClock.get_season()                 # Season.SPRING .. WINTER
+WorldClock.get_season_id()              # &"spring" | &"summer" | &"autumn" | &"winter"
+WorldClock.get_season_name()           # "Spring" …
+WorldClock.days_into_season()          # 0 .. 89
+WorldClock.days_remaining_in_season()  # 1 .. 90
+WorldClock.get_year_index()            # 0-based 360-day years from landing
+WorldClock.day_of_year()               # 0 .. 359
+# Optional day argument on all of the above (−1 = current day)
+WorldClock.get_season(90)               # Summer at day 90
+```
+
+Debug: Timeline HUD **T** shows `Season: Spring (spring) +0/90 rem=90 year=0 doy=0`
+on the Day line. `WorldClock.to_debug_dict()` includes the same fields.
+Headless probe: `tools/probe_worldclock_season.gd`.
 
 ---
 
@@ -165,7 +194,7 @@ No Godot binary in this agent environment — run locally:
 
 1. Open `project.godot` in **Godot 4.4+** and press **F5** (main scene).
 2. Press **T** — Timeline debug panel appears (top-right). Confirm:
-   - `Day: 0`
+   - `Day: 0` with `Season: Spring (spring) +0/90 rem=90`
    - `Bannow: … resolved=false`
    - `Wexford/Waterford: day=14 resolved=false`
    - `Aífe/Strongbow: day=28 resolved=false`
@@ -176,7 +205,9 @@ No Godot binary in this agent environment — run locally:
    - Graph→timeline unlocks block (port/dynastic/norse/bannow open; Dublin closed)
 3. Press **J** (optional) — opens `unlock_dublin_road` content stubs.
 4. Press **Y** once — advances to day 1 and resolves Bannow (absent-player,
-   history-weighted → typically `norman_foothold`).
+   history-weighted → typically `norman_foothold`). Season stays Spring (`+1/90`).
+   Optional: `WorldClock.advance_day(90)` from Remote — day 90, season flips to
+   Summer and `season_changed` fires (watch Output if connected).
 5. Keep pressing **Y** (or `WorldClock.advance_day(14)` from the remote) until
    day ≥ 14 — Wexford/Waterford resolves (typically `towns_fall`).
 5. Continue to day ≥ 28 — Aífe/Strongbow marriage resolves (typically `marriage_sealed`).
