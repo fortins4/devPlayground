@@ -43,6 +43,18 @@ var last_stagger_tag: StringName = &""
 var last_stagger_duration_sec: float = 0.0
 var last_stagger_interrupt: int = 0
 
+## Bleed / wound decay (WoundDecayTable) — stub timers; wiped by clear/restore.
+## Parallel ages for wound_tags (same length). Soft counter decays ALWAYS
+## (table OOC gate off by default). See systems/combat/wound_decay_table.gd.
+var enable_wound_decay: bool = true
+## Godot / combat can set true to pause soft-counter when table OOC-only is on.
+var in_combat: bool = false
+var wound_tag_ages: Array[float] = []
+var _bleed_tick_accum: float = 0.0
+var _soft_wound_decay_accum: float = 0.0
+var last_bleed_hp: float = 0.0
+var last_bleed_rate: float = 0.0
+
 ## Death / downed stub — HUD can show "downed"; no fancy scene.
 var is_downed: bool = false
 var is_dead: bool = false
@@ -61,6 +73,14 @@ var debug_visible: bool = false
 
 func _ready() -> void:
 	_emit_all_player()
+
+
+func _process(delta: float) -> void:
+	if not enable_wound_decay:
+		return
+	if is_dead:
+		return
+	_tick_wound_decay(delta)
 
 
 func _emit_all_player() -> void:
@@ -190,6 +210,11 @@ func get_wound_tags() -> Array[StringName]:
 
 func clear_wound_tags() -> void:
 	wound_tags.clear()
+	wound_tag_ages.clear()
+	_bleed_tick_accum = 0.0
+	_soft_wound_decay_accum = 0.0
+	last_bleed_hp = 0.0
+	last_bleed_rate = 0.0
 	last_wound_tag = &""
 	last_stagger_tag = &""
 	last_stagger_duration_sec = 0.0
@@ -209,8 +234,12 @@ func apply_wound_tag(tag: StringName) -> int:
 		applied = add_wound(delta)
 	last_wound_tag = tag
 	wound_tags.append(tag)
+	wound_tag_ages.append(0.0)
 	while wound_tags.size() > MAX_WOUND_TAGS:
 		wound_tags.pop_front()
+		if wound_tag_ages.size() > 0:
+			wound_tag_ages.pop_front()
+	_sync_wound_tag_ages()
 	wound_tag_applied.emit(tag, delta)
 	return applied
 
@@ -373,6 +402,98 @@ func modify_companion_hp(amount: float) -> float:
 	return companion_hp - before
 
 
+# --- Bleed / wound decay (WoundDecayTable) ------------------------------------
+
+func set_in_combat(active: bool) -> void:
+	in_combat = active
+
+
+func get_wound_decay_debug_text() -> String:
+	return WoundDecayTable.get_debug_text(
+		wound_tags, wounds, _bleed_tick_accum, _soft_wound_decay_accum
+	)
+
+
+func dump_wound_decay_table() -> void:
+	print(get_wound_decay_debug_text())
+	print(
+		"CharacterHealth decay: enable=%s in_combat=%s bleed_rate=%.2f last_bleed=%.2f ages=%s" % [
+			str(enable_wound_decay),
+			str(in_combat),
+			last_bleed_rate,
+			last_bleed_hp,
+			str(wound_tag_ages),
+		]
+	)
+
+
+func _sync_wound_tag_ages() -> void:
+	## Keep ages array length-matched to wound_tags (pad/truncate).
+	while wound_tag_ages.size() < wound_tags.size():
+		wound_tag_ages.append(0.0)
+	while wound_tag_ages.size() > wound_tags.size():
+		wound_tag_ages.pop_back()
+
+
+func _tick_wound_decay(delta: float) -> void:
+	_sync_wound_tag_ages()
+	var has_tags := wound_tags.size() > 0
+	var has_wounds := wounds > 0
+	if not has_tags and not has_wounds:
+		_bleed_tick_accum = 0.0
+		_soft_wound_decay_accum = 0.0
+		last_bleed_rate = 0.0
+		return
+
+	# Age tags + clear expired.
+	if has_tags:
+		var keep_tags: Array[StringName] = []
+		var keep_ages: Array[float] = []
+		for i in range(wound_tags.size()):
+			var age := wound_tag_ages[i] + delta if i < wound_tag_ages.size() else delta
+			var tag: StringName = wound_tags[i]
+			var max_age := WoundDecayTable.decay_sec(tag)
+			if max_age > 0.0 and age >= max_age:
+				continue  # tag softens / clears
+			keep_tags.append(tag)
+			keep_ages.append(age)
+		wound_tags = keep_tags
+		wound_tag_ages = keep_ages
+		if wound_tags.is_empty():
+			last_wound_tag = &""
+
+	# Bleed HP from active tags (sum rates), applied on tick interval.
+	last_bleed_rate = WoundDecayTable.total_bleed_hp_per_sec(wound_tags)
+	if last_bleed_rate > 0.0 and hp > 0.0:
+		var interval := WoundDecayTable.resolve_tick_interval(wound_tags)
+		_bleed_tick_accum += delta
+		if _bleed_tick_accum >= interval:
+			var elapsed := _bleed_tick_accum
+			_bleed_tick_accum = 0.0
+			var dmg := last_bleed_rate * elapsed
+			last_bleed_hp = dmg
+			modify_hp(-dmg)
+	else:
+		_bleed_tick_accum = 0.0
+		last_bleed_hp = 0.0
+
+	# Soft wound counter decay (ALWAYS unless table OOC-only + in_combat).
+	if wounds > 0:
+		var ooc_only := WoundDecayTable.soft_wound_decay_out_of_combat_only()
+		var allow_soft := (not ooc_only) or (not in_combat)
+		if allow_soft:
+			_soft_wound_decay_accum += delta
+			var need := WoundDecayTable.soft_wound_decay_sec()
+			while wounds > 0 and _soft_wound_decay_accum >= need:
+				_soft_wound_decay_accum -= need
+				modify_wounds(-1)
+		# else: paused in combat — leave accum (or freeze); freeze for clarity
+		elif ooc_only and in_combat:
+			pass
+	else:
+		_soft_wound_decay_accum = 0.0
+
+
 # --- Snapshot / debug ----------------------------------------------------------
 
 func to_debug_dict() -> Dictionary:
@@ -398,6 +519,13 @@ func to_debug_dict() -> Dictionary:
 		"last_stagger_tag": String(last_stagger_tag),
 		"last_stagger_duration_sec": last_stagger_duration_sec,
 		"last_stagger_interrupt": last_stagger_interrupt,
+		"enable_wound_decay": enable_wound_decay,
+		"in_combat": in_combat,
+		"last_bleed_rate": last_bleed_rate,
+		"last_bleed_hp": last_bleed_hp,
+		"bleed_tick_accum": _bleed_tick_accum,
+		"soft_wound_decay_accum": _soft_wound_decay_accum,
+		"wound_tag_ages": wound_tag_ages.duplicate(),
 		"debug_visible": debug_visible,
 	}
 
@@ -443,7 +571,16 @@ func get_debug_text() -> String:
 			last_stagger_interrupt,
 		]
 	)
-	lines.append("V toggle · 9/0 HP ±10 · 7/8 STA ±10 · 6 wound+ · 5 restore · 4 downed stub · F7 tags")
+	lines.append(
+		"Decay: enable=%s in_combat=%s bleed_rate=%.2f hp/s last_bleed=%.2f soft_accum=%.1f" % [
+			str(enable_wound_decay),
+			str(in_combat),
+			last_bleed_rate,
+			last_bleed_hp,
+			_soft_wound_decay_accum,
+		]
+	)
+	lines.append("V toggle · 9/0 HP ±10 · 7/8 STA ±10 · 6 wound+ · 5 restore · 4 downed stub · F7 tags · F10 decay")
 	lines.append("≠ CombatSystem alone (per-entity melee; player bridged). ≠ BandUpkeep (roster).")
 	return "\n".join(lines)
 

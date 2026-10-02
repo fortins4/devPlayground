@@ -11,6 +11,7 @@ extends CanvasLayer
 ##   F7 — print CombatTags catalog + last applied stagger/wound tags
 ##   F8 — print BlockPostureTable dump + current posture / last resolve
 ##   F9 — print FlankBonusTable dump + last open-side resolve
+##   F10 — print WoundDecayTable dump + CharacterHealth live bleed/soft accum
 ##   9 / 0 — HP −10 / +10
 ##   7 / 8 — stamina −10 / +10
 ##   6 — add wound
@@ -75,6 +76,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			KEY_F9:
 				_dump_flank_bonus_table()
+				get_viewport().set_input_as_handled()
+			KEY_F10:
+				_dump_wound_decay_table()
 				get_viewport().set_input_as_handled()
 			KEY_9:
 				if CharacterHealth:
@@ -194,6 +198,14 @@ func _dump_flank_bonus_table() -> void:
 	_refresh()
 
 
+func _dump_wound_decay_table() -> void:
+	if CharacterHealth and CharacterHealth.has_method("dump_wound_decay_table"):
+		CharacterHealth.dump_wound_decay_table()
+	else:
+		print(WoundDecayTable.get_debug_text())
+	_refresh()
+
+
 func _refresh() -> void:
 	if label == null:
 		return
@@ -227,6 +239,10 @@ func _refresh() -> void:
 		text += "\n" + combat.get_flank_bonus_debug_text()
 	else:
 		text += "\n" + FlankBonusTable.get_debug_text()
+	if CharacterHealth and CharacterHealth.has_method("get_wound_decay_debug_text"):
+		text += "\n" + CharacterHealth.get_wound_decay_debug_text()
+	else:
+		text += "\n" + WoundDecayTable.get_debug_text()
 	label.text = text
 
 

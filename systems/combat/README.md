@@ -110,7 +110,7 @@ Edit numbers in `StaminaEconomy` only; do not scatter magic floats back into
    panel (`CombatSystem.dump_stamina_economy()` / `StaminaEconomy.get_debug_text()`).
 4. Swing / sprint and confirm STA drops; after recover + delay, regen resumes at 18/s.
 
-Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**, flank **F9**):
+Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**, flank **F9**, wound decay **F10**):
 **V** show table · **backtick** print stamina dump.
 
 ## Hatchet damage / reach table (directional + charge)
@@ -182,7 +182,7 @@ costs here (queue #1 owns those).
    `dir=top tier=tap|charged` with matching dmg/reach.
 
 Key map (no collision with stamina **V** / **backtick**, tags **F7**, block
-**F8**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F8**, flank **F9**, wound decay **F10**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F6** print hatchet table dump.
 
 ## Stagger / wound tags (combat-support data)
@@ -207,9 +207,9 @@ gates while staggered — minimal CC hook so dummy AI that already respects
 
 | Tag | `wound_delta` | Notes |
 |---|---|---|
-| `&"bruise"` | 0 | Tag only — no soft-counter tick |
-| `&"cut"` | +1 | Edge bite |
-| `&"deep"` | +2 | Charged overhead / heavy bite |
+| `&"bruise"` | 0 | Tag only — no soft-counter tick; bleed 0 via WoundDecayTable |
+| `&"cut"` | +1 | Edge bite; bleed rate from WoundDecayTable |
+| `&"deep"` | +2 | Charged overhead / heavy bite; bleed rate from WoundDecayTable |
 
 Player hits feed `CharacterHealth.apply_wound_tag` / `apply_stagger_tag` (signals
 `wound_tag_applied`, `stagger_applied` + short tag list). NPCs get stagger stub
@@ -242,7 +242,7 @@ Edit catalog / mapping in `CombatTags` only — do not retune `StaminaEconomy` o
    expected tags; player soft wounds tick on `cut` / `deep` when *you* are hit.
 
 Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, block
-**F8**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F8**, flank **F9**, wound decay **F10**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F7** print combat tags dump.
 
 ## Block / posture face-guard numbers (sparring)
@@ -325,7 +325,7 @@ stubs or `HatchetAttackTable` here.
    posture chip.
 
 Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
-**F7**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F7**, flank **F9**, wound decay **F10**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F8** print block/posture dump.
 
 ## Flank bonus (open-side hits)
@@ -380,8 +380,67 @@ Edit numbers in `FlankBonusTable` only — do not retune `BlockPostureTable` /
    wrong-face / rear multiply remaining damage.
 
 Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
-**F7**, block **F8**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F7**, block **F8**, wound decay **F10**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F9** print flank bonus dump.
+
+## Bleed / wound decay over time
+
+Tunable greybox data — **`systems/combat/wound_decay_table.gd`**
+(`class_name WoundDecayTable`). Bleed HP drain + named-tag clear times + soft
+wound-counter decay. Godot owns feel (VFX, limp, bandage UI); Systems owns this
+table + a light tick on `CharacterHealth` when wounds/tags are present.
+
+**Not** a full injury sim — no scars, limb loss, or medical minigame.
+
+### Per-tag numbers (greybox)
+
+| Tag | `bleed_hp_per_sec` | `decay_sec` | `tick_interval` | Notes |
+|---|---|---|---|---|
+| `&"bruise"` | **0.0** | 20 s | 0.5 s | No bleed — tag fades |
+| `&"cut"` | **1.0** | 45 s | 0.5 s | Edge bleed (CombatTags cut) |
+| `&"deep"` | **2.5** | 70 s | 0.5 s | Heavy bleed (CombatTags deep) |
+
+Shared cadence default: `TICK_INTERVAL_SEC` **0.5 s**. Bleed applies as
+`sum(bleed rates) × elapsed` each tick while tags are present.
+
+### Soft wound counter decay
+
+| Knob | Value | Rule |
+|---|---|---|
+| `SOFT_WOUND_DECAY_SEC` | **30 s** | −1 soft wound every 30 s while `wounds > 0` |
+| `SOFT_WOUND_DECAY_OUT_OF_COMBAT_ONLY` | **false** | **ALWAYS** decay (stub). Set true + `CharacterHealth.set_in_combat` to gate later |
+
+Tag clear after `decay_sec` does **not** auto-adjust the integer wound counter
+(counter has its own timer). `clear_wounds` / `restore_full` / `clear_wound_tags`
+wipe tags, ages, and bleed/soft accumulators.
+
+### CharacterHealth wire (stub)
+
+- `_process` → `_tick_wound_decay` when `enable_wound_decay` (default true) and not dead
+- Ages parallel `wound_tags`; expired tags drop off the list
+- `get_wound_decay_debug_text()` / `dump_wound_decay_table()` for F5
+- CombatTags `wound_entry` optionally surfaces `bleed_hp_per_sec` / `decay_sec` from this table (link only — do not retune flank/posture/stamina/hatchet numbers here)
+
+API: `entry(tag)`, `bleed_hp_per_sec`, `decay_sec`, `total_bleed_hp_per_sec(tags)`,
+`resolve_tick_interval(tags)`, `to_debug_dict()`, `get_debug_text(...)`.
+
+Edit numbers in `WoundDecayTable` only.
+
+### F5 probe (wound decay)
+
+1. Open `scenes/main/main.tscn` and press **F5**.
+2. Press **V** — panel appends the WoundDecayTable + live bleed/soft accum.
+3. Press **F10** — prints the same dump to the Output panel
+   (`CharacterHealth.dump_wound_decay_table()` /
+   `WoundDecayTable.get_debug_text()`).
+4. Apply a cut/deep (take a charged hit, or Remote:
+   `CharacterHealth.apply_wound_tag(&"cut")`). Confirm bleed_rate > 0 and HP
+   ticks down; wait / Remote advance soft_accum toward 30 s for −1 wound;
+   **5** restore wipes state.
+
+Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
+**F7**, block **F8**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F10** print wound decay dump.
 
 ## Dummy counter
 
@@ -421,6 +480,7 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 - **Stamina cost + recovery:** `StaminaEconomy` (hatchet recovery synced to timing polish 0.34 / 0.58)
 - **Face-guard / posture:** `BlockPostureTable` (sparring; `enable_face_guard`)
 - **Open-side flank mult:** `FlankBonusTable` (only when face does not mitigate)
+- **Bleed / wound decay:** `WoundDecayTable` (CharacterHealth tick; cut/deep bleed)
 - **Charge full:** 0.75s hold
 - **Side hitboxes:** widened for flank chops vs face-blocking sparring foe
 
