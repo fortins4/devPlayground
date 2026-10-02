@@ -110,7 +110,7 @@ Edit numbers in `StaminaEconomy` only; do not scatter magic floats back into
    panel (`CombatSystem.dump_stamina_economy()` / `StaminaEconomy.get_debug_text()`).
 4. Swing / sprint and confirm STA drops; after recover + delay, regen resumes at 18/s.
 
-Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**):
+Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**):
 **V** show table · **backtick** print stamina dump.
 
 ## Hatchet damage / reach table (directional + charge)
@@ -181,8 +181,8 @@ costs here (queue #1 owns those).
 4. Swing LMB/RMB with hatchet equipped; confirm last resolved shows
    `dir=top tier=tap|charged` with matching dmg/reach.
 
-Key map (no collision with stamina **V** / **backtick**, Honor **H**, Timeline
-**T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+Key map (no collision with stamina **V** / **backtick**, tags **F7**, block
+**F8**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F6** print hatchet table dump.
 
 ## Stagger / wound tags (combat-support data)
@@ -241,9 +241,92 @@ Edit catalog / mapping in `CombatTags` only — do not retune `StaminaEconomy` o
 4. Swing hatchet into the dummy (or take a hit); confirm last applied shows
    expected tags; player soft wounds tick on `cut` / `deep` when *you* are hit.
 
-Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, Honor
-**H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, block
+**F8**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F7** print combat tags dump.
+
+## Block / posture face-guard numbers (sparring)
+
+Tunable greybox data — **`systems/combat/block_posture_table.gd`**
+(`class_name BlockPostureTable`). Face guards ≠ full shield block. Shield stubs
+stay on `StaminaEconomy` (`BLOCK_DRAIN_PER_SEC` 8 / `BLOCK_HIT_COST` 12 /
+`BLOCK_MIN_STAMINA` 5) with `CombatSystem.enable_block` **off** for the player
+kit. This table is the **sparring** resource: hold a face aligned with hatchet
+dirs; matching attack → mitigate + chip posture + stamina cost; mismatch /
+`&"open"` → full damage.
+
+Feel (anims, dummy face-switch AI) stays Godot-owned. Systems owns table +
+lookup helpers + a light opt-in path on `CombatSystem`.
+
+### Guard faces
+
+| Face | Meaning |
+|---|---|
+| `&"top"` | Overhead high guard |
+| `&"left"` | Left face (sideswing cover) |
+| `&"right"` | Right face (sideswing cover) |
+| `&"open"` | No guard — full damage; faster posture regen |
+
+Default face: **`&"open"`**.
+
+### Posture pool
+
+| Knob | Value | Notes |
+|---|---|---|
+| **Max posture** | `100` | Separate from stamina |
+| **Regen /s** | `12` | × per-face `recover_rate` |
+| **Break stun** | `0.70 s` | After posture hits 0 — forced open |
+
+### Per-face numbers
+
+| Face | Mitigation | STA cost on hit | Posture chip | Recover rate | Window sec |
+|---|---|---|---|---|---|
+| top | 0.60 | 8 | 22 | 1.00 | 1.40 |
+| left | 0.55 | 6 | 18 | 1.05 | 1.20 |
+| right | 0.55 | 6 | 18 | 1.05 | 1.20 |
+| open | 0.00 | 0 | 0 | 1.15 | 0.00 |
+
+Design notes:
+
+- **Face match**: `guard_face == attack_dir` (both `top`/`left`/`right`) →
+  strip `damage_mitigation` fraction, spend STA, chip posture.
+- **Open / mismatch**: full damage. **Open-side / flank bonus formula = queue #2**
+  (document only — no math here).
+- **~4 matched top absorbs** to break (`floor(100/22)`). Empty → full ~8.3 s at
+  12/s (before face recover_rate / break stun).
+- Lighter than full shield stub (~0.75 mitigate / hit cost 12) — face covers one
+  line, not the whole front.
+
+### CombatSystem wire (opt-in)
+
+- `enable_face_guard` (**default false** — player kit stays shield-off). Sparring
+  foe / Godot can set true.
+- `set_face_guard(face)` / `set_guard_direction(StrikeDirection)` — hold a face.
+- `mitigation_for(guard_face, attack_dir)` / `apply_guard_hit_cost(attack_dir, dmg)`
+  — Godot-callable resolve helpers without forcing player shield on.
+- `apply_damage(..., attack_dir)` uses the table when `enable_face_guard` and
+  posture is not broken. Existing `enable_block` shield stubs **unchanged**.
+
+Helpers: `faces_match`, `is_open_side`, `face_entry`, `resolve_guard_hit`,
+`to_debug_dict()`, `get_debug_text(...)`.
+
+Edit numbers in `BlockPostureTable` only — do not retune `StaminaEconomy` shield
+stubs or `HatchetAttackTable` here.
+
+### F5 probe (block / posture)
+
+1. Open `scenes/main/main.tscn` and press **F5**.
+2. Press **V** — panel appends the BlockPostureTable + current posture / last resolve.
+3. Press **F8** — prints the same dump to the Output panel
+   (`CombatSystem.dump_block_posture_table()` /
+   `BlockPostureTable.get_debug_text()`).
+4. (Optional) Enable `enable_face_guard` on a sparring foe CombatSystem, set a
+   face, swing matching / mismatching dirs; confirm mitigate vs full damage and
+   posture chip.
+
+Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
+**F7**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**F8** print block/posture dump.
 
 ## Dummy counter
 

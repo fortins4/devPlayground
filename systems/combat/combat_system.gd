@@ -43,6 +43,7 @@ const WEAPON_NAMES := {
 @export var team: int = 0 ## 0 = player allies, 1 = hostiles
 @export var starting_weapon: Weapon = Weapon.HATCHET
 @export var enable_block: bool = false ## Shield later; off for cattle-farm starter kit
+@export var enable_face_guard: bool = false ## Sparring face-guard / posture; off for player kit
 @export var enable_hit_feedback: bool = true
 @export var hurt_flash_secs: float = 0.14
 @export var knockback_light: float = 2.8
@@ -63,6 +64,11 @@ var is_dead: bool = false
 var is_blocking: bool = false
 ## Which strike face is guarded when blocking (top/left/right). Mismatch = open.
 var guard_direction: StrikeDirection = StrikeDirection.TOP
+## Face-guard posture (BlockPostureTable). Used when enable_face_guard; independent of shield block.
+var guard_face: StringName = BlockPostureTable.DEFAULT_FACE
+var posture: float = BlockPostureTable.MAX_POSTURE
+var posture_break_left: float = 0.0
+var _last_guard_resolve: Dictionary = {}
 var is_attacking: bool = false
 var attack_recovery_left: float = 0.0
 var hitbox_active_left: float = 0.0
@@ -137,6 +143,8 @@ const HATCHET_DIR_TIMING := {
 func _ready() -> void:
 	health = max_health
 	stamina = max_stamina
+	posture = BlockPostureTable.MAX_POSTURE
+	guard_face = BlockPostureTable.DEFAULT_FACE
 	current_weapon = starting_weapon
 	_owner_body = get_parent() as Node3D
 	_hitbox = get_node_or_null("../Hitbox") as Area3D
@@ -212,6 +220,8 @@ func _physics_process(delta: float) -> void:
 			_spend_stamina(block_drain)
 		else:
 			is_blocking = false
+
+	_tick_face_guard_posture(delta)
 
 
 func weapon_name() -> StringName:
@@ -487,12 +497,68 @@ func set_blocking(holding: bool) -> void:
 	is_blocking = holding and stamina > StaminaEconomy.BLOCK_MIN_STAMINA
 
 
+## Sparring face-guard (BlockPostureTable). Independent of enable_block shield stubs.
+func set_face_guard(face: StringName) -> void:
+	guard_face = BlockPostureTable.normalize_face(face)
+
+
+## Bridge for Godot sparring foe (StrikeDirection → face StringName + enum).
 func set_guard_direction(direction: StrikeDirection) -> void:
 	guard_direction = direction
+	set_face_guard(DIRECTION_NAMES.get(direction, &"top"))
 
 
 func guard_direction_name() -> StringName:
 	return DIRECTION_NAMES.get(guard_direction, &"top")
+
+
+func mitigation_for(guard: StringName, attack_dir: StringName) -> float:
+	return BlockPostureTable.mitigation_for(guard, attack_dir)
+
+
+## Apply table costs for a matched face-guard hit. Returns resolve dict.
+## Does not change HP — caller / apply_damage handles remaining damage.
+func apply_guard_hit_cost(attack_dir: StringName, incoming_damage: float) -> Dictionary:
+	var resolved: Dictionary = BlockPostureTable.resolve_guard_hit(
+		guard_face, attack_dir, incoming_damage
+	)
+	_last_guard_resolve = resolved
+	if not bool(resolved.get("matched", false)):
+		return resolved
+	if posture_break_left > 0.0:
+		# Broken posture cannot absorb — treat as open.
+		resolved["matched"] = false
+		resolved["open_side"] = true
+		resolved["mitigation"] = 0.0
+		resolved["mitigated_amount"] = 0.0
+		resolved["remaining_damage"] = float(resolved.get("incoming_damage", incoming_damage))
+		resolved["stamina_cost"] = 0.0
+		resolved["posture_chip"] = 0.0
+		_last_guard_resolve = resolved
+		return resolved
+	var sta_cost := float(resolved.get("stamina_cost", 0.0))
+	if sta_cost > 0.0:
+		_spend_stamina(sta_cost)
+	var chip := float(resolved.get("posture_chip", 0.0))
+	if chip > 0.0:
+		posture = maxf(0.0, posture - chip)
+		if posture <= 0.01:
+			posture = 0.0
+			posture_break_left = maxf(posture_break_left, BlockPostureTable.BREAK_STUN_SEC)
+			guard_face = &"open"
+	return resolved
+
+
+func _tick_face_guard_posture(delta: float) -> void:
+	if not enable_face_guard:
+		return
+	if posture_break_left > 0.0:
+		posture_break_left = maxf(0.0, posture_break_left - delta)
+		return
+	if posture >= BlockPostureTable.MAX_POSTURE:
+		return
+	var rate := BlockPostureTable.REGEN_PER_SEC * BlockPostureTable.recover_rate_for(guard_face)
+	posture = minf(BlockPostureTable.MAX_POSTURE, posture + rate * delta)
 
 
 func apply_damage(
@@ -507,15 +573,26 @@ func apply_damage(
 	if is_charging:
 		cancel_charge()
 	var mitigated := 0.0
-	# Block only the guarded face (top/left/right). Wrong face or open guard = full damage.
-	var face_match := strike_direction == guard_direction
-	if enable_block and is_blocking and face_match and stamina > 0.0:
-		mitigated = amount * 0.85
-		amount -= mitigated
-		_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
-		blocked.emit(_owner_body, from, mitigated)
-		if amount <= 0.01:
-			return 0.0
+	var attack_dir: StringName = DIRECTION_NAMES.get(strike_direction, &"top")
+	# Face-guard path (Systems BlockPostureTable). Independent of enable_block.
+	if enable_face_guard and posture_break_left <= 0.0:
+		var resolved := apply_guard_hit_cost(attack_dir, amount)
+		if bool(resolved.get("matched", false)):
+			mitigated = float(resolved.get("mitigated_amount", 0.0))
+			amount = float(resolved.get("remaining_damage", amount))
+			blocked.emit(_owner_body, from, mitigated)
+			if amount <= 0.01:
+				return 0.0
+	# Directional face-block (Godot sparring / enable_block): guarded face only.
+	elif enable_block and is_blocking and stamina > 0.0:
+		var face_match := strike_direction == guard_direction
+		if face_match:
+			mitigated = amount * 0.85
+			amount -= mitigated
+			_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
+			blocked.emit(_owner_body, from, mitigated)
+			if amount <= 0.01:
+				return 0.0
 	health = maxf(0.0, health - amount)
 	health_changed.emit(health, max_health)
 	damage_taken.emit(amount, from)
@@ -533,6 +610,7 @@ func _die() -> void:
 	is_attacking = false
 	is_blocking = false
 	is_charging = false
+	posture_break_left = 0.0
 	if _hitbox:
 		_hitbox.monitoring = false
 	reset_weapon_pose()
@@ -1001,6 +1079,24 @@ func dump_combat_tags() -> void:
 				CharacterHealth.last_stagger_interrupt,
 			]
 		)
+
+
+func get_block_posture_debug_text() -> String:
+	return BlockPostureTable.get_debug_text(posture, guard_face, _last_guard_resolve)
+
+
+func dump_block_posture_table() -> void:
+	## Cheap F5 probe — print BlockPostureTable + current posture / last resolve.
+	print(get_block_posture_debug_text())
+	print(
+		"CombatSystem face_guard: enable=%s guard=%s posture=%.0f/%.0f break_left=%.2fs" % [
+			str(enable_face_guard),
+			String(guard_face),
+			posture,
+			BlockPostureTable.MAX_POSTURE,
+			posture_break_left,
+		]
+	)
 
 
 ## Apply a stagger tag onto this entity (short CC stub countdown).
