@@ -9,6 +9,7 @@ extends CanvasLayer
 ##   ` (backtick / QuoteLeft) — print StaminaEconomy dump to Output
 ##   F6 — print HatchetAttackTable dump + last resolved dir/tier/dmg/reach
 ##   F7 — print CombatTags catalog + last applied stagger/wound tags
+##   F8 — print BlockPostureTable dump + current posture / last resolve
 ##   9 / 0 — HP −10 / +10
 ##   7 / 8 — stamina −10 / +10
 ##   6 — add wound
@@ -67,6 +68,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			KEY_F7:
 				_dump_combat_tags()
+				get_viewport().set_input_as_handled()
+			KEY_F8:
+				_dump_block_posture_table()
 				get_viewport().set_input_as_handled()
 			KEY_9:
 				if CharacterHealth:
@@ -168,6 +172,15 @@ func _dump_combat_tags() -> void:
 	_refresh()
 
 
+func _dump_block_posture_table() -> void:
+	var combat := _find_player_combat()
+	if combat and combat.has_method("dump_block_posture_table"):
+		combat.dump_block_posture_table()
+	else:
+		print(BlockPostureTable.get_debug_text())
+	_refresh()
+
+
 func _refresh() -> void:
 	if label == null:
 		return
@@ -193,6 +206,10 @@ func _refresh() -> void:
 		text += "\n" + combat.get_combat_tags_debug_text()
 	else:
 		text += "\n" + CombatTags.get_debug_text()
+	if combat and combat.has_method("get_block_posture_debug_text"):
+		text += "\n" + combat.get_block_posture_debug_text()
+	else:
+		text += "\n" + BlockPostureTable.get_debug_text()
 	label.text = text
 
 
