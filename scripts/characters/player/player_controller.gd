@@ -61,6 +61,11 @@ var drag_stamina_exhausted: bool = false
 var is_mounted: bool = false
 var mounted_horse: Node3D = null
 
+## Directional hatchet: hold LMB to charge; mouse flick / WASD picks top|left|right.
+var _charge_mouse_accum: Vector2 = Vector2.ZERO
+var _hatchet_charge_armed: bool = false
+const CHARGE_DIR_MOUSE_THRESH := 28.0 ## px of relative mouse during hold
+
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -122,11 +127,21 @@ func _unhandled_input(event: InputEvent) -> void:
 	if is_mounted:
 		return
 
+	# Accumulate mouse delta while charging so flick direction can pick the arc.
+	if combat.is_charging and event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_charge_mouse_accum += (event as InputEventMouseMotion).relative
+		_apply_charge_direction_from_input()
+
 	if event.is_action_pressed("attack_light"):
-		combat.try_attack(&"light")
+		_begin_hatchet_or_light()
+	elif event.is_action_released("attack_light"):
+		_release_hatchet_or_ignore()
 	elif event.is_action_pressed("attack_heavy"):
-		combat.try_attack(&"heavy")
+		# RMB: instant full-power strike in current aimed direction (no hold).
+		_instant_power_strike()
 	elif event.is_action_pressed("cycle_weapon"):
+		if combat.is_charging:
+			combat.cancel_charge()
 		combat.cycle_weapon(1)
 	elif event.is_action_pressed("weapon_hatchet"):
 		combat.set_weapon(CombatSystem.Weapon.HATCHET)
@@ -137,6 +152,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if combat and combat.is_charging and not is_mounted:
+		_apply_charge_direction_from_input()
+
 	if is_mounted:
 		# Horse owns world locomotion; keep residual velocity cleared.
 		# Rider body uses seated bind pose (KerneLocomotion.tick_mounted) driven by horse.
@@ -147,7 +165,9 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 
-	var locked := combat != null and not combat.can_move()
+	var locked := combat != null and not combat.can_move() and not (combat != null and combat.is_charging)
+	# Charging allows half-speed footwork so direction + spacing stay readable.
+	var charging_move := combat != null and combat.is_charging
 	var want_crouch := Input.is_action_pressed("crouch") and is_on_floor() and not locked
 	# Stay crouched mid-air until land if already crouching; no jump while crouched.
 	if not is_on_floor() and is_crouching:
@@ -189,6 +209,8 @@ func _physics_process(delta: float) -> void:
 	if locked:
 		target_speed = 0.0
 		direction = Vector3.ZERO
+	elif charging_move:
+		target_speed = WALK_SPEED * 0.45
 
 	var target_vel := direction * target_speed
 	var horiz := Vector3(velocity.x, 0.0, velocity.z)
@@ -285,6 +307,78 @@ func _move_vector() -> Vector2:
 	return v.normalized()
 
 
+func _begin_hatchet_or_light() -> void:
+	if combat == null:
+		return
+	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
+		_charge_mouse_accum = Vector2.ZERO
+		_hatchet_charge_armed = true
+		if not combat.begin_charge():
+			_hatchet_charge_armed = false
+			combat.try_attack(&"light", CombatSystem.StrikeDirection.TOP)
+		else:
+			_apply_charge_direction_from_input()
+	else:
+		combat.try_attack(&"light")
+
+
+func _release_hatchet_or_ignore() -> void:
+	if combat == null:
+		return
+	if not _hatchet_charge_armed and not combat.is_charging:
+		return
+	_hatchet_charge_armed = false
+	if combat.is_charging:
+		_apply_charge_direction_from_input()
+		combat.release_charged_attack()
+
+
+func _instant_power_strike() -> void:
+	if combat == null:
+		return
+	if combat.is_charging:
+		combat.cancel_charge()
+		_hatchet_charge_armed = false
+	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
+		var direction := _resolve_strike_direction(true)
+		combat.try_attack(&"heavy", direction, 1.0)
+	else:
+		combat.try_attack(&"heavy")
+
+
+func _apply_charge_direction_from_input() -> void:
+	if combat == null or not combat.is_charging:
+		return
+	combat.set_charge_direction(_resolve_strike_direction(false))
+
+
+func _resolve_strike_direction(instant: bool) -> CombatSystem.StrikeDirection:
+	## Priority: WASD lateral (A/D) → mouse flick during charge → camera pitch (up = top).
+	## Neutral defaults to TOP (classic hatchet overhead).
+	var move := _move_vector()
+	if move.x <= -0.45:
+		return CombatSystem.StrikeDirection.LEFT
+	if move.x >= 0.45:
+		return CombatSystem.StrikeDirection.RIGHT
+	if move.y <= -0.45:
+		return CombatSystem.StrikeDirection.TOP
+
+	var mx := _charge_mouse_accum.x
+	var my := _charge_mouse_accum.y
+	if not instant and _charge_mouse_accum.length() >= CHARGE_DIR_MOUSE_THRESH:
+		if absf(my) > absf(mx) * 0.85 and my < 0.0:
+			return CombatSystem.StrikeDirection.TOP
+		if mx <= -CHARGE_DIR_MOUSE_THRESH * 0.55:
+			return CombatSystem.StrikeDirection.LEFT
+		if mx >= CHARGE_DIR_MOUSE_THRESH * 0.55:
+			return CombatSystem.StrikeDirection.RIGHT
+
+	# Camera pitched up favors overhead even without a flick.
+	if pivot and pivot.rotation.x <= deg_to_rad(-12.0):
+		return CombatSystem.StrikeDirection.TOP
+	return CombatSystem.StrikeDirection.TOP
+
+
 func _on_weapon_changed(weapon: StringName) -> void:
 	_sync_back_goad_visibility()
 	# Hide belt knife mesh when knife is drawn as active weapon.
@@ -326,6 +420,10 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	if right_arm == null:
 		return
 
+	var direction := CombatSystem.StrikeDirection.TOP
+	if combat:
+		direction = combat.last_strike_direction()
+
 	# Stronger readable arcs than the old capsule slice.
 	var windup_delta := Vector3(deg_to_rad(-55.0 if heavy else -32.0), deg_to_rad(-15.0 if heavy else -8.0), deg_to_rad(-25.0 if heavy else -14.0))
 	var contact_delta := Vector3(deg_to_rad(25.0 if heavy else 12.0), deg_to_rad(10.0), deg_to_rad(35.0 if heavy else 22.0))
@@ -333,6 +431,31 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	var torso_windup := Vector3(deg_to_rad(-8.0 if heavy else -4.0), deg_to_rad(-12.0 if heavy else -6.0), 0.0)
 	var torso_contact := Vector3(deg_to_rad(10.0 if heavy else 5.0), deg_to_rad(8.0 if heavy else 4.0), 0.0)
 	var torso_follow := Vector3(deg_to_rad(14.0 if heavy else 8.0), deg_to_rad(12.0 if heavy else 6.0), 0.0)
+
+	if weapon == &"hatchet":
+		match direction:
+			CombatSystem.StrikeDirection.LEFT:
+				windup_delta = Vector3(deg_to_rad(-30.0 if heavy else -18.0), deg_to_rad(35.0 if heavy else 22.0), deg_to_rad(-40.0 if heavy else -25.0))
+				contact_delta = Vector3(deg_to_rad(15.0 if heavy else 8.0), deg_to_rad(-20.0), deg_to_rad(25.0 if heavy else 15.0))
+				follow_delta = Vector3(deg_to_rad(25.0 if heavy else 14.0), deg_to_rad(-45.0), deg_to_rad(40.0 if heavy else 25.0))
+				torso_windup = Vector3(deg_to_rad(-4.0), deg_to_rad(18.0 if heavy else 10.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(6.0), deg_to_rad(-10.0 if heavy else -6.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(8.0), deg_to_rad(-16.0 if heavy else -10.0), 0.0)
+			CombatSystem.StrikeDirection.RIGHT:
+				windup_delta = Vector3(deg_to_rad(-30.0 if heavy else -18.0), deg_to_rad(-40.0 if heavy else -25.0), deg_to_rad(20.0 if heavy else 12.0))
+				contact_delta = Vector3(deg_to_rad(15.0 if heavy else 8.0), deg_to_rad(25.0), deg_to_rad(-15.0 if heavy else -8.0))
+				follow_delta = Vector3(deg_to_rad(25.0 if heavy else 14.0), deg_to_rad(50.0), deg_to_rad(-25.0 if heavy else -14.0))
+				torso_windup = Vector3(deg_to_rad(-4.0), deg_to_rad(-20.0 if heavy else -12.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(6.0), deg_to_rad(12.0 if heavy else 7.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(8.0), deg_to_rad(18.0 if heavy else 10.0), 0.0)
+			_:
+				# TOP overhead — higher cock, steeper drop.
+				windup_delta = Vector3(deg_to_rad(-75.0 if heavy else -45.0), deg_to_rad(-8.0), deg_to_rad(-18.0 if heavy else -10.0))
+				contact_delta = Vector3(deg_to_rad(35.0 if heavy else 20.0), deg_to_rad(5.0), deg_to_rad(25.0 if heavy else 15.0))
+				follow_delta = Vector3(deg_to_rad(70.0 if heavy else 45.0), deg_to_rad(10.0), deg_to_rad(35.0 if heavy else 22.0))
+				torso_windup = Vector3(deg_to_rad(-14.0 if heavy else -8.0), deg_to_rad(-6.0), 0.0)
+				torso_contact = Vector3(deg_to_rad(16.0 if heavy else 9.0), deg_to_rad(4.0), 0.0)
+				torso_follow = Vector3(deg_to_rad(22.0 if heavy else 12.0), deg_to_rad(6.0), 0.0)
 
 	if weapon == &"goad":
 		windup_delta = Vector3(deg_to_rad(-70.0 if heavy else -40.0), deg_to_rad(-5.0), deg_to_rad(-10.0))

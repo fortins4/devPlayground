@@ -12,8 +12,19 @@ signal health_changed(current: float, maximum: float)
 signal blocked(defender: Node, attacker: Node, mitigated: float)
 signal died(victim: Node)
 signal weapon_changed(weapon: StringName)
+signal charge_started(weapon: StringName)
+signal charge_updated(ratio: float, direction: StringName)
+signal charge_cancelled(weapon: StringName)
+signal charge_released(ratio: float, direction: StringName, kind: StringName)
 
 enum Weapon { HATCHET, KNIFE, GOAD }
+enum StrikeDirection { TOP, LEFT, RIGHT }
+
+const DIRECTION_NAMES := {
+	StrikeDirection.TOP: &"top",
+	StrikeDirection.LEFT: &"left",
+	StrikeDirection.RIGHT: &"right",
+}
 
 const WEAPON_NAMES := {
 	Weapon.HATCHET: &"hatchet",
@@ -35,6 +46,9 @@ const WEAPON_NAMES := {
 @export var hit_stop_light: float = 0.045
 @export var hit_stop_heavy: float = 0.075
 @export var show_damage_numbers: bool = true
+@export var charge_full_secs: float = 0.55 ## Hold time to reach full power (hatchet)
+@export var charge_min_release_secs: float = 0.08 ## Below this = tap light
+@export var enable_directional_hatchet: bool = true
 
 var health: float = 100.0
 var stamina: float = 100.0
@@ -57,6 +71,14 @@ var knockback_vel: Vector3 = Vector3.ZERO
 var _hurt_flash_tween: Tween
 var _hit_stop_running: bool = false
 var _mesh_overlays: Array[MeshInstance3D] = []
+
+## Hold-to-charge (hatchet-first directional chop).
+var is_charging: bool = false
+var charge_time: float = 0.0
+var charge_ratio: float = 0.0
+var charge_direction: StrikeDirection = StrikeDirection.TOP
+var _last_strike_direction: StrikeDirection = StrikeDirection.TOP
+var _charge_pose_tween: Tween
 
 # Per-weapon attack profiles: light / heavy
 const PROFILES := {
@@ -113,6 +135,12 @@ func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
 
+	if is_charging:
+		charge_time += delta
+		charge_ratio = clampf(charge_time / maxf(0.05, charge_full_secs), 0.0, 1.0)
+		_update_charge_pose(charge_ratio, charge_direction)
+		charge_updated.emit(charge_ratio, DIRECTION_NAMES[charge_direction])
+
 	if attack_recovery_left > 0.0:
 		attack_recovery_left = maxf(0.0, attack_recovery_left - delta)
 		if attack_recovery_left <= 0.0:
@@ -123,7 +151,7 @@ func _physics_process(delta: float) -> void:
 		if hitbox_active_left <= 0.0 and _hitbox:
 			_hitbox.monitoring = false
 
-	var regenerating := not is_attacking and not is_blocking
+	var regenerating := not is_attacking and not is_blocking and not is_charging
 	if regenerating and stamina < max_stamina:
 		stamina = minf(max_stamina, stamina + stamina_regen_per_sec * delta)
 		stamina_changed.emit(stamina, max_stamina)
@@ -145,6 +173,10 @@ func can_move() -> bool:
 	return not is_dead and attack_recovery_left <= 0.05
 
 
+func can_strafe_while_charging() -> bool:
+	return is_charging and not is_dead and not is_attacking
+
+
 func is_in_recovery() -> bool:
 	return attack_recovery_left > 0.0
 
@@ -152,6 +184,8 @@ func is_in_recovery() -> bool:
 func set_weapon(weapon: Weapon) -> void:
 	if is_attacking:
 		return
+	if is_charging:
+		cancel_charge()
 	current_weapon = weapon
 	_apply_weapon_visual()
 	weapon_changed.emit(WEAPON_NAMES[current_weapon])
@@ -177,11 +211,108 @@ func try_sprint_drain(delta: float) -> bool:
 	return stamina > 0.0
 
 
-func try_attack(kind: StringName = &"light") -> bool:
+func direction_name(direction: StrikeDirection = charge_direction) -> StringName:
+	return DIRECTION_NAMES.get(direction, &"top")
+
+
+func last_strike_direction() -> StrikeDirection:
+	return _last_strike_direction
+
+
+func get_charge_ratio() -> float:
+	return charge_ratio if is_charging else 0.0
+
+
+func begin_charge() -> bool:
+	## Start hold-to-charge (hatchet directional). Knife/goad fall back to light tap via release.
+	if is_dead or is_attacking or is_charging:
+		return false
+	if current_weapon != Weapon.HATCHET or not enable_directional_hatchet:
+		return false
+	is_charging = true
+	is_blocking = false
+	charge_time = 0.0
+	charge_ratio = 0.0
+	charge_direction = StrikeDirection.TOP
+	charge_started.emit(WEAPON_NAMES[current_weapon])
+	charge_updated.emit(0.0, DIRECTION_NAMES[charge_direction])
+	_update_charge_pose(0.0, charge_direction)
+	return true
+
+
+func set_charge_direction(direction: StrikeDirection) -> void:
+	if not is_charging:
+		return
+	if charge_direction == direction:
+		return
+	charge_direction = direction
+	_update_charge_pose(charge_ratio, charge_direction)
+	charge_updated.emit(charge_ratio, DIRECTION_NAMES[charge_direction])
+
+
+func cancel_charge() -> void:
+	if not is_charging:
+		return
+	is_charging = false
+	charge_time = 0.0
+	charge_ratio = 0.0
+	_clear_charge_pose()
+	charge_cancelled.emit(WEAPON_NAMES[current_weapon])
+
+
+func release_charged_attack() -> bool:
+	## Release hold: power scales with charge_ratio. Tap (~min secs) = light; full hold = heavy.
+	if not is_charging:
+		return false
+	var held := charge_time
+	var ratio := charge_ratio
+	var direction := charge_direction
+	is_charging = false
+	charge_time = 0.0
+	charge_ratio = 0.0
+	_clear_charge_pose()
+	var kind: StringName = &"light" if held < charge_min_release_secs or ratio < 0.22 else &"heavy"
+	# Blend: short hold still light; mid/full uses heavy profile with scaled damage/cost.
+	var power := 0.0 if kind == &"light" else clampf(ratio, 0.22, 1.0)
+	charge_released.emit(power if kind == &"heavy" else 0.0, DIRECTION_NAMES[direction], kind)
+	return try_attack(kind, direction, power)
+
+
+func try_attack(
+	kind: StringName = &"light",
+	direction: StrikeDirection = StrikeDirection.TOP,
+	power: float = -1.0
+) -> bool:
 	if is_dead or is_attacking:
 		return false
+	if is_charging:
+		cancel_charge()
 	var profile: Dictionary = PROFILES[current_weapon].get(kind, PROFILES[current_weapon][&"light"])
-	var cost: float = profile["cost"]
+	var light_p: Dictionary = PROFILES[current_weapon][&"light"]
+	var heavy_p: Dictionary = PROFILES[current_weapon][&"heavy"]
+	# power < 0 → use discrete light/heavy profile; else lerp light→heavy by power (0..1).
+	var cost: float
+	var damage: float
+	var windup: float
+	var active: float
+	var recovery: float
+	var reach: float
+	if power < 0.0:
+		cost = float(profile["cost"])
+		damage = float(profile["damage"])
+		windup = float(profile["windup"])
+		active = float(profile["active"])
+		recovery = float(profile["recovery"])
+		reach = float(profile["reach"])
+	else:
+		var t := clampf(power, 0.0, 1.0)
+		cost = lerpf(float(light_p["cost"]), float(heavy_p["cost"]), t)
+		damage = lerpf(float(light_p["damage"]), float(heavy_p["damage"]), t)
+		windup = lerpf(float(light_p["windup"]), float(heavy_p["windup"]), t)
+		active = lerpf(float(light_p["active"]), float(heavy_p["active"]), t)
+		recovery = lerpf(float(light_p["recovery"]), float(heavy_p["recovery"]), t)
+		reach = lerpf(float(light_p["reach"]), float(heavy_p["reach"]), t)
+		kind = &"heavy" if t >= 0.55 else &"light"
 	if stamina < cost:
 		return false
 	stamina -= cost
@@ -189,14 +320,12 @@ func try_attack(kind: StringName = &"light") -> bool:
 	is_attacking = true
 	is_blocking = false
 	_hit_this_swing.clear()
-	var windup: float = profile["windup"]
-	var active: float = profile["active"]
-	var recovery: float = profile["recovery"]
 	attack_recovery_left = windup + active + recovery
 	_last_attack_kind = kind
-	_play_weapon_swing(kind, windup, active, recovery)
+	_last_strike_direction = direction
+	_play_weapon_swing(kind, windup, active, recovery, direction)
 	attack_performed.emit(_owner_body, kind, WEAPON_NAMES[current_weapon])
-	_activate_hitbox_after(windup, active, profile["reach"], profile["damage"], kind)
+	_activate_hitbox_after(windup, active, reach, damage, kind, direction)
 	return true
 
 
@@ -235,20 +364,29 @@ func _die() -> void:
 	is_dead = true
 	is_attacking = false
 	is_blocking = false
+	is_charging = false
 	if _hitbox:
 		_hitbox.monitoring = false
 	reset_weapon_pose()
 	died.emit(_owner_body)
 
 
-func _activate_hitbox_after(windup: float, active: float, reach: float, damage: float, kind: StringName) -> void:
+func _activate_hitbox_after(
+	windup: float,
+	active: float,
+	reach: float,
+	damage: float,
+	kind: StringName,
+	direction: StrikeDirection = StrikeDirection.TOP
+) -> void:
 	await get_tree().create_timer(windup).timeout
 	if is_dead or not is_instance_valid(self):
 		return
 	if _hitbox:
-		_position_hitbox(reach)
+		_position_hitbox(reach, direction)
 		_hitbox.set_meta("damage", damage)
 		_hitbox.set_meta("kind", kind)
+		_hitbox.set_meta("direction", DIRECTION_NAMES[direction])
 		_hitbox.monitoring = true
 		hitbox_active_left = active
 		# Immediate overlap check (bodies already inside)
@@ -258,15 +396,29 @@ func _activate_hitbox_after(windup: float, active: float, reach: float, damage: 
 			_on_hitbox_area_entered(area)
 
 
-func _position_hitbox(reach: float) -> void:
+func _position_hitbox(reach: float, direction: StrikeDirection = StrikeDirection.TOP) -> void:
 	if _hitbox == null or _owner_body == null:
 		return
-	# Local -Z is facing forward for CharacterBody3D yaw
-	_hitbox.position = Vector3(0.0, 1.0, -reach * 0.55)
+	# Local -Z is facing forward for CharacterBody3D yaw; bias by strike side.
+	var lateral := 0.0
+	var height := 1.0
+	match direction:
+		StrikeDirection.LEFT:
+			lateral = -0.35
+			height = 1.05
+		StrikeDirection.RIGHT:
+			lateral = 0.35
+			height = 1.05
+		_:
+			lateral = 0.0
+			height = 1.25 if current_weapon == Weapon.HATCHET else 1.0
+	_hitbox.position = Vector3(lateral, height, -reach * 0.55)
 	var shape_node := _hitbox.get_node_or_null("CollisionShape3D") as CollisionShape3D
 	if shape_node and shape_node.shape is BoxShape3D:
 		var box := (shape_node.shape as BoxShape3D).duplicate() as BoxShape3D
-		box.size = Vector3(0.55, 0.7, reach * 0.9)
+		var width := 0.7 if direction != StrikeDirection.TOP else 0.55
+		var tall := 0.85 if direction == StrikeDirection.TOP else 0.65
+		box.size = Vector3(width, tall, reach * 0.9)
 		shape_node.shape = box
 
 
@@ -385,16 +537,24 @@ func _apply_weapon_visual() -> void:
 			(_weapon_visual.get_child(0) as Node3D).visible = true
 
 
-func _play_weapon_swing(kind: StringName, windup: float, active: float, recovery: float) -> void:
+func _play_weapon_swing(
+	kind: StringName,
+	windup: float,
+	active: float,
+	recovery: float,
+	direction: StrikeDirection = StrikeDirection.TOP
+) -> void:
 	if _weapon_visual == null:
 		return
 	if _swing_tween and _swing_tween.is_valid():
 		_swing_tween.kill()
+	if _charge_pose_tween and _charge_pose_tween.is_valid():
+		_charge_pose_tween.kill()
 	# Refresh rest from current hand-follow pose so swings start at the gripped weapon.
 	_weapon_rest_transform = _weapon_visual.transform
 	_weapon_visual.transform = _weapon_rest_transform
 
-	var poses := _swing_poses(kind)
+	var poses := _swing_poses(kind, direction)
 	var windup_rot: Vector3 = poses["windup_rot"]
 	var contact_rot: Vector3 = poses["contact_rot"]
 	var follow_rot: Vector3 = poses["follow_rot"]
@@ -430,8 +590,9 @@ func _play_weapon_swing(kind: StringName, windup: float, active: float, recovery
 	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
-func _swing_poses(kind: StringName) -> Dictionary:
+func _swing_poses(kind: StringName, direction: StrikeDirection = StrikeDirection.TOP) -> Dictionary:
 	## Degrees + local positions; heavy = bigger arc / higher cock than light.
+	## Hatchet respects top / left / right chop arcs; knife/goad keep legacy diagonals.
 	var rest_pos := _weapon_rest_transform.origin
 	var heavy := kind == &"heavy"
 	match current_weapon:
@@ -472,29 +633,100 @@ func _swing_poses(kind: StringName) -> Dictionary:
 				"follow_pos": rest_pos + Vector3(0.0, -0.04, -0.22),
 			}
 		_:
-			# Hatchet diagonal chop; heavy is a larger overhead arc
+			return _hatchet_directional_poses(heavy, direction, rest_pos)
+
+
+func _hatchet_directional_poses(heavy: bool, direction: StrikeDirection, rest_pos: Vector3) -> Dictionary:
+	## Top = overhead chop; left = open-side horizontal; right = cross-body horizontal.
+	match direction:
+		StrikeDirection.LEFT:
 			if heavy:
 				return {
-					"windup_rot": Vector3(-70.0, 45.0, 85.0),
-					"contact_rot": Vector3(25.0, -35.0, -100.0),
-					"follow_rot": Vector3(55.0, -55.0, -145.0),
-					"windup_pos": rest_pos + Vector3(0.12, 0.28, 0.1),
-					"contact_pos": rest_pos + Vector3(0.05, 0.05, -0.32),
-					"follow_pos": rest_pos + Vector3(-0.12, -0.15, -0.22),
+					"windup_rot": Vector3(-20.0, 75.0, 35.0),
+					"contact_rot": Vector3(10.0, -25.0, -40.0),
+					"follow_rot": Vector3(20.0, -70.0, -55.0),
+					"windup_pos": rest_pos + Vector3(-0.22, 0.18, 0.06),
+					"contact_pos": rest_pos + Vector3(0.05, 0.08, -0.28),
+					"follow_pos": rest_pos + Vector3(0.28, 0.0, -0.16),
 				}
 			return {
-				"windup_rot": Vector3(-35.0, 25.0, 50.0),
-				"contact_rot": Vector3(15.0, -20.0, -75.0),
-				"follow_rot": Vector3(30.0, -35.0, -105.0),
-				"windup_pos": rest_pos + Vector3(0.06, 0.14, 0.06),
-				"contact_pos": rest_pos + Vector3(0.02, 0.02, -0.22),
-				"follow_pos": rest_pos + Vector3(-0.06, -0.08, -0.14),
+				"windup_rot": Vector3(-12.0, 50.0, 25.0),
+				"contact_rot": Vector3(8.0, -10.0, -25.0),
+				"follow_rot": Vector3(14.0, -45.0, -40.0),
+				"windup_pos": rest_pos + Vector3(-0.14, 0.1, 0.04),
+				"contact_pos": rest_pos + Vector3(0.02, 0.04, -0.2),
+				"follow_pos": rest_pos + Vector3(0.18, -0.02, -0.1),
 			}
+		StrikeDirection.RIGHT:
+			if heavy:
+				return {
+					"windup_rot": Vector3(-25.0, -70.0, -50.0),
+					"contact_rot": Vector3(15.0, 30.0, 25.0),
+					"follow_rot": Vector3(25.0, 75.0, 45.0),
+					"windup_pos": rest_pos + Vector3(0.24, 0.16, 0.08),
+					"contact_pos": rest_pos + Vector3(-0.02, 0.06, -0.28),
+					"follow_pos": rest_pos + Vector3(-0.3, -0.02, -0.14),
+				}
+			return {
+				"windup_rot": Vector3(-14.0, -45.0, -35.0),
+				"contact_rot": Vector3(10.0, 18.0, 15.0),
+				"follow_rot": Vector3(16.0, 50.0, 30.0),
+				"windup_pos": rest_pos + Vector3(0.16, 0.1, 0.05),
+				"contact_pos": rest_pos + Vector3(0.0, 0.04, -0.2),
+				"follow_pos": rest_pos + Vector3(-0.2, -0.02, -0.1),
+			}
+		_:
+			# TOP overhead chop; heavy is a larger cock-and-drop.
+			if heavy:
+				return {
+					"windup_rot": Vector3(-95.0, 20.0, 70.0),
+					"contact_rot": Vector3(35.0, -10.0, -90.0),
+					"follow_rot": Vector3(70.0, -25.0, -130.0),
+					"windup_pos": rest_pos + Vector3(0.08, 0.42, 0.06),
+					"contact_pos": rest_pos + Vector3(0.04, 0.02, -0.3),
+					"follow_pos": rest_pos + Vector3(-0.06, -0.22, -0.18),
+				}
+			return {
+				"windup_rot": Vector3(-55.0, 15.0, 45.0),
+				"contact_rot": Vector3(20.0, -8.0, -70.0),
+				"follow_rot": Vector3(40.0, -18.0, -100.0),
+				"windup_pos": rest_pos + Vector3(0.05, 0.24, 0.05),
+				"contact_pos": rest_pos + Vector3(0.02, 0.02, -0.22),
+				"follow_pos": rest_pos + Vector3(-0.04, -0.12, -0.12),
+			}
+
+
+func _update_charge_pose(ratio: float, direction: StrikeDirection) -> void:
+	if _weapon_visual == null or is_attacking:
+		return
+	# Cock toward the chosen direction's windup as charge builds (readable telegraph).
+	var poses := _swing_poses(&"heavy" if ratio > 0.55 else &"light", direction)
+	var t := clampf(ratio, 0.0, 1.0)
+	# Ease early cock so tap releases don't look charged.
+	var blend := t * t
+	var windup_rot: Vector3 = poses["windup_rot"]
+	var windup_pos: Vector3 = poses["windup_pos"]
+	var rest_euler := _weapon_rest_transform.basis.get_euler()
+	var rest_rot := Vector3(rad_to_deg(rest_euler.x), rad_to_deg(rest_euler.y), rad_to_deg(rest_euler.z))
+	_weapon_visual.rotation_degrees = rest_rot.lerp(windup_rot, blend * 0.92)
+	_weapon_visual.position = _weapon_rest_transform.origin.lerp(windup_pos, blend * 0.92)
+
+
+func _clear_charge_pose() -> void:
+	if _charge_pose_tween and _charge_pose_tween.is_valid():
+		_charge_pose_tween.kill()
+	if _weapon_visual and not is_attacking:
+		_weapon_visual.transform = _weapon_rest_transform
 
 
 func reset_weapon_pose() -> void:
 	if _swing_tween and _swing_tween.is_valid():
 		_swing_tween.kill()
+	if _charge_pose_tween and _charge_pose_tween.is_valid():
+		_charge_pose_tween.kill()
+	is_charging = false
+	charge_time = 0.0
+	charge_ratio = 0.0
 	if _weapon_visual:
 		_weapon_visual.transform = _weapon_rest_transform
 

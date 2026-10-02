@@ -30,9 +30,10 @@ func _on_stats(_a = null, _b = null) -> void:
 
 
 func _process(_delta: float) -> void:
-	# Keep drag stamina line live while dragging.
+	# Keep drag stamina + charge readout live.
 	var player := get_tree().get_first_node_in_group("player") if is_inside_tree() else null
-	if player and player.has_method("is_dragging") and bool(player.call("is_dragging")):
+	var dragging := player and player.has_method("is_dragging") and bool(player.call("is_dragging"))
+	if dragging or (_combat and _combat.is_charging):
 		_refresh()
 
 
@@ -46,9 +47,15 @@ func _refresh() -> void:
 		var drag_line: String = str(player.call("get_drag_status_text"))
 		if drag_line != "":
 			extra = "\n" + drag_line
-	label.text = "HP %d/%d   STA %d/%d   [%s]%s\nLMB light  RMB heavy  Q cycle  1–3 weapons  Shift sprint  Hold E drag  Esc mouse" % [
+	var charge_line := ""
+	if _combat.is_charging:
+		var dir := String(_combat.direction_name())
+		var pct := int(round(_combat.get_charge_ratio() * 100.0))
+		charge_line = "\nCHARGE %d%%  dir=%s  (release to strike)" % [pct, dir]
+	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nHold LMB charge·release  RMB power  WASD/flick dir  Q cycle  1–3  Shift  Hold E drag  Esc" % [
 		int(_combat.health), int(_combat.max_health),
 		int(_combat.stamina), int(_combat.max_stamina),
 		w,
 		extra,
+		charge_line,
 	]
