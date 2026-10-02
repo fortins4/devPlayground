@@ -6,7 +6,8 @@ extends CanvasLayer
 ##   M — Rumors.seed_demo_rumors() (L/N/H/C table lifetimes)
 ##   , — Rumors.tick_decay(1) — watch left=/life=/hl+; LOW demo drops after 4 ticks
 ##   . — Factions.demo_seed_diplomatic_swing() (attitude + graph → tagged rumors)
-## Remote: Rumors.probe_decay(true) — decay table + severity buckets + tick notes.
+##   / — Honor.demo_seed_prestige_swing() (enech swings → honor/prestige/enech tags)
+## Remote: Rumors.probe_decay(true) · Rumors.probe_prestige(true)
 
 @onready var panel: PanelContainer = $Margin/Panel
 @onready var label: Label = $Margin/Panel/Margin/Label
@@ -57,6 +58,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_PERIOD:
 				if Factions:
 					Factions.demo_seed_diplomatic_swing()
+					_refresh()
+				get_viewport().set_input_as_handled()
+			KEY_SLASH:
+				if Honor and Honor.has_method("demo_seed_prestige_swing"):
+					Honor.demo_seed_prestige_swing()
 					_refresh()
 				get_viewport().set_input_as_handled()
 

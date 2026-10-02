@@ -4,6 +4,11 @@ extends Node
 ## Per-faction + overall tables. Law / dialogue gates are data-side stubs
 ## (e.g. min honor to choose éraic or claim sanctuary). Sanctuary breach
 ## facades forward to SanctuaryLocations.report/resolve_breach.
+##
+## Prestige ↔ Rumors: |delta| >= RUMOR_HONOR_THRESHOLD seeds tagged rumors
+## (honor / prestige / enech + direction:* + optional faction:*). Large swings
+## (|delta| >= RUMOR_HONOR_HIGH_THRESHOLD) elevate to PRIORITY_HIGH. Callers may
+## pass seed_rumor=false to silence (used by Rumors reverse nudge — no loops).
 
 signal honor_changed(faction_id: StringName, value: float)
 
@@ -16,8 +21,15 @@ var by_faction: Dictionary = {}
 const ERAIC_MIN_OVERALL: float = 40.0
 const SANCTUARY_MIN_CHURCH: float = 30.0
 const SANCTUARY_MIN_OVERALL: float = 35.0
-## Delta magnitude that spawns a rumor (avoid spam on tiny ticks).
+
+## --- Rumors ↔ prestige coupling (mirrors Factions attitude/graph thresholds) ---
+## |delta| that auto-seeds a tagged prestige rumor (avoid spam on tiny ticks).
 const RUMOR_HONOR_THRESHOLD: float = 8.0
+## |delta| that elevates the honor rumor to PRIORITY_HIGH (prestige-relevant).
+const RUMOR_HONOR_HIGH_THRESHOLD: float = 15.0
+const RUMOR_HONOR_DECAY_DAYS: int = 7
+const RUMOR_HONOR_HIGH_DECAY_DAYS: int = 12
+const RUMOR_HONOR_SOURCE: StringName = &"honor"
 
 ## When true, Honor debug HUD may poll `get_debug_text()` cheaply.
 var debug_visible: bool = false
@@ -42,20 +54,25 @@ func get_honor(faction_id: StringName = &"") -> float:
 	return float(by_faction.get(faction_id, overall))
 
 
-func modify_honor(amount: float, faction_id: StringName = &"") -> void:
+## Change honor. When |amount| >= RUMOR_HONOR_THRESHOLD and seed_rumor, auto-seeds
+## a prestige-tagged Rumors entry (HIGH when |amount| >= RUMOR_HONOR_HIGH_THRESHOLD).
+## Pass seed_rumor=false to mute (Rumors reverse nudge / callers that seed richer tags).
+func modify_honor(amount: float, faction_id: StringName = &"", seed_rumor: bool = true) -> void:
 	_ensure_faction_table()
 	if faction_id == &"":
 		var before := overall
 		overall = clampf(overall + amount, 0.0, 100.0)
 		honor_changed.emit(&"", overall)
-		_maybe_rumor_honor(&"", before, overall, amount)
+		if seed_rumor:
+			_maybe_rumor_honor(&"", before, overall, amount)
 	else:
 		var current := float(by_faction.get(faction_id, overall))
 		var before := current
 		current = clampf(current + amount, 0.0, 100.0)
 		by_faction[faction_id] = current
 		honor_changed.emit(faction_id, current)
-		_maybe_rumor_honor(faction_id, before, current, amount)
+		if seed_rumor:
+			_maybe_rumor_honor(faction_id, before, current, amount)
 		# Overall drifts slightly with faction-specific hits.
 		overall = clampf(overall + amount * 0.25, 0.0, 100.0)
 
@@ -117,20 +134,109 @@ func available_law_options() -> Array[StringName]:
 	return options
 
 
+## Public tag builder — honor / prestige / enech + direction + optional faction:*.
+## Matches Rumors tag vocabulary (TAG_HONOR / TAG_PRESTIGE / TAG_ENECH / direction:*).
+func build_honor_rumor_tags(faction_id: StringName = &"", amount: float = 0.0) -> Array:
+	var tags: Array = []
+	if Rumors != null:
+		tags.append(Rumors.TAG_HONOR)
+		tags.append(Rumors.TAG_PRESTIGE)
+		tags.append(Rumors.TAG_ENECH)
+		if amount > 0.0:
+			tags.append(Rumors.TAG_DIRECTION_WARMER)
+		elif amount < 0.0:
+			tags.append(Rumors.TAG_DIRECTION_COLDER)
+		if faction_id != &"":
+			tags.append(Rumors.faction_tag(faction_id))
+	else:
+		tags.append(&"honor")
+		tags.append(&"prestige")
+		tags.append(&"enech")
+		if amount > 0.0:
+			tags.append(&"direction:warmer")
+		elif amount < 0.0:
+			tags.append(&"direction:colder")
+		if faction_id != &"":
+			tags.append(StringName("faction:%s" % String(faction_id)))
+	return tags
+
+
+## Snapshot of honor→rumor thresholds (docs + remote probe).
+func get_rumor_honor_thresholds() -> Dictionary:
+	return {
+		"threshold": RUMOR_HONOR_THRESHOLD,
+		"high_threshold": RUMOR_HONOR_HIGH_THRESHOLD,
+		"decay_days": RUMOR_HONOR_DECAY_DAYS,
+		"high_decay_days": RUMOR_HONOR_HIGH_DECAY_DAYS,
+		"source": String(RUMOR_HONOR_SOURCE),
+	}
+
+
+## True when |amount| crosses the prestige rumor floor.
+func honor_warrants_rumor(amount: float) -> bool:
+	return absf(amount) >= RUMOR_HONOR_THRESHOLD
+
+
+## True when |amount| elevates to HIGH prestige rumor.
+func honor_warrants_high_rumor(amount: float) -> bool:
+	return absf(amount) >= RUMOR_HONOR_HIGH_THRESHOLD
+
+
+## Greybox / F5 helper — overall + church swings above high threshold → tagged HIGH rumors.
+## Mirrors Factions.demo_seed_diplomatic_swing for prestige coupling smoke.
+func demo_seed_prestige_swing() -> Dictionary:
+	var before_overall := overall
+	var before_church := get_honor(&"church")
+	# +16 overall → HIGH prestige rumor (risen / warmer).
+	modify_honor(16.0, &"")
+	# −16 church → HIGH prestige rumor (fallen / colder) with faction:church.
+	modify_honor(-16.0, &"church")
+	var rumors_active := Rumors.count_active() if Rumors else 0
+	var prestige_rows: Array = []
+	if Rumors != null and Rumors.has_method("filter_by_prestige"):
+		for row in Rumors.filter_by_prestige():
+			prestige_rows.append({
+				"id": String(row.get("id", &"")),
+				"priority": int(row.get("priority", 0)),
+				"tags": _tags_as_strings(row.get("tags", [])),
+			})
+	return {
+		"overall_before": before_overall,
+		"overall_after": overall,
+		"church_before": before_church,
+		"church_after": get_honor(&"church"),
+		"rumors_active": rumors_active,
+		"prestige_rumors": prestige_rows,
+		"thresholds": get_rumor_honor_thresholds(),
+	}
+
+
 func _maybe_rumor_honor(faction_id: StringName, before: float, after: float, amount: float) -> void:
 	if Rumors == null:
 		return
-	if absf(amount) < RUMOR_HONOR_THRESHOLD:
+	if not honor_warrants_rumor(amount):
 		return
 	var who := "overall" if faction_id == &"" else String(faction_id)
-	var direction := "risen" if after > before else "fallen"
+	var risen := after > before
+	var direction := "risen" if risen else "fallen"
+	var priority := Rumors.PRIORITY_HIGH if honor_warrants_high_rumor(amount) else Rumors.PRIORITY_NORMAL
+	var decay := RUMOR_HONOR_HIGH_DECAY_DAYS if priority >= Rumors.PRIORITY_HIGH else RUMOR_HONOR_DECAY_DAYS
+	var tags := build_honor_rumor_tags(faction_id, amount)
 	var rumor_id := StringName("honor_%s_%s_%d" % [who, direction, day_stamp()])
+	var body: String
+	if faction_id == &"":
+		body = "Word spreads that Cian's enech has %s across the túatha." % direction
+	else:
+		body = "Word spreads that Cian's enech has %s among %s." % [direction, who]
+	if priority >= Rumors.PRIORITY_HIGH:
+		body += " Prestige talk hardens — the hall will remember."
 	Rumors.add_rumor(
 		rumor_id,
-		"Word spreads that Cian's enech has %s among %s." % [direction, who],
-		&"honor",
-		Rumors.PRIORITY_NORMAL,
-		7
+		body,
+		RUMOR_HONOR_SOURCE,
+		priority,
+		decay,
+		tags
 	)
 
 
@@ -170,6 +276,7 @@ func to_debug_dict() -> Dictionary:
 		"debug_visible": debug_visible,
 		"last_law_result": last_law_result.duplicate(true),
 		"last_sanctuary_breach": SanctuaryLocations.last_breach_result.duplicate(true),
+		"rumor_honor_thresholds": get_rumor_honor_thresholds(),
 	}
 
 
@@ -191,6 +298,13 @@ func get_debug_text() -> String:
 			float(d["sanctuary_min_overall"]),
 		]
 	)
+	var thr: Dictionary = d.get("rumor_honor_thresholds", {})
+	lines.append(
+		"Prestige rumors: |Δ|≥%.0f seed · |Δ|≥%.0f → HIGH  (Remote: Honor.demo_seed_prestige_swing)" % [
+			float(thr.get("threshold", RUMOR_HONOR_THRESHOLD)),
+			float(thr.get("high_threshold", RUMOR_HONOR_HIGH_THRESHOLD)),
+		]
+	)
 	var opts: Array = d["available_law_options"]
 	if opts.is_empty():
 		lines.append("Open options: (none — raise enech)")
@@ -209,3 +323,10 @@ func get_debug_text() -> String:
 			]
 		)
 	return "\n".join(lines)
+
+
+func _tags_as_strings(tags: Array) -> Array:
+	var out: Array = []
+	for t in tags:
+		out.append(String(t))
+	return out
