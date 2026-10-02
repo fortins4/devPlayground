@@ -146,8 +146,11 @@ Signals: `bound_changed(is_bound)`, `synced(direction, hp, stamina)` where
    ```
 10. Press **V** again to hide the panel.
 
-Keys: **V** toggle · **9** / **0** HP −10 / +10 · **7** / **8** STA −10 / +10 ·
+Keys: **V** toggle (includes `StaminaEconomy` fight numbers) · **backtick** print stamina dump ·
+**9** / **0** HP −10 / +10 · **7** / **8** STA −10 / +10 ·
 **6** wound+ · **5** restore full · **4** force downed stub.
+
+Session `max_stamina` defaults from `StaminaEconomy.MAX_STAMINA` (see [`systems/combat/README.md`](../combat/README.md#stamina-economy-fight-numbers)).
 
 Layout: Honor **H** top-left · Timeline **T** top-right · Rumors **N** bottom-left ·
 Travel **G** bottom-right · **CharacterHealth V** mid-left (below Honor).

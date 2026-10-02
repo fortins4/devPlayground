@@ -52,7 +52,7 @@ Procedural pose phases: windup cock + brief hold telegraph → strike → contac
 
 `CombatSystem` (`systems/combat/combat_system.gd`) is a reusable child node for player and NPCs.
 
-- **Stamina** regen when not attacking / charging; costs on light/heavy/sprint
+- **Stamina** from `StaminaEconomy` — regen when idle after delay (not attacking / charging / blocking); costs on light/heavy/sprint (see table below)
 - **Charge** (`begin_charge` / `release_charged_attack`): power lerps light→heavy profiles
 - **StrikeDirection** `TOP` / `LEFT` / `RIGHT` — hatchet swing poses + hitbox bias
 - **Health** + `died` signal
@@ -62,6 +62,55 @@ Procedural pose phases: windup cock + brief hold telegraph → strike → contac
 - **Hit feedback** (greybox): hurt-mesh flash, knockback impulse (`consume_knockback()`), floating damage numbers, brief hit-stop on connect. Player also gets a light screen punch.
 
 Wire under a `CharacterBody3D` with optional `Hitbox`, `Hurtbox`, and `WeaponVisual` (children named `Hatchet`, `Knife`, `Goad`).
+
+
+## Stamina economy (fight numbers)
+
+Tunable greybox pool — **data only** in `systems/combat/stamina_economy.gd`
+(`class_name StaminaEconomy`). `CombatSystem` reads max / regen / delay / sprint /
+attack **cost + recovery** / block stubs from that table. Damage, windup, active,
+and reach stay on `CombatSystem.PROFILES` (queue #2 owns hatchet directional
+damage/reach + charge tiers). Feel (anims, hitstop, telegraph) stays Godot-owned.
+
+| Knob | Value | Notes |
+|---|---|---|
+| **Max stamina** | `100` | CombatSystem + CharacterHealth session default |
+| **Regen /s** | `18` | Only when not attacking / not blocking **and** regen delay elapsed |
+| **Regen delay** | `0.35 s` | Armed on stamina spend **and** when attack recovery ends |
+| **Sprint drain /s** | `22` | Shift sprint |
+| **Block drain /s** | `8` | Stub — `enable_block` stays **off** |
+| **Block hit cost** | `12` | Stub on successful frontal block |
+| **Block min hold** | `5` | Drop block below this |
+
+### Attack cost + recover (source of truth)
+
+| Weapon | Light cost | Light recover | Heavy cost | Heavy recover |
+|---|---|---|---|---|
+| Hatchet | 12 | 0.34 s | 28 | 0.58 s |
+| Knife | 8 | 0.16 s | 18 | 0.28 s |
+| Goad | 10 | 0.26 s | 22 | 0.40 s |
+
+Design notes (hatchet-first):
+
+- **~8 light hatchet swings** to empty (`floor(100/12)`).
+- **Empty → full ~5.6 s** at 18/s (plus regen delay after last spend / recover).
+- **Recover gates the next swing** — light hatchet total busy ≈ windup 0.16 + active 0.12 + recover 0.34 ≈ **0.62 s** (before dir scales), then **0.35 s** regen delay before passive refill.
+- Heavies cost more than two lights and leave a longer recover window — commit tools, not spam.
+
+Edit numbers in `StaminaEconomy` only; do not scatter magic floats back into
+`CombatSystem` attack / sprint / block paths.
+
+### F5 probe (stamina economy)
+
+1. Open `scenes/main/main.tscn` and press **F5**.
+2. Press **V** — CharacterHealth panel (mid-left) now appends the
+   `StaminaEconomy` table + current STA (and bridge lines when bound).
+3. Press **backtick** (`Key.QUOTELEFT`) — prints the same dump to the Output
+   panel (`CombatSystem.dump_stamina_economy()` / `StaminaEconomy.get_debug_text()`).
+4. Swing / sprint and confirm STA drops; after recover + delay, regen resumes at 18/s.
+
+Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
+**V** show table · **backtick** print dump.
 
 ## Dummy counter
 

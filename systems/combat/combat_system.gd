@@ -33,9 +33,10 @@ const WEAPON_NAMES := {
 }
 
 @export var max_health: float = 100.0
-@export var max_stamina: float = 100.0
-@export var stamina_regen_per_sec: float = 18.0
-@export var sprint_stamina_per_sec: float = 22.0
+## Defaults seed from StaminaEconomy (systems/combat/stamina_economy.gd).
+@export var max_stamina: float = StaminaEconomy.MAX_STAMINA
+@export var stamina_regen_per_sec: float = StaminaEconomy.REGEN_PER_SEC
+@export var sprint_stamina_per_sec: float = StaminaEconomy.SPRINT_DRAIN_PER_SEC
 @export var team: int = 0 ## 0 = player allies, 1 = hostiles
 @export var starting_weapon: Weapon = Weapon.HATCHET
 @export var enable_block: bool = false ## Shield later; off for cattle-farm starter kit
@@ -51,13 +52,15 @@ const WEAPON_NAMES := {
 @export var enable_directional_hatchet: bool = true
 
 var health: float = 100.0
-var stamina: float = 100.0
+var stamina: float = StaminaEconomy.MAX_STAMINA
 var current_weapon: Weapon = Weapon.HATCHET
 var is_dead: bool = false
 var is_blocking: bool = false
 var is_attacking: bool = false
 var attack_recovery_left: float = 0.0
 var hitbox_active_left: float = 0.0
+## Countdown before passive regen after spend / after attack recovery ends.
+var stamina_regen_delay_left: float = 0.0
 
 var _hit_this_swing: Dictionary = {} ## instance_id -> true
 var _owner_body: Node3D
@@ -83,21 +86,22 @@ var charge_direction: StrikeDirection = StrikeDirection.TOP
 var _last_strike_direction: StrikeDirection = StrikeDirection.TOP
 var _charge_pose_tween: Tween
 
-# Per-weapon attack profiles: light / heavy
+# Per-weapon feel timings + damage/reach (queue #2 owns hatchet directional tiers).
+# Stamina cost + recovery seconds: StaminaEconomy.ATTACK (source of truth).
 const PROFILES := {
 	Weapon.HATCHET: {
-		# Timing polish (#2): clearer windup telegraph, readable contact, non-spam recover.
+		# Timing polish: clearer windup telegraph, readable contact, non-spam recover.
 		# Direction multipliers applied in try_attack via HATCHET_DIR_TIMING.
-		&"light": {"cost": 12.0, "damage": 14.0, "windup": 0.16, "active": 0.12, "recovery": 0.34, "reach": 1.35},
-		&"heavy": {"cost": 28.0, "damage": 28.0, "windup": 0.34, "active": 0.16, "recovery": 0.58, "reach": 1.5},
+		&"light": {"damage": 14.0, "windup": 0.16, "active": 0.12, "reach": 1.35},
+		&"heavy": {"damage": 28.0, "windup": 0.34, "active": 0.16, "reach": 1.5},
 	},
 	Weapon.KNIFE: {
-		&"light": {"cost": 8.0, "damage": 8.0, "windup": 0.06, "active": 0.1, "recovery": 0.16, "reach": 1.0},
-		&"heavy": {"cost": 18.0, "damage": 16.0, "windup": 0.12, "active": 0.12, "recovery": 0.28, "reach": 1.1},
+		&"light": {"damage": 8.0, "windup": 0.06, "active": 0.1, "reach": 1.0},
+		&"heavy": {"damage": 16.0, "windup": 0.12, "active": 0.12, "reach": 1.1},
 	},
 	Weapon.GOAD: {
-		&"light": {"cost": 10.0, "damage": 10.0, "windup": 0.14, "active": 0.12, "recovery": 0.26, "reach": 1.7},
-		&"heavy": {"cost": 22.0, "damage": 20.0, "windup": 0.2, "active": 0.16, "recovery": 0.4, "reach": 1.85},
+		&"light": {"damage": 10.0, "windup": 0.14, "active": 0.12, "reach": 1.7},
+		&"heavy": {"damage": 20.0, "windup": 0.2, "active": 0.16, "reach": 1.85},
 	},
 }
 
@@ -158,22 +162,31 @@ func _physics_process(delta: float) -> void:
 		attack_recovery_left = maxf(0.0, attack_recovery_left - delta)
 		if attack_recovery_left <= 0.0:
 			is_attacking = false
+			# Recover window closed — gate regen so the recovery beat matters.
+			_arm_stamina_regen_delay()
 
 	if hitbox_active_left > 0.0:
 		hitbox_active_left = maxf(0.0, hitbox_active_left - delta)
 		if hitbox_active_left <= 0.0 and _hitbox:
 			_hitbox.monitoring = false
 
-	var regenerating := not is_attacking and not is_blocking and not is_charging
+	if stamina_regen_delay_left > 0.0:
+		stamina_regen_delay_left = maxf(0.0, stamina_regen_delay_left - delta)
+
+	var regenerating := (
+		not is_attacking
+		and not is_blocking
+		and not is_charging
+		and stamina_regen_delay_left <= 0.0
+	)
 	if regenerating and stamina < max_stamina:
 		stamina = minf(max_stamina, stamina + stamina_regen_per_sec * delta)
 		stamina_changed.emit(stamina, max_stamina)
 
 	if is_blocking and enable_block:
-		var block_drain := 8.0 * delta
+		var block_drain := StaminaEconomy.BLOCK_DRAIN_PER_SEC * delta
 		if stamina >= block_drain:
-			stamina -= block_drain
-			stamina_changed.emit(stamina, max_stamina)
+			_spend_stamina(block_drain)
 		else:
 			is_blocking = false
 
@@ -221,8 +234,7 @@ func try_sprint_drain(delta: float) -> bool:
 	var cost := sprint_stamina_per_sec * delta
 	if stamina < cost * 0.5:
 		return false
-	stamina = maxf(0.0, stamina - cost)
-	stamina_changed.emit(stamina, max_stamina)
+	_spend_stamina(cost)
 	return stamina > 0.0
 
 
@@ -250,7 +262,7 @@ func resolved_hatchet_timings(kind: StringName, direction: StrikeDirection) -> D
 	var profile: Dictionary = PROFILES[Weapon.HATCHET].get(kind, PROFILES[Weapon.HATCHET][&"light"])
 	var windup := float(profile["windup"])
 	var active := float(profile["active"])
-	var recovery := float(profile["recovery"])
+	var recovery := StaminaEconomy.attack_recovery(&"hatchet", kind)
 	var scales: Dictionary = HATCHET_DIR_TIMING.get(direction, HATCHET_DIR_TIMING[StrikeDirection.TOP])
 	windup *= float(scales.get("windup", 1.0))
 	active *= float(scales.get("active", 1.0))
@@ -327,9 +339,11 @@ func try_attack(
 	if is_charging:
 		cancel_charge()
 	var profile: Dictionary = PROFILES[current_weapon].get(kind, PROFILES[current_weapon][&"light"])
+	var wname: StringName = WEAPON_NAMES[current_weapon]
 	var light_p: Dictionary = PROFILES[current_weapon][&"light"]
 	var heavy_p: Dictionary = PROFILES[current_weapon][&"heavy"]
-	# power < 0 → use discrete light/heavy profile; else lerp light→heavy by power (0..1).
+	# power < 0 → discrete light/heavy; else lerp light→heavy by power (0..1).
+	# Cost + recovery from StaminaEconomy; feel timings from PROFILES.
 	var cost: float
 	var damage: float
 	var windup: float
@@ -337,19 +351,27 @@ func try_attack(
 	var recovery: float
 	var reach: float
 	if power < 0.0:
-		cost = float(profile["cost"])
+		cost = StaminaEconomy.attack_cost(wname, kind)
 		damage = float(profile["damage"])
 		windup = float(profile["windup"])
 		active = float(profile["active"])
-		recovery = float(profile["recovery"])
+		recovery = StaminaEconomy.attack_recovery(wname, kind)
 		reach = float(profile["reach"])
 	else:
 		var t := clampf(power, 0.0, 1.0)
-		cost = lerpf(float(light_p["cost"]), float(heavy_p["cost"]), t)
+		cost = lerpf(
+			StaminaEconomy.attack_cost(wname, &"light"),
+			StaminaEconomy.attack_cost(wname, &"heavy"),
+			t,
+		)
 		damage = lerpf(float(light_p["damage"]), float(heavy_p["damage"]), t)
 		windup = lerpf(float(light_p["windup"]), float(heavy_p["windup"]), t)
 		active = lerpf(float(light_p["active"]), float(heavy_p["active"]), t)
-		recovery = lerpf(float(light_p["recovery"]), float(heavy_p["recovery"]), t)
+		recovery = lerpf(
+			StaminaEconomy.attack_recovery(wname, &"light"),
+			StaminaEconomy.attack_recovery(wname, &"heavy"),
+			t,
+		)
 		reach = lerpf(float(light_p["reach"]), float(heavy_p["reach"]), t)
 		kind = &"heavy" if t >= 0.55 else &"light"
 	# Hatchet: scale phases so top / left / right read as distinct arcs.
@@ -360,8 +382,7 @@ func try_attack(
 		recovery *= float(scales.get("recovery", 1.0))
 	if stamina < cost:
 		return false
-	stamina -= cost
-	stamina_changed.emit(stamina, max_stamina)
+	_spend_stamina(cost)
 	is_attacking = true
 	is_blocking = false
 	_hit_this_swing.clear()
@@ -372,7 +393,7 @@ func try_attack(
 	_last_active = active
 	_last_recovery = recovery
 	_play_weapon_swing(kind, windup, active, recovery, direction)
-	attack_performed.emit(_owner_body, kind, WEAPON_NAMES[current_weapon])
+	attack_performed.emit(_owner_body, kind, wname)
 	_activate_hitbox_after(windup, active, reach, damage, kind, direction)
 	return true
 
@@ -381,7 +402,7 @@ func set_blocking(holding: bool) -> void:
 	if not enable_block or is_dead or is_attacking:
 		is_blocking = false
 		return
-	is_blocking = holding and stamina > 5.0
+	is_blocking = holding and stamina > StaminaEconomy.BLOCK_MIN_STAMINA
 
 
 func apply_damage(amount: float, from: Node = null, frontal: bool = true) -> float:
@@ -394,8 +415,7 @@ func apply_damage(amount: float, from: Node = null, frontal: bool = true) -> flo
 	if enable_block and is_blocking and frontal and stamina > 0.0:
 		mitigated = amount * 0.75
 		amount -= mitigated
-		stamina = maxf(0.0, stamina - 12.0)
-		stamina_changed.emit(stamina, max_stamina)
+		_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
 		blocked.emit(_owner_body, from, mitigated)
 		if amount <= 0.01:
 			return 0.0
@@ -799,6 +819,39 @@ func _clear_charge_pose() -> void:
 		_charge_pose_tween.kill()
 	if _weapon_visual and not is_attacking:
 		_weapon_visual.transform = _weapon_rest_transform
+
+
+
+func _spend_stamina(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	stamina = maxf(0.0, stamina - amount)
+	_arm_stamina_regen_delay()
+	stamina_changed.emit(stamina, max_stamina)
+
+
+func _arm_stamina_regen_delay() -> void:
+	stamina_regen_delay_left = maxf(
+		stamina_regen_delay_left, StaminaEconomy.REGEN_DELAY_SEC
+	)
+
+
+func get_attack_profile(kind: StringName = &"light") -> Dictionary:
+	## Merged feel profile + stamina cost/recovery from StaminaEconomy.
+	var base: Dictionary = PROFILES[current_weapon].get(kind, PROFILES[current_weapon][&"light"]).duplicate()
+	var wname: StringName = WEAPON_NAMES[current_weapon]
+	base["cost"] = StaminaEconomy.attack_cost(wname, kind)
+	base["recovery"] = StaminaEconomy.attack_recovery(wname, kind)
+	return base
+
+
+func get_stamina_economy_debug_text() -> String:
+	return StaminaEconomy.get_debug_text(stamina)
+
+
+func dump_stamina_economy() -> void:
+	## Cheap F5 probe — print economy constants + current STA.
+	print(get_stamina_economy_debug_text())
 
 
 func reset_weapon_pose() -> void:
