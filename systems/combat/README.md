@@ -291,3 +291,7 @@ Sparring dummy cycles **TOP → LEFT → RIGHT** every ~2.75s while guarding. On
 ## Charge footwork step (#5)
 
 While charging, **tap WASD** for a short step (does not cancel). Holding still drifts slowly. **Sprint still cancels** charge.
+
+## Charged hit-stop / impact juice (#6)
+
+Charged hatchet contacts use longer hit-stop (`hit_stop_charged`), deeper time scale freeze, a short weapon kick, and a stronger camera punch.

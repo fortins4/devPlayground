@@ -544,9 +544,12 @@ func _clear_attack_additives() -> void:
 
 
 func _on_hit_landed(_attacker: Node, _target: Node, damage: float, kind: StringName) -> void:
-	# Screen punch on connecting hits (reads better with hit-stop from CombatSystem).
-	var amp := 0.055 if kind == &"heavy" else 0.03
-	amp *= clampf(damage / 14.0, 0.75, 1.4)
+	# Screen punch — charged hatchet contact gets extra impact juice (#6).
+	var amp := 0.09 if kind == &"heavy" else 0.03
+	if kind == &"heavy":
+		amp *= clampf(damage / 22.0, 0.9, 1.55)
+	else:
+		amp *= clampf(damage / 14.0, 0.75, 1.4)
 	_screen_punch(amp)
 
 

@@ -49,6 +49,8 @@ const WEAPON_NAMES := {
 @export var knockback_heavy: float = 4.6
 @export var hit_stop_light: float = 0.045
 @export var hit_stop_heavy: float = 0.075
+@export var hit_stop_charged: float = 0.11 ## Extra freeze on charged/heavy hatchet contact
+@export var charged_impact_scale: float = 0.05 ## Engine time_scale during charged hit-stop
 @export var show_damage_numbers: bool = true
 @export var charge_full_secs: float = 0.75 ## Hold time to reach full power (hatchet) — USER LOCK
 @export var charge_min_release_secs: float = 0.08 ## Below this = tap light
@@ -1087,15 +1089,23 @@ func _play_hurt_feedback(amount: float, from: Node) -> void:
 
 
 func _play_hit_confirm(kind: StringName) -> void:
-	# Brief hit-stop so contact reads; ignore_time_scale timer restores scale.
+	# Brief hit-stop so contact reads; charged/heavy gets stronger freeze + juice.
 	if _hit_stop_running:
 		return
-	var dur := hit_stop_heavy if kind == &"heavy" else hit_stop_light
+	var charged := kind == &"heavy" and current_weapon == Weapon.HATCHET
+	var dur := hit_stop_charged if charged else (hit_stop_heavy if kind == &"heavy" else hit_stop_light)
 	if dur <= 0.0:
 		return
 	_hit_stop_running = true
 	var prev := Engine.time_scale
-	Engine.time_scale = 0.08 if kind == &"heavy" else 0.12
+	Engine.time_scale = charged_impact_scale if charged else (0.08 if kind == &"heavy" else 0.12)
+	# Small weapon kick on charged contact for readable impact.
+	if charged and _weapon_visual:
+		var kick := _weapon_visual.position + Vector3(0.0, 0.04, -0.06)
+		var tw := create_tween()
+		tw.set_ignore_time_scale(true)
+		tw.tween_property(_weapon_visual, "position", kick, 0.03).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tw.tween_property(_weapon_visual, "position", _weapon_rest_transform.origin, 0.08).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	await get_tree().create_timer(dur, true, false, true).timeout
 	Engine.time_scale = prev if prev > 0.01 else 1.0
 	_hit_stop_running = false
