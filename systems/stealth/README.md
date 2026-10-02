@@ -16,6 +16,21 @@ First-class pillar alongside combat (VISION / SCOPE): **crouch, cover, detection
 
 > FULL is still greybox — not Midlands traversal payoff, dogs, or social investigation chains.
 
+## Investigation polish (`gameplay/stealth-investigation-polish`)
+
+Standing queue after goad physics. Builds on FULL + sentry already on `main`.
+
+| Polish | Behavior |
+|---|---|
+| **Telegraph** | Sentry world label `[?] INVESTIGATING` + countdown; amber body tint |
+| **Walk-to-body** | On LOS, sentry walks to stand-off (~2.2 m), faces corpse, subtle bob |
+| **Timer** | Delay **2.0 s** (was 1.6) so walk + telegraph read before heat bump |
+| **UI readout** | Heat HUD live `investigating N.Ns` + progress bar; corpse `[UNDER SCRUTINY]` |
+| **Cancel** | LOS break mid-investigate → cancel + sentry returns toward post |
+| **Confirm** | Timer done → `[!] BODY FOUND` flash, ALERT, discover bump |
+
+Does **not** require unmerged watchmen/goad branches — shared HeatTracker raid hooks remain intact.
+
 ## Controls
 
 | Input | Action |
@@ -33,11 +48,11 @@ Combat inputs unchanged (LMB/RMB hatchet, Q cycle, etc.) — blocked while dragg
 |---|---|
 | `scripts/characters/player/player_controller.gd` | Crouch + drag slowdown + **drag stamina** |
 | `systems/stealth/detection_sensor.gd` | Vision cone + LOS + hearing → UNAWARE / SUSPICIOUS / ALERT |
-| `scenes/characters/npcs/sentry.tscn` | Stationary watchman with sensor |
+| `scenes/characters/npcs/sentry.tscn` | Watchman with sensor; **walk-to-body** on investigate |
 | `systems/stealth/bog_zone.gd` | Wetland Area3D — hide, deep sink, splash/ripple stub |
-| `scripts/characters/npcs/draggable_corpse.gd` | Hold-drag corpse: ground → drag → hide |
+| `scripts/characters/npcs/draggable_corpse.gd` | Hold-drag corpse: ground → drag → hide; **UNDER SCRUTINY** |
 | `systems/stealth/corpse_spawner.gd` | Spawn corpse from combatant death |
-| `systems/stealth/heat_tracker.gd` | Investigation timer, rediscovery bumps, Honor stub, HUD · **also** `note_raid_*` for cattle-lane watchmen |
+| `systems/stealth/heat_tracker.gd` | Investigation timer, progress UI, rediscovery, Honor stub, raid hooks |
 | `systems/stealth/bog_hide_stub.gd` | Deprecated marker (use `bog_zone.gd`) |
 
 ## FULL bog body-drag loop
@@ -46,15 +61,16 @@ Combat inputs unchanged (LMB/RMB hatchet, Q cycle, etc.) — blocked while dragg
 2. Approach → **hold E** to drag (slow move, stamina drains; Combat HUD shows drag line).
 3. Drag into the **bog pocket** (+X of stealth lane) → **release E** to hide.
 4. Splash/ripple stub + deep peat sink → `[CONCEALED]`; heat relief + tiny Honor bump.
-5. **Investigation:** sentry LOS on unhidden body → short investigate window → heat bump + `[DISCOVERED]` + Honor hit.
+5. **Investigation:** sentry LOS on unhidden body → **walk-to-body + [? INVESTIGATING]** window (~2.0 s) → heat bump + `[DISCOVERED]` + Honor hit.
 6. **Rediscovery:** if body stays visible, smaller heat bumps repeat on an interval.
-7. Hidden bodies are skipped by discovery scan.
+7. Hidden bodies are skipped by discovery scan; breaking LOS mid-investigate cancels the timer.
 
 ### Hide vs discovered (feel)
 
 | State | Heat | Sentry | Readout |
 |---|---|---|---|
-| Body left in open + seen (after delay) | **+discover_bump** (28) | Forced ALERT | Banner + `[DISCOVERED]`; Honor −4 stub |
+| Body left in open + seen (after delay) | **+discover_bump** (28) | Walk → look → forced ALERT | Progress bar + `[DISCOVERED]`; Honor −4 stub |
+| Mid-investigate | — | Walk/stand-off + `[?] INVESTIGATING` | HUD bar + `[UNDER SCRUTINY]` |
 | Body still visible later | **+rediscovery_bump** (12) | Stays alert | Banner “seen again”; count on corpse |
 | Body hidden in bog | **−hidden_relief** (10) | No corpse LOS | `[CONCEALED]`; Honor +1.5 stub |
 
@@ -67,12 +83,15 @@ Combat inputs unchanged (LMB/RMB hatchet, Q cycle, etc.) — blocked while dragg
 | Combat | −Z | Dummy fighter → **corpse on kill** |
 | Stealth | +X | Cover crates, sentry, spoof corpse, bog zone |
 | NE bog pocket | +X −Z (~14, −8) | Extra wetland greybox |
-| Heat HUD | screen TL + world label + banner | `Heat N / 100 [tier]` |
+| Heat HUD | screen TL + world label + banner + **investigate bar** | `Heat N / 100 [tier]` |
 
 ## Screenshots
 
 FULL proof shots: `/workspace/riocht-builds/screenshots/bog-full/`  
 (capture: `tools/capture_bog_full_screenshots.gd`)
+
+Investigation polish: `/workspace/riocht-builds/screenshots/stealth-investigation/`  
+(capture: `tools/capture_stealth_investigation_screenshots.gd`)
 
 Cattle-raid watchmen (south lane) reuse this HeatTracker via `systems/raid/raid_heat_bridge.gd` —
 see [`systems/raid/README.md`](../raid/README.md). One shared heat meter for the F5 demo.

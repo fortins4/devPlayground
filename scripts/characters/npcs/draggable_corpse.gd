@@ -24,6 +24,8 @@ var _discovered: bool = false
 var _hide_tween: Tween
 var _hold_grabbed: bool = false
 var discovery_count: int = 0
+var _under_investigation: bool = false
+var _investigate_remaining: float = 0.0
 
 
 func _ready() -> void:
@@ -145,6 +147,17 @@ func clear_discovered_flag() -> void:
 	## Allows rediscovery bumps to re-flash UI without clearing heat history.
 	_discovered = false
 	_refresh_labels()
+
+
+func set_investigation(active: bool, remaining: float = 0.0) -> void:
+	## HeatTracker: body is under sentry scrutiny (pre-discovery delay).
+	_under_investigation = active
+	_investigate_remaining = maxf(0.0, remaining)
+	_refresh_labels()
+
+
+func is_under_investigation() -> bool:
+	return _under_investigation
 
 
 func is_hidden() -> bool:
@@ -299,6 +312,9 @@ func _refresh_labels() -> void:
 			var n := discovery_count if discovery_count > 0 else 1
 			_status.text = "[DISCOVERED ×%d]" % n
 			_status.modulate = Color(0.98, 0.28, 0.18)
+		elif _under_investigation:
+			_status.text = "[UNDER SCRUTINY %.1fs]" % _investigate_remaining
+			_status.modulate = Color(0.98, 0.82, 0.28)
 		elif state == State.DRAGGED:
 			_status.text = "[dragging]"
 			_status.modulate = Color(0.9, 0.82, 0.4)
