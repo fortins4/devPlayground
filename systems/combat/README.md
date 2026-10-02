@@ -35,6 +35,21 @@ No starting sword or shield. `CombatSystem.enable_block` stays off until shield 
 
 Third-person scheme: **hold attack to charge**, pick arc with **WASD lateral** or a **mouse flick** while holding, **release to commit**. Neutral / looking up defaults to **top** (overhead chop). Charging allows half-speed footwork. Knife and goad keep the older tap light / RMB heavy path for now (hatchet-first pass).
 
+**Controls unchanged** from the directional-charge pass (hold LMB / release / WASD·flick / RMB full-power).
+
+### Hatchet timing polish (#2)
+
+Base TOP profile (then × `HATCHET_DIR_TIMING`):
+
+| Kind | Windup | Active (contact) | Recovery |
+|---|---|---|---|
+| Light | 160 ms | 120 ms | 340 ms |
+| Charged | 340 ms | 160 ms | 580 ms |
+
+Direction scales: **top** 1.00 / 0.95 / 1.05 · **left** 0.82 / 1.10 / 0.90 · **right** 0.85 / 1.15 / 0.92.
+
+Procedural pose phases: windup cock + brief hold telegraph → strike → contact hold → follow → recover. Charged holds longer at cock and contact so the telegraph and impact read; sides are snappier on the way in and slightly quicker to recover.
+
 ## Component
 
 `CombatSystem` (`systems/combat/combat_system.gd`) is a reusable child node for player and NPCs.
@@ -68,6 +83,7 @@ Screenshot capture:
 
 ```bash
 godot --headless --path . -s res://tools/capture_directional_hatchet_screenshots.gd
+godot --headless --path . -s res://tools/capture_hatchet_timing_screenshots.gd
 ```
 
 ## Session vitals bridge (player only)

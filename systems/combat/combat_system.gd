@@ -67,6 +67,9 @@ var _weapon_visual: Node3D
 var _weapon_rest_transform: Transform3D
 var _swing_tween: Tween
 var _last_attack_kind: StringName = &"light"
+var _last_windup: float = 0.16
+var _last_active: float = 0.12
+var _last_recovery: float = 0.34
 var knockback_vel: Vector3 = Vector3.ZERO
 var _hurt_flash_tween: Tween
 var _hit_stop_running: bool = false
@@ -83,8 +86,10 @@ var _charge_pose_tween: Tween
 # Per-weapon attack profiles: light / heavy
 const PROFILES := {
 	Weapon.HATCHET: {
-		&"light": {"cost": 12.0, "damage": 14.0, "windup": 0.12, "active": 0.14, "recovery": 0.28, "reach": 1.35},
-		&"heavy": {"cost": 28.0, "damage": 28.0, "windup": 0.22, "active": 0.18, "recovery": 0.45, "reach": 1.5},
+		# Timing polish (#2): clearer windup telegraph, readable contact, non-spam recover.
+		# Direction multipliers applied in try_attack via HATCHET_DIR_TIMING.
+		&"light": {"cost": 12.0, "damage": 14.0, "windup": 0.16, "active": 0.12, "recovery": 0.34, "reach": 1.35},
+		&"heavy": {"cost": 28.0, "damage": 28.0, "windup": 0.34, "active": 0.16, "recovery": 0.58, "reach": 1.5},
 	},
 	Weapon.KNIFE: {
 		&"light": {"cost": 8.0, "damage": 8.0, "windup": 0.06, "active": 0.1, "recovery": 0.16, "reach": 1.0},
@@ -94,6 +99,14 @@ const PROFILES := {
 		&"light": {"cost": 10.0, "damage": 10.0, "windup": 0.14, "active": 0.12, "recovery": 0.26, "reach": 1.7},
 		&"heavy": {"cost": 22.0, "damage": 20.0, "windup": 0.2, "active": 0.16, "recovery": 0.4, "reach": 1.85},
 	},
+}
+
+## Per-direction timing scales for hatchet (feel): top = overhead telegraph + commit;
+## left/right = snappier cock, slightly wider contact, quicker recover.
+const HATCHET_DIR_TIMING := {
+	StrikeDirection.TOP: {"windup": 1.00, "active": 0.95, "recovery": 1.05},
+	StrikeDirection.LEFT: {"windup": 0.82, "active": 1.10, "recovery": 0.90},
+	StrikeDirection.RIGHT: {"windup": 0.85, "active": 1.15, "recovery": 0.92},
 }
 
 
@@ -219,6 +232,30 @@ func last_strike_direction() -> StrikeDirection:
 	return _last_strike_direction
 
 
+func last_attack_timings() -> Dictionary:
+	## Resolved windup / active / recovery used by the most recent swing (post dir scale).
+	return {
+		"windup": _last_windup,
+		"active": _last_active,
+		"recovery": _last_recovery,
+		"kind": _last_attack_kind,
+		"direction": DIRECTION_NAMES.get(_last_strike_direction, &"top"),
+	}
+
+
+func resolved_hatchet_timings(kind: StringName, direction: StrikeDirection) -> Dictionary:
+	## Preview timings without spending stamina (smoke / capture / HUD helpers).
+	var profile: Dictionary = PROFILES[Weapon.HATCHET].get(kind, PROFILES[Weapon.HATCHET][&"light"])
+	var windup := float(profile["windup"])
+	var active := float(profile["active"])
+	var recovery := float(profile["recovery"])
+	var scales: Dictionary = HATCHET_DIR_TIMING.get(direction, HATCHET_DIR_TIMING[StrikeDirection.TOP])
+	windup *= float(scales.get("windup", 1.0))
+	active *= float(scales.get("active", 1.0))
+	recovery *= float(scales.get("recovery", 1.0))
+	return {"windup": windup, "active": active, "recovery": recovery, "total": windup + active + recovery}
+
+
 func get_charge_ratio() -> float:
 	return charge_ratio if is_charging else 0.0
 
@@ -313,6 +350,12 @@ func try_attack(
 		recovery = lerpf(float(light_p["recovery"]), float(heavy_p["recovery"]), t)
 		reach = lerpf(float(light_p["reach"]), float(heavy_p["reach"]), t)
 		kind = &"heavy" if t >= 0.55 else &"light"
+	# Hatchet: scale phases so top / left / right read as distinct arcs.
+	if current_weapon == Weapon.HATCHET and enable_directional_hatchet:
+		var scales: Dictionary = HATCHET_DIR_TIMING.get(direction, HATCHET_DIR_TIMING[StrikeDirection.TOP])
+		windup *= float(scales.get("windup", 1.0))
+		active *= float(scales.get("active", 1.0))
+		recovery *= float(scales.get("recovery", 1.0))
 	if stamina < cost:
 		return false
 	stamina -= cost
@@ -323,6 +366,9 @@ func try_attack(
 	attack_recovery_left = windup + active + recovery
 	_last_attack_kind = kind
 	_last_strike_direction = direction
+	_last_windup = windup
+	_last_active = active
+	_last_recovery = recovery
 	_play_weapon_swing(kind, windup, active, recovery, direction)
 	attack_performed.emit(_owner_body, kind, WEAPON_NAMES[current_weapon])
 	_activate_hitbox_after(windup, active, reach, damage, kind, direction)
@@ -569,25 +615,56 @@ func _play_weapon_swing(
 
 	_swing_tween = create_tween()
 	_swing_tween.set_parallel(false)
+	# Phase splits (feel): windup cock + brief hold telegraph; active = strike→hold→follow.
+	var phases := swing_phase_durations(kind, windup, active, recovery)
+	var windup_move: float = phases["windup_move"]
+	var windup_hold: float = phases["windup_hold"]
+	var to_contact: float = phases["to_contact"]
+	var contact_hold: float = phases["contact_hold"]
+	var follow_dur: float = phases["follow"]
 	# Windup: cock back/up before hit frames
-	var tw := _swing_tween.tween_property(_weapon_visual, "rotation_degrees", windup_rot, windup)
+	var tw := _swing_tween.tween_property(_weapon_visual, "rotation_degrees", windup_rot, windup_move)
 	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", windup_pos, windup)
+	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", windup_pos, windup_move)
 	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	# Active: accelerate through the strike (synced with hitbox window)
-	tw = _swing_tween.tween_property(_weapon_visual, "rotation_degrees", contact_rot, active * 0.55)
+	if windup_hold > 0.0:
+		_swing_tween.tween_interval(windup_hold)
+	# Active: accelerate into contact, brief readable hold, then follow-through
+	tw = _swing_tween.tween_property(_weapon_visual, "rotation_degrees", contact_rot, to_contact)
 	tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", contact_pos, active * 0.55)
+	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", contact_pos, to_contact)
 	tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	tw = _swing_tween.tween_property(_weapon_visual, "rotation_degrees", follow_rot, active * 0.45)
+	if contact_hold > 0.0:
+		_swing_tween.tween_interval(contact_hold)
+	tw = _swing_tween.tween_property(_weapon_visual, "rotation_degrees", follow_rot, follow_dur)
 	tw.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", follow_pos, active * 0.45)
+	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", follow_pos, follow_dur)
 	tw.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	# Recovery: return to rest
+	# Recovery: return to rest (non-spam gate)
 	tw = _swing_tween.tween_property(_weapon_visual, "rotation_degrees", rest_rot, recovery)
 	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tw = _swing_tween.parallel().tween_property(_weapon_visual, "position", _weapon_rest_transform.origin, recovery)
 	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func swing_phase_durations(kind: StringName, windup: float, active: float, recovery: float) -> Dictionary:
+	## Procedural phase splits shared by weapon tween + body additives.
+	## Heavy holds longer at cock + contact so telegraph/impact read; light stays snappy.
+	var heavy := kind == &"heavy"
+	var hold_frac := 0.18 if heavy else 0.08
+	var windup_hold := windup * hold_frac
+	var windup_move := maxf(0.04, windup - windup_hold)
+	var contact_hold := active * (0.22 if heavy else 0.12)
+	var to_contact := active * (0.40 if heavy else 0.48)
+	var follow_dur := maxf(0.03, active - to_contact - contact_hold)
+	return {
+		"windup_move": windup_move,
+		"windup_hold": windup_hold,
+		"to_contact": to_contact,
+		"contact_hold": contact_hold,
+		"follow": follow_dur,
+		"recovery": recovery,
+	}
 
 
 func _swing_poses(kind: StringName, direction: StrikeDirection = StrikeDirection.TOP) -> Dictionary:
@@ -642,12 +719,12 @@ func _hatchet_directional_poses(heavy: bool, direction: StrikeDirection, rest_po
 		StrikeDirection.LEFT:
 			if heavy:
 				return {
-					"windup_rot": Vector3(-20.0, 75.0, 35.0),
-					"contact_rot": Vector3(10.0, -25.0, -40.0),
-					"follow_rot": Vector3(20.0, -70.0, -55.0),
-					"windup_pos": rest_pos + Vector3(-0.22, 0.18, 0.06),
-					"contact_pos": rest_pos + Vector3(0.05, 0.08, -0.28),
-					"follow_pos": rest_pos + Vector3(0.28, 0.0, -0.16),
+					"windup_rot": Vector3(-28.0, 95.0, 42.0),
+					"contact_rot": Vector3(12.0, -30.0, -48.0),
+					"follow_rot": Vector3(24.0, -82.0, -62.0),
+					"windup_pos": rest_pos + Vector3(-0.30, 0.22, 0.08),
+					"contact_pos": rest_pos + Vector3(0.06, 0.08, -0.32),
+					"follow_pos": rest_pos + Vector3(0.34, -0.02, -0.18),
 				}
 			return {
 				"windup_rot": Vector3(-12.0, 50.0, 25.0),
@@ -660,12 +737,12 @@ func _hatchet_directional_poses(heavy: bool, direction: StrikeDirection, rest_po
 		StrikeDirection.RIGHT:
 			if heavy:
 				return {
-					"windup_rot": Vector3(-25.0, -70.0, -50.0),
-					"contact_rot": Vector3(15.0, 30.0, 25.0),
-					"follow_rot": Vector3(25.0, 75.0, 45.0),
-					"windup_pos": rest_pos + Vector3(0.24, 0.16, 0.08),
-					"contact_pos": rest_pos + Vector3(-0.02, 0.06, -0.28),
-					"follow_pos": rest_pos + Vector3(-0.3, -0.02, -0.14),
+					"windup_rot": Vector3(-32.0, -90.0, -58.0),
+					"contact_rot": Vector3(18.0, 36.0, 30.0),
+					"follow_rot": Vector3(28.0, 88.0, 52.0),
+					"windup_pos": rest_pos + Vector3(0.32, 0.2, 0.1),
+					"contact_pos": rest_pos + Vector3(-0.04, 0.06, -0.32),
+					"follow_pos": rest_pos + Vector3(-0.36, -0.04, -0.16),
 				}
 			return {
 				"windup_rot": Vector3(-14.0, -45.0, -35.0),
@@ -679,20 +756,20 @@ func _hatchet_directional_poses(heavy: bool, direction: StrikeDirection, rest_po
 			# TOP overhead chop; heavy is a larger cock-and-drop.
 			if heavy:
 				return {
-					"windup_rot": Vector3(-95.0, 20.0, 70.0),
-					"contact_rot": Vector3(35.0, -10.0, -90.0),
-					"follow_rot": Vector3(70.0, -25.0, -130.0),
-					"windup_pos": rest_pos + Vector3(0.08, 0.42, 0.06),
-					"contact_pos": rest_pos + Vector3(0.04, 0.02, -0.3),
-					"follow_pos": rest_pos + Vector3(-0.06, -0.22, -0.18),
+					"windup_rot": Vector3(-118.0, 28.0, 85.0),
+					"contact_rot": Vector3(42.0, -12.0, -100.0),
+					"follow_rot": Vector3(78.0, -28.0, -140.0),
+					"windup_pos": rest_pos + Vector3(0.1, 0.55, 0.08),
+					"contact_pos": rest_pos + Vector3(0.04, -0.02, -0.34),
+					"follow_pos": rest_pos + Vector3(-0.08, -0.28, -0.2),
 				}
 			return {
-				"windup_rot": Vector3(-55.0, 15.0, 45.0),
-				"contact_rot": Vector3(20.0, -8.0, -70.0),
-				"follow_rot": Vector3(40.0, -18.0, -100.0),
-				"windup_pos": rest_pos + Vector3(0.05, 0.24, 0.05),
-				"contact_pos": rest_pos + Vector3(0.02, 0.02, -0.22),
-				"follow_pos": rest_pos + Vector3(-0.04, -0.12, -0.12),
+				"windup_rot": Vector3(-68.0, 18.0, 55.0),
+				"contact_rot": Vector3(24.0, -8.0, -78.0),
+				"follow_rot": Vector3(48.0, -18.0, -108.0),
+				"windup_pos": rest_pos + Vector3(0.06, 0.32, 0.05),
+				"contact_pos": rest_pos + Vector3(0.02, 0.0, -0.24),
+				"follow_pos": rest_pos + Vector3(-0.04, -0.14, -0.14),
 			}
 
 

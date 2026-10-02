@@ -108,12 +108,11 @@ func _run() -> void:
 		return
 	print("SMOKE charged_top_release ok sta=", combat.stamina)
 
-	# Wait out recovery
-	for _i in 90:
+	# Wait out recovery (charged top ~1.1s total @ 60Hz ≈ 66 frames; pad heavily)
+	for _i in 120:
 		await physics_frame
 	if combat.is_attacking:
-		# allow a little more
-		for _j in 60:
+		for _j in 90:
 			await physics_frame
 
 	# Left light via try_attack
@@ -138,7 +137,51 @@ func _run() -> void:
 		return
 	print("SMOKE directional_poses distinct ok")
 
-	for _i in 80:
+	# Timing polish (#2): light vs charged + top/left/right must differ.
+	var light_top: Dictionary = combat.resolved_hatchet_timings(&"light", CombatSystem.StrikeDirection.TOP)
+	var heavy_top: Dictionary = combat.resolved_hatchet_timings(&"heavy", CombatSystem.StrikeDirection.TOP)
+	var light_left: Dictionary = combat.resolved_hatchet_timings(&"light", CombatSystem.StrikeDirection.LEFT)
+	var heavy_right: Dictionary = combat.resolved_hatchet_timings(&"heavy", CombatSystem.StrikeDirection.RIGHT)
+	print(
+		"SMOKE timings light_top=%.0f/%.0f/%.0f ms heavy_top=%.0f/%.0f/%.0f ms" % [
+			float(light_top["windup"]) * 1000.0, float(light_top["active"]) * 1000.0, float(light_top["recovery"]) * 1000.0,
+			float(heavy_top["windup"]) * 1000.0, float(heavy_top["active"]) * 1000.0, float(heavy_top["recovery"]) * 1000.0,
+		]
+	)
+	if float(heavy_top["windup"]) <= float(light_top["windup"]) + 0.05:
+		push_error("SMOKE_FAIL charged windup not clearly longer than light")
+		quit(1)
+		return
+	if float(heavy_top["recovery"]) <= float(light_top["recovery"]) + 0.08:
+		push_error("SMOKE_FAIL charged recovery not clearly longer than light")
+		quit(1)
+		return
+	if absf(float(light_top["windup"]) - float(light_left["windup"])) < 0.01:
+		push_error("SMOKE_FAIL top/left light windup identical (expected dir scale)")
+		quit(1)
+		return
+	if float(light_left["windup"]) >= float(light_top["windup"]):
+		push_error("SMOKE_FAIL left windup should be snappier than top")
+		quit(1)
+		return
+	if float(heavy_top["windup"]) < 0.28 or float(heavy_top["recovery"]) < 0.5:
+		push_error("SMOKE_FAIL heavy top telegraph/recover too short")
+		quit(1)
+		return
+	var phases: Dictionary = combat.swing_phase_durations(&"heavy", float(heavy_top["windup"]), float(heavy_top["active"]), float(heavy_top["recovery"]))
+	if float(phases["windup_hold"]) < 0.04:
+		push_error("SMOKE_FAIL heavy windup hold missing")
+		quit(1)
+		return
+	if float(phases["contact_hold"]) < 0.02:
+		push_error("SMOKE_FAIL heavy contact hold missing")
+		quit(1)
+		return
+	print("SMOKE timing_polish ok left_w=%.0fms right_heavy_r=%.0fms" % [
+		float(light_left["windup"]) * 1000.0, float(heavy_right["recovery"]) * 1000.0,
+	])
+
+	for _i in 100:
 		await physics_frame
 
 	# Power scaling: damage meta via profile lerp — compare costs by attempting mid vs full
@@ -164,7 +207,7 @@ func _run() -> void:
 		return
 
 	# Cancel charge path
-	for _i in 80:
+	for _i in 120:
 		await physics_frame
 	combat.stamina = combat.max_stamina
 	if not combat.begin_charge():

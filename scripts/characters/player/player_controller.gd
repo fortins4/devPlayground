@@ -402,15 +402,13 @@ func _sync_back_goad_visibility() -> void:
 
 
 func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName) -> void:
-	# Body + arm follow weapon swing phases; timings match CombatSystem profiles.
+	# Body + arm follow weapon swing phases; timings match CombatSystem (post dir scale).
 	if combat == null:
 		return
-	var profile: Dictionary = CombatSystem.PROFILES[combat.current_weapon].get(
-		kind, CombatSystem.PROFILES[combat.current_weapon][&"light"]
-	)
-	var windup: float = profile["windup"]
-	var active: float = profile["active"]
-	var recovery: float = profile["recovery"]
+	var timings: Dictionary = combat.last_attack_timings()
+	var windup: float = float(timings.get("windup", 0.16))
+	var active: float = float(timings.get("active", 0.12))
+	var recovery: float = float(timings.get("recovery", 0.34))
 	var heavy := kind == &"heavy"
 	if locomotion:
 		locomotion.lock_attack(windup + active + recovery)
@@ -477,21 +475,36 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 
+	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, recovery)
+	var windup_move: float = phases["windup_move"]
+	var windup_hold: float = phases["windup_hold"]
+	var to_contact: float = phases["to_contact"]
+	var contact_hold: float = phases["contact_hold"]
+	var follow_dur: float = phases["follow"]
+
 	_arm_fore_scale = 0.35
 	_arm_tween = create_tween()
-	_arm_tween.tween_method(_apply_arm_additive, windup_delta * 0.15, windup_delta, windup).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_apply_arm_additive, windup_delta * 0.15, windup_delta, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if windup_hold > 0.0:
+		_arm_tween.tween_interval(windup_hold)
 	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.45)
-	_arm_tween.tween_method(_apply_arm_additive, windup_delta, contact_delta, active * 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_arm_tween.tween_method(_apply_arm_additive, windup_delta, contact_delta, to_contact).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if contact_hold > 0.0:
+		_arm_tween.tween_interval(contact_hold)
 	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.5)
-	_arm_tween.tween_method(_apply_arm_additive, contact_delta, follow_delta, active * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_apply_arm_additive, contact_delta, follow_delta, follow_dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_arm_tween.tween_callback(func() -> void: _arm_fore_scale = 0.25)
 	_arm_tween.tween_method(_apply_arm_additive, follow_delta, Vector3.ZERO, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_arm_tween.tween_callback(_clear_attack_additives)
 
 	_torso_tween = create_tween()
-	_torso_tween.tween_method(_apply_torso_additive, torso_windup * 0.2, torso_windup, windup).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_torso_tween.tween_method(_apply_torso_additive, torso_windup, torso_contact, active * 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	_torso_tween.tween_method(_apply_torso_additive, torso_contact, torso_follow, active * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_torso_tween.tween_method(_apply_torso_additive, torso_windup * 0.2, torso_windup, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if windup_hold > 0.0:
+		_torso_tween.tween_interval(windup_hold)
+	_torso_tween.tween_method(_apply_torso_additive, torso_windup, torso_contact, to_contact).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if contact_hold > 0.0:
+		_torso_tween.tween_interval(contact_hold)
+	_torso_tween.tween_method(_apply_torso_additive, torso_contact, torso_follow, follow_dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_torso_tween.tween_method(_apply_torso_additive, torso_follow, Vector3.ZERO, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
