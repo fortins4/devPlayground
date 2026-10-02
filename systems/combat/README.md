@@ -287,3 +287,7 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 ## Switchable block faces (#4)
 
 Sparring dummy cycles **TOP → LEFT → RIGHT** every ~2.75s while guarding. Only matching hatchet strike directions are blocked; other faces take full damage.
+
+## Charge footwork step (#5)
+
+While charging, **tap WASD** for a short step (does not cancel). Holding still drifts slowly. **Sprint still cancels** charge.

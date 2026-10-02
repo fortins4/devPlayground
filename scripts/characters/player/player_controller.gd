@@ -66,6 +66,13 @@ var _charge_aim_delta: Vector2 = Vector2.ZERO ## mouse aim offset while holding 
 var _hatchet_charge_armed: bool = false
 const CHARGE_AIM_SIDE_THRESH := 12.0 ## px horizontal aim for left/right
 const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
+## Light footwork step during charge (does NOT cancel charge). Sprint still cancels.
+const CHARGE_STEP_SPEED := 4.4
+const CHARGE_STEP_SECS := 0.13
+const CHARGE_STEP_COOLDOWN := 0.38
+var _charge_step_left: float = 0.0
+var _charge_step_cd: float = 0.0
+var _charge_step_dir: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -167,8 +174,21 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= _gravity * delta
 
 	var locked := combat != null and not combat.can_move() and not (combat != null and combat.is_charging)
-	# Charging allows half-speed footwork so direction + spacing stay readable.
+	# Charging: light step footwork (no cancel) + slow drift.
 	var charging_move := combat != null and combat.is_charging
+	_charge_step_cd = maxf(0.0, _charge_step_cd - delta)
+	_charge_step_left = maxf(0.0, _charge_step_left - delta)
+	if charging_move and _charge_step_left <= 0.0 and _charge_step_cd <= 0.0 and is_on_floor():
+		var step_in := _move_vector()
+		if step_in != Vector2.ZERO and (
+			Input.is_action_just_pressed("move_left")
+			or Input.is_action_just_pressed("move_right")
+			or Input.is_action_just_pressed("move_forward")
+			or Input.is_action_just_pressed("move_back")
+		):
+			_charge_step_dir = (transform.basis * Vector3(step_in.x, 0.0, step_in.y)).normalized()
+			_charge_step_left = CHARGE_STEP_SECS
+			_charge_step_cd = CHARGE_STEP_COOLDOWN
 	var want_crouch := Input.is_action_pressed("crouch") and is_on_floor() and not locked
 	# Stay crouched mid-air until land if already crouching; no jump while crouched.
 	if not is_on_floor() and is_crouching:
@@ -214,7 +234,11 @@ func _physics_process(delta: float) -> void:
 		target_speed = 0.0
 		direction = Vector3.ZERO
 	elif charging_move:
-		target_speed = WALK_SPEED * 0.45
+		if _charge_step_left > 0.0:
+			target_speed = CHARGE_STEP_SPEED
+			direction = _charge_step_dir
+		else:
+			target_speed = WALK_SPEED * 0.28  # light drift; tap WASD for a step
 
 	var target_vel := direction * target_speed
 	var horiz := Vector3(velocity.x, 0.0, velocity.z)
