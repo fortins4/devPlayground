@@ -4,6 +4,9 @@ extends Node
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
 
+const StaminaEconomy := preload("res://systems/combat/stamina_economy.gd")
+const HatchetAttackTable := preload("res://systems/combat/hatchet_attack_table.gd")
+
 signal attack_performed(attacker: Node, kind: StringName, weapon: StringName)
 signal hit_landed(attacker: Node, target: Node, damage: float, kind: StringName)
 signal damage_taken(amount: float, from: Node)
@@ -47,7 +50,7 @@ const WEAPON_NAMES := {
 @export var hit_stop_light: float = 0.045
 @export var hit_stop_heavy: float = 0.075
 @export var show_damage_numbers: bool = true
-@export var charge_full_secs: float = 0.55 ## Hold time to reach full power (hatchet)
+@export var charge_full_secs: float = 0.75 ## Hold time to reach full power (hatchet) — USER LOCK
 @export var charge_min_release_secs: float = 0.08 ## Below this = tap light
 @export var enable_directional_hatchet: bool = true
 
@@ -412,8 +415,23 @@ func try_attack(
 		)
 		reach = lerpf(float(light_p["reach"]), float(heavy_p["reach"]), t)
 		kind = &"heavy" if t >= 0.55 else &"light"
-	# Hatchet: scale phases so top / left / right read as distinct arcs.
+	# Hatchet: Systems table owns damage/reach; dir scales feel timings.
 	if current_weapon == Weapon.HATCHET and enable_directional_hatchet:
+		var tier: StringName = HatchetAttackTable.tier_from_kind(kind)
+		if power >= 0.95:
+			tier = &"max"
+		elif power >= 0.55:
+			tier = &"charged"
+		var cell: Dictionary = HatchetAttackTable.entry(DIRECTION_NAMES[direction], tier)
+		damage = float(cell["damage"])
+		reach = float(cell["reach"])
+		if power >= 0.0 and power < 0.55:
+			# Blend tap→charged for partial charge holds.
+			var tap: Dictionary = HatchetAttackTable.entry(DIRECTION_NAMES[direction], &"tap")
+			var ch: Dictionary = HatchetAttackTable.entry(DIRECTION_NAMES[direction], &"charged")
+			var bt := clampf(power / 0.55, 0.0, 1.0)
+			damage = lerpf(float(tap["damage"]), float(ch["damage"]), bt)
+			reach = lerpf(float(tap["reach"]), float(ch["reach"]), bt)
 		var scales: Dictionary = HATCHET_DIR_TIMING.get(direction, HATCHET_DIR_TIMING[StrikeDirection.TOP])
 		windup *= float(scales.get("windup", 1.0))
 		active *= float(scales.get("active", 1.0))
@@ -536,10 +554,10 @@ func _position_hitbox(reach: float, direction: StrikeDirection = StrikeDirection
 	var height := 1.0
 	match direction:
 		StrikeDirection.LEFT:
-			lateral = -0.35
+			lateral = -0.48
 			height = 1.05
 		StrikeDirection.RIGHT:
-			lateral = 0.35
+			lateral = 0.48
 			height = 1.05
 		_:
 			lateral = 0.0
@@ -548,9 +566,10 @@ func _position_hitbox(reach: float, direction: StrikeDirection = StrikeDirection
 	var shape_node := _hitbox.get_node_or_null("CollisionShape3D") as CollisionShape3D
 	if shape_node and shape_node.shape is BoxShape3D:
 		var box := (shape_node.shape as BoxShape3D).duplicate() as BoxShape3D
-		var width := 0.7 if direction != StrikeDirection.TOP else 0.55
-		var tall := 0.85 if direction == StrikeDirection.TOP else 0.65
-		box.size = Vector3(width, tall, reach * 0.9)
+		# USER LOCK: wider side hitboxes for sparring / flank chops.
+		var width := 1.15 if direction != StrikeDirection.TOP else 0.55
+		var tall := 0.85 if direction == StrikeDirection.TOP else 0.72
+		box.size = Vector3(width, tall, reach * 0.95)
 		shape_node.shape = box
 
 
