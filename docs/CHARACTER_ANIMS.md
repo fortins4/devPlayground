@@ -57,5 +57,5 @@ Mount/dismount remains **E**; Shift gallop; melee still blocked while mounted.
 
 ## Controls (unchanged)
 
-WASD move · mouse look · Space jump · Shift sprint · Ctrl/C crouch · LMB light · RMB heavy ·
+WASD move · mouse look · Space jump · Shift sprint · Ctrl/C crouch · Hold LMB charge hatchet (mouse aim dir) · RMB heavy knife/goad ·
 Q cycle weapon · 1/2/3 hatchet/knife/goad · Esc mouse capture · **E** mount/dismount horse.
