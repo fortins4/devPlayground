@@ -33,7 +33,7 @@ func _process(_delta: float) -> void:
 	# Keep drag stamina + charge readout live.
 	var player := get_tree().get_first_node_in_group("player") if is_inside_tree() else null
 	var dragging := player and player.has_method("is_dragging") and bool(player.call("is_dragging"))
-	if dragging or (_combat and _combat.is_charging):
+	if dragging or (_combat and (_combat.is_charging or _combat.is_shaft_blocking)):
 		_refresh()
 
 
@@ -51,7 +51,9 @@ func _refresh() -> void:
 	if _combat.is_charging:
 		var dir := String(_combat.direction_name())
 		charge_line = "\nCHARGE %.2f / %.2fs  dir=%s  (release to strike)" % [_combat.charge_time, _combat.charge_full_secs, dir]
-	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nGoad: hold LMB (look L/R/up shaft, look-down stab; tap=light, 0.75s=full)  Knife: tap LMB  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
+	elif _combat.is_shaft_blocking:
+		charge_line = "\nSHAFT BLOCK  hold F  (release to idle)"
+	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nGoad: hold LMB (look L/R/up shaft, look-down stab; tap=light, 0.75s=full)  hold F shaft-block  Knife: tap LMB  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
 		int(_combat.health), int(_combat.max_health),
 		int(_combat.stamina), int(_combat.max_stamina),
 		w,

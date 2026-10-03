@@ -3,6 +3,7 @@ extends Node
 ## Reusable greybox combat component. Player feel target is the cattle goad
 ## (hold-release, four directions, same 0.75s full charge as the hatchet).
 ## Hatchet hold-release (top/left/right only) stays intact. No charge glow.
+## Goad shaft block is a held guard (stick across the body), not a parry window.
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
 
@@ -68,6 +69,8 @@ var stamina: float = StaminaEconomy.MAX_STAMINA
 var current_weapon: Weapon = Weapon.HATCHET
 var is_dead: bool = false
 var is_blocking: bool = false
+## Goad only: shaft held across the body. Not enable_block (shield) and not a timed parry.
+var is_shaft_blocking: bool = false
 ## Which strike face is guarded when blocking (top/left/right). Mismatch = open.
 var guard_direction: StrikeDirection = StrikeDirection.TOP
 ## Face-guard posture (BlockPostureTable). Used when enable_face_guard; independent of shield block.
@@ -224,6 +227,7 @@ func _physics_process(delta: float) -> void:
 	var regenerating := (
 		not is_attacking
 		and not is_blocking
+		and not is_shaft_blocking
 		and not is_charging
 		and stamina_regen_delay_left <= 0.0
 	)
@@ -263,6 +267,7 @@ func set_weapon(weapon: Weapon) -> void:
 		return
 	if is_charging:
 		cancel_charge()
+	is_shaft_blocking = false
 	current_weapon = weapon
 	_apply_weapon_visual()
 	weapon_changed.emit(WEAPON_NAMES[current_weapon])
@@ -283,6 +288,8 @@ func try_sprint_drain(delta: float) -> bool:
 		return false
 	if is_charging:
 		cancel_charge()
+	# Sprint drops a held shaft guard the same way it drops a charge.
+	is_shaft_blocking = false
 	var cost := sprint_stamina_per_sec * delta
 	if stamina < cost * 0.5:
 		return false
@@ -346,6 +353,7 @@ func begin_charge() -> bool:
 		return false
 	is_charging = true
 	is_blocking = false
+	is_shaft_blocking = false
 	charge_time = 0.0
 	charge_ratio = 0.0
 	charge_direction = StrikeDirection.TOP
@@ -517,6 +525,7 @@ func try_attack(
 		_spend_stamina(cost)
 	is_attacking = true
 	is_blocking = false
+	is_shaft_blocking = false
 	_hit_this_swing.clear()
 	attack_recovery_left = windup + active + recovery
 	_last_attack_kind = kind
@@ -541,6 +550,25 @@ func set_blocking(holding: bool) -> void:
 		is_blocking = false
 		return
 	is_blocking = holding and stamina > StaminaEconomy.BLOCK_MIN_STAMINA
+
+
+## Hold the cattle goad across the body. Goad only — knife and hatchet refuse.
+## This is a guard, not a perfect-parry: there is no timing window. While the
+## flag is set, a frontal hit is caught. Releasing the hold clears it.
+func set_shaft_block(holding: bool) -> bool:
+	if (
+		not holding
+		or current_weapon != Weapon.GOAD
+		or is_dead
+		or is_attacking
+		or is_charging
+		or stamina <= StaminaEconomy.BLOCK_MIN_STAMINA
+	):
+		is_shaft_blocking = false
+		return false
+	is_shaft_blocking = true
+	is_blocking = false
+	return true
 
 
 ## Sparring face-guard (BlockPostureTable). Independent of enable_block shield stubs.
@@ -686,9 +714,19 @@ func apply_damage(
 ) -> float:
 	if is_dead or amount <= 0.0:
 		return 0.0
+	# Held shaft catch. Up or not — no timing window, no counter.
+	if is_shaft_blocking and current_weapon == Weapon.GOAD and frontal:
+		var caught := amount
+		_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
+		blocked.emit(_owner_body, from, caught)
+		if stamina <= StaminaEconomy.BLOCK_MIN_STAMINA:
+			is_shaft_blocking = false
+		return 0.0
 	# Hit-stun: drop any in-progress charge.
 	if is_charging:
 		cancel_charge()
+	if is_shaft_blocking:
+		is_shaft_blocking = false
 	var mitigated := 0.0
 	var attack_dir: StringName = DIRECTION_NAMES.get(strike_direction, &"top")
 	var face_mitigated := false
@@ -744,6 +782,7 @@ func _die() -> void:
 	is_dead = true
 	is_attacking = false
 	is_blocking = false
+	is_shaft_blocking = false
 	is_charging = false
 	posture_break_left = 0.0
 	if _hitbox:

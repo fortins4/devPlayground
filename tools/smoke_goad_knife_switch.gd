@@ -1,5 +1,6 @@
 extends SceneTree
 ## Smoke: goad hold-charge (four directions, 0.75s, light tap vs full);
+## goad shaft block (hold guard, not a parry window);
 ## knife has no stab and no charge; hatchet hold-charge (top/left/right) remains.
 
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
@@ -34,6 +35,9 @@ func _run() -> void:
 		quit(1)
 		return
 	if not _check_goad_charge(combat):
+		quit(1)
+		return
+	if not _check_shaft_block(combat):
 		quit(1)
 		return
 
@@ -89,6 +93,10 @@ func _run() -> void:
 		push_error("SMOKE_FAIL knife should stay a tap, not a charge")
 		quit(1)
 		return
+	if combat.set_shaft_block(true) or combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL knife gained a shaft block")
+		quit(1)
+		return
 	if not combat.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM):
 		push_error("SMOKE_FAIL knife attack")
 		quit(1)
@@ -101,6 +109,10 @@ func _run() -> void:
 	combat.attack_recovery_left = 0.0
 
 	combat.set_weapon(CombatSystem.Weapon.HATCHET)
+	if combat.set_shaft_block(true) or combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL hatchet gained a shaft block")
+		quit(1)
+		return
 	if not combat.begin_charge():
 		push_error("SMOKE_FAIL hatchet charge missing")
 		quit(1)
@@ -258,6 +270,88 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 	if absf((shaft_full["right_arm"] as Vector3).z - (idle["right_arm"] as Vector3).z) < deg_to_rad(40.0):
 		push_error("SMOKE_FAIL full shaft charge does not cock the arm")
 		return false
+	return true
+
+
+
+func _check_shaft_block(combat: CombatSystem) -> bool:
+	var block: Dictionary = ToolStrikePoses.tool_shaft_block_pose()
+	var idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	var left: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.LEFT, &"contact", false)
+	var top: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.TOP, &"contact", false)
+	var stab: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.BOTTOM, &"contact", false)
+	if not block.has("left_arm") or not block.has("right_arm") or not block.has("left_thigh"):
+		push_error("SMOKE_FAIL shaft block pose missing body")
+		return false
+	var weapon_roll := absf((block["weapon"] as Vector3).z - (idle["weapon"] as Vector3).z)
+	if weapon_roll < deg_to_rad(50.0):
+		push_error("SMOKE_FAIL shaft block stick is not across the body")
+		return false
+	var arm_gap := (block["left_arm"] as Vector3).distance_to(idle["left_arm"] as Vector3)
+	var leg_gap := absf((block["left_thigh"] as Vector3).x - (idle["left_thigh"] as Vector3).x)
+	if arm_gap < deg_to_rad(40.0) or leg_gap < deg_to_rad(15.0):
+		push_error("SMOKE_FAIL shaft block pose too close to idle")
+		return false
+	# Must not collapse into a strike contact.
+	if (block["weapon"] as Vector3).distance_to(left["weapon"] as Vector3) < deg_to_rad(25.0):
+		push_error("SMOKE_FAIL shaft block matches left strike")
+		return false
+	if absf((block["right_arm"] as Vector3).x - (top["right_arm"] as Vector3).x) < deg_to_rad(20.0) and absf((block["weapon"] as Vector3).z) < deg_to_rad(40.0):
+		push_error("SMOKE_FAIL shaft block matches top strike")
+		return false
+	if (block["left_thigh"] as Vector3).x > (stab["left_thigh"] as Vector3).x - deg_to_rad(8.0):
+		push_error("SMOKE_FAIL shaft block is a stab lunge")
+		return false
+	_reset_attack(combat)
+	combat.health = combat.max_health
+	if not combat.set_shaft_block(true) or not combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL goad shaft block did not hold")
+		return false
+	if combat.is_blocking or combat.enable_block:
+		push_error("SMOKE_FAIL shaft block turned on the shield path")
+		return false
+	var dealt := combat.apply_damage(25.0, null, true, CombatSystem.StrikeDirection.LEFT)
+	if dealt > 0.01 or combat.health < combat.max_health - 0.01:
+		push_error("SMOKE_FAIL held shaft did not stop a frontal hit")
+		return false
+	# Same catch a moment later — not a perfect-parry timing window.
+	dealt = combat.apply_damage(18.0, null, true, CombatSystem.StrikeDirection.TOP)
+	if dealt > 0.01 or combat.health < combat.max_health - 0.01:
+		push_error("SMOKE_FAIL second frontal hit was not a held guard")
+		return false
+	if not combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL guard dropped without a release")
+		return false
+	var hp := combat.health
+	dealt = combat.apply_damage(10.0, null, false, CombatSystem.StrikeDirection.RIGHT)
+	if dealt < 9.0 or combat.health > hp - 9.0:
+		push_error("SMOKE_FAIL rear hit was negated like a parry")
+		return false
+	if combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL rear hit left the guard up")
+		return false
+	combat.health = combat.max_health
+	combat.stamina = combat.max_stamina
+	if not combat.set_shaft_block(true):
+		push_error("SMOKE_FAIL could not re-raise shaft block")
+		return false
+	if not combat.try_sprint_drain(0.05):
+		push_error("SMOKE_FAIL sprint drain during block")
+		return false
+	if combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL sprint did not drop shaft block")
+		return false
+	# Open guard takes the hit. Strikes/charge are checked elsewhere.
+	dealt = combat.apply_damage(12.0, null, true, CombatSystem.StrikeDirection.BOTTOM)
+	if dealt < 11.0:
+		push_error("SMOKE_FAIL open goad negated damage")
+		return false
+	combat.health = combat.max_health
+	combat.stamina = combat.max_stamina
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL charge missing after shaft block")
+		return false
+	combat.cancel_charge()
 	return true
 
 

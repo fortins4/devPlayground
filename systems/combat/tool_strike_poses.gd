@@ -4,6 +4,7 @@ extends RefCounted
 ##
 ## Goad: top / left / right are shaft swings. Bottom is a point stab (lunge).
 ## Charge phase is the hold windup (bigger than the swing windup). No glow.
+## Shaft block is a held guard: both hands on the stick, stick across the body.
 ## Knife: top / left / right only, shorter reach, still a weight shift.
 ## Keys are KerneLocomotion joint names plus "weapon" (player-space euler for the mesh).
 
@@ -46,6 +47,25 @@ static func tool_charge_pose(weapon: int, direction: int, ratio: float) -> Dicti
 		var a: Vector3 = idle.get(k, Vector3.ZERO)
 		var b: Vector3 = full[k]
 		pose[k] = a.lerp(b, t)
+	return pose
+
+
+
+## Held goad guard. Not a swing, not a stab chamber, not idle.
+## Degrees are authored so both forearm tips meet the shaft across the chest.
+static func tool_shaft_block_pose() -> Dictionary:
+	var spec := _pack(
+		Vector3(2, -8, 2), Vector3(-2, 6, -3), Vector3(2, 2, 0),
+		Vector3(95, 35, 45), Vector3(-60, 10, 8),
+		Vector3(70, -6, 22), Vector3(-42, 12, -6),
+		Vector3(22, 6, -10), Vector3(20, 0, 0),
+		Vector3(-8, -2, 10), Vector3(22, 0, 0),
+		Vector3(18, -8, 72)
+	)
+	var pose := {}
+	for k in spec.keys():
+		var d: Vector3 = spec[k]
+		pose[String(k)] = Vector3(deg_to_rad(d.x), deg_to_rad(d.y), deg_to_rad(d.z))
 	return pose
 
 

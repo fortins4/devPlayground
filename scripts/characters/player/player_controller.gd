@@ -1,7 +1,8 @@
 extends CharacterBody3D
 ## Third-person controller. Default feel is the cattle goad (hold-to-charge,
-## release to strike; look picks shaft or stab). Hatchet hold-release wiring
-## is unchanged when the hatchet is equipped. Knife stays a tap.
+## release to strike; look picks shaft or stab). Hold F for a shaft block
+## (RMB stays heavy). Hatchet hold-release wiring is unchanged when the
+## hatchet is equipped. Knife stays a tap.
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 ## HealthCombatBridge (sibling) mirrors player CombatSystem ↔ CharacterHealth.
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
@@ -82,6 +83,8 @@ var _tool_aim_delta: Vector2 = Vector2.ZERO
 ## Player-space weapon euler while a goad/knife body strike owns the mesh.
 var _tool_weapon_euler: Vector3 = Vector3.ZERO
 var _tool_pose_active: bool = false
+## True while the goad shaft-block pose is applied (so sprint/release can drop it).
+var _shaft_pose_applied: bool = false
 const TOOL_AIM_SIDE := 10.0
 const TOOL_AIM_VERT := 8.0
 
@@ -234,6 +237,7 @@ func _physics_process(delta: float) -> void:
 		if combat.is_charging:
 			combat.cancel_charge()
 			_hatchet_charge_armed = false
+		# try_sprint_drain also drops a held goad shaft block.
 		sprinting = combat.try_sprint_drain(delta)
 	elif want_sprint and combat == null:
 		sprinting = true
@@ -276,6 +280,7 @@ func _physics_process(delta: float) -> void:
 	_update_drag_stamina(delta)
 	if not is_mounted:
 		_tick_locomotion(delta, horiz.length(), sprinting, locked)
+		_tick_shaft_block()
 		_sync_weapon_to_hand()
 
 
@@ -291,7 +296,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 	if locomotion == null:
 		return
 	# Charge locks walk-arm swing so aim cock reads cleanly; swing uses same path.
-	var attacking := combat != null and (combat.is_attacking or combat.is_charging)
+	var attacking := combat != null and (combat.is_attacking or combat.is_charging or combat.is_shaft_blocking)
 	var local_dir := Vector3.ZERO
 	var input_dir := _move_vector()
 	if not locked:
@@ -302,6 +307,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		combat
 		and not combat.is_charging
 		and not combat.is_attacking
+		and not combat.is_shaft_blocking
 		and horiz_speed < 0.25
 		and not is_mounted
 	):
@@ -310,6 +316,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		combat
 		and not combat.is_attacking
 		and not combat.is_charging
+		and not combat.is_shaft_blocking
 		and combat.current_weapon != CombatSystem.Weapon.HATCHET
 		and horiz_speed >= 0.25
 	):
@@ -317,6 +324,42 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		_tool_pose_active = false
 		if locomotion.has_combat_additive("left_thigh") or locomotion.has_combat_additive("hips"):
 			locomotion.clear_combat_additives()
+
+
+func _tick_shaft_block() -> void:
+	## Hold F. RMB stays the heavy strike. Releasing F returns to idle.
+	## Sprint (already resolved this frame) drops the guard.
+	if combat == null:
+		return
+	var want := (
+		Input.is_action_pressed("shaft_block")
+		and combat.current_weapon == CombatSystem.Weapon.GOAD
+		and not _sprinting
+		and not combat.is_attacking
+		and not combat.is_charging
+		and not combat.is_dead
+		and not is_mounted
+		and not is_dragging()
+	)
+	combat.set_shaft_block(want)
+	if combat.is_shaft_blocking:
+		_apply_shaft_block_pose()
+		_shaft_pose_applied = true
+	elif _shaft_pose_applied:
+		_shaft_pose_applied = false
+		if not combat.is_attacking and not combat.is_charging:
+			_clear_attack_additives()
+
+
+func _apply_shaft_block_pose() -> void:
+	if locomotion == null:
+		return
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+	_apply_tool_pose(ToolStrikePoses.tool_shaft_block_pose())
+	locomotion.lock_attack(0.12)
 
 
 func _apply_crouch_visual(delta: float) -> void:
@@ -695,7 +738,7 @@ func _clear_attack_additives() -> void:
 func _apply_weapon_idle_pose() -> void:
 	if combat == null or locomotion == null:
 		return
-	if combat.is_attacking or combat.is_charging:
+	if combat.is_attacking or combat.is_charging or combat.is_shaft_blocking:
 		return
 	if _arm_tween and _arm_tween.is_valid():
 		return
