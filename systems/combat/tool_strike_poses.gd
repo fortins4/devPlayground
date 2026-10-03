@@ -3,7 +3,7 @@ extends RefCounted
 ## Authored in degrees. Hatchet chops do NOT use this table.
 ##
 ## Goad: top / left / right are shaft swings. Bottom is a point stab (lunge).
-## Charge phase is the hold windup (bigger than the swing windup). No glow.
+## Charge phase is the hold aim. The release continues that pose into the strike. No glow.
 ## Shaft block is a held guard: both hands on the stick.
 ## Neutral look keeps the chest shaft. Look left/right/up/down shifts that
 ## same hold onto the left side, right side, a rising high shaft, or a low
@@ -55,6 +55,52 @@ static func tool_charge_pose(weapon: int, direction: int, ratio: float) -> Dicti
 		pose[k] = a.lerp(b, t)
 	return pose
 
+
+## Goad aim while LMB is held, before release.
+## aim_x: -1 player's left .. +1 player's right. aim_y: -1 overhead .. +1 look-down stab.
+## ratio 0 = idle, 1 = the full charge cock of that aim. Mid ratio is the same
+## pose, short of the committed one — not a different stance.
+## Neutral / look-up stays the top shaft. Look-down blends into the stab chamber.
+static func tool_aim_pose(weapon: int, aim_x: float, aim_y: float, ratio: float) -> Dictionary:
+	if weapon != 2:
+		var dir := 0
+		if aim_x <= -0.35:
+			dir = 1
+		elif aim_x >= 0.35:
+			dir = 2
+		return tool_charge_pose(weapon, dir, ratio)
+	var ax := clampf(aim_x, -1.0, 1.0)
+	var ay := clampf(aim_y, -1.0, 1.0)
+	var w_left := clampf(-ax, 0.0, 1.0)
+	var w_right := clampf(ax, 0.0, 1.0)
+	var w_down := clampf(ay, 0.0, 1.0)
+	var off := w_left + w_right + w_down
+	if off > 1.0:
+		var s := 1.0 / off
+		w_left *= s
+		w_right *= s
+		w_down *= s
+		off = 1.0
+	var w_top := 1.0 - off
+	var top := tool_strike_pose(weapon, 0, &"charge", false)
+	var left := tool_strike_pose(weapon, 1, &"charge", false)
+	var right := tool_strike_pose(weapon, 2, &"charge", false)
+	var bottom := tool_strike_pose(weapon, 3, &"charge", false)
+	var idle := tool_strike_pose(weapon, 0, &"idle", false)
+	var aimed := {}
+	for k in top.keys():
+		var v: Vector3 = (top[k] as Vector3) * w_top
+		v += (left[k] as Vector3) * w_left
+		v += (right[k] as Vector3) * w_right
+		v += (bottom[k] as Vector3) * w_down
+		aimed[k] = v
+	var blend := _charge_blend(ratio)
+	var pose := {}
+	for k in aimed.keys():
+		var a: Vector3 = idle.get(k, Vector3.ZERO)
+		var b: Vector3 = aimed[k]
+		pose[k] = a.lerp(b, blend)
+	return pose
 
 
 ## Held goad guard. Not a swing, not a stab chamber, not idle.
@@ -224,6 +270,15 @@ static func _knife_spec(direction: int, phase: StringName) -> Dictionary:
 
 static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 	# direction 3 = bottom stab. Others are shaft strikes that load the feet.
+	# Blocks 1 and 2 were authored mirrored against look direction: block 1
+	# plants the shaft on the player's right, block 2 on the player's left.
+	# Mouse-left is StrikeDirection.LEFT and must swing FROM the player's left,
+	# so the side blocks are swapped here. Top and stab are unchanged.
+	# Guard faces are not in this table. Knife cuts are not in this table.
+	if direction == 1:
+		direction = 2
+	elif direction == 2:
+		direction = 1
 	match phase:
 		&"idle":
 			# Upright prod in the right hand. Feet under the hips — not a lunge.
@@ -236,27 +291,28 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 		&"charge":
 			# Full 0.75s hold. Deeper than swing windup so mid vs full stills differ.
 			match direction:
-				1: # left shaft — hard coil, shaft hauled back, both feet loaded
+				1: # player's right — mouse-right. Shaft hauled onto the right, feet loaded.
 					return _pack(Vector3(12, -52, -18), Vector3(-14, -36, -14), Vector3(8, 18, 0),
 						Vector3(-22, 40, 32), Vector3(22, 0, 0),
 						Vector3(-70, 74, -108), Vector3(-42, 0, 0),
 						Vector3(-26, 0, 12), Vector3(40, 0, 0),
 						Vector3(34, 0, -16), Vector3(46, 0, 0),
 						Vector3(-56, 42, -124))
-				2: # right shaft
+				2: # player's left — mouse-left. Shaft hauled onto the left.
 					return _pack(Vector3(12, 52, 18), Vector3(-14, 36, 14), Vector3(8, -18, 0),
 						Vector3(16, -28, -24), Vector3(18, 0, 0),
 						Vector3(-66, -76, 106), Vector3(-38, 0, 0),
 						Vector3(32, 0, -14), Vector3(44, 0, 0),
 						Vector3(-24, 0, 14), Vector3(42, 0, 0),
 						Vector3(-52, -40, 122))
-				3: # stab chamber — lean back, front foot planted, point not yet thrust
-					return _pack(Vector3(36, 0, 0), Vector3(28, 0, 0), Vector3(-12, 0, 0),
-						Vector3(-32, 22, 28), Vector3(28, 0, 0),
-						Vector3(-64, 10, -22), Vector3(-28, 0, 0),
-						Vector3(46, 0, -8), Vector3(22, 0, 0),
-						Vector3(-22, 0, 6), Vector3(58, 0, 0),
-						Vector3(-88, 8, -14))
+				3: # stab aim — weight back on a planted front foot, point leads forward.
+					# Keep the spine up. The old 36+28 layback read as a faceplant.
+					return _pack(Vector3(20, 0, 0), Vector3(8, 0, 0), Vector3(-4, 0, 0),
+						Vector3(-18, 16, 18), Vector3(16, 0, 0),
+						Vector3(-36, 6, -10), Vector3(-12, 0, 0),
+						Vector3(50, 0, -6), Vector3(16, 0, 0),
+						Vector3(-10, 0, 4), Vector3(22, 0, 0),
+						Vector3(-72, 4, -6))
 				_: # top shaft — knees deep, chest back, shaft cocked overhead
 					return _pack(Vector3(28, -16, 0), Vector3(-40, -12, 0), Vector3(20, 8, 0),
 						Vector3(-44, 28, 26), Vector3(22, 0, 0),
@@ -266,14 +322,14 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 						Vector3(70, 18, -32))
 		&"windup":
 			match direction:
-				1: # left shaft — coil onto the right leg, shaft cocked to the right
+				1: # player's right — coil onto the right, shaft cocked on the right
 					return _pack(Vector3(6, -28, -10), Vector3(-6, -18, -6), Vector3(4, 10, 0),
 						Vector3(-10, 24, 18), Vector3(12, 0, 0),
 						Vector3(-36, 40, -62), Vector3(-18, 0, 0),
 						Vector3(-12, 0, 6), Vector3(22, 0, 0),
 						Vector3(18, 0, -8), Vector3(16, 0, 0),
 						Vector3(-24, 18, -78))
-				2: # right shaft — coil onto the left leg
+				2: # player's left — coil onto the left, shaft cocked on the left
 					return _pack(Vector3(6, 28, 10), Vector3(-6, 18, 6), Vector3(4, -10, 0),
 						Vector3(8, -16, -14), Vector3(10, 0, 0),
 						Vector3(-34, -42, 64), Vector3(-16, 0, 0),
@@ -327,14 +383,14 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 		_:
 			# contact
 			match direction:
-				1: # left shaft — hips, shoulders, and left foot commit left
+				1: # player's right contact — swing that started on the right finishes through
 					return _pack(Vector3(-2, 32, 14), Vector3(8, 16, 8), Vector3(-2, -6, 0),
 						Vector3(16, -28, -24), Vector3(14, 0, 0),
 						Vector3(12, -6, 58), Vector3(14, 0, 0),
 						Vector3(30, 0, -18), Vector3(4, 0, 0),
 						Vector3(-24, 0, 6), Vector3(38, 0, 0),
 						Vector3(-12, -6, 82))
-				2: # right shaft
+				2: # player's left contact — swing that started on the left finishes through
 					return _pack(Vector3(-2, -32, -14), Vector3(8, -16, -8), Vector3(-2, 6, 0),
 						Vector3(14, 24, 20), Vector3(12, 0, 0),
 						Vector3(14, 8, -56), Vector3(12, 0, 0),

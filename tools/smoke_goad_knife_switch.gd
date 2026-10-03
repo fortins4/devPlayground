@@ -303,6 +303,34 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 	if absf((shaft_full["right_arm"] as Vector3).z - (idle["right_arm"] as Vector3).z) < deg_to_rad(40.0):
 		push_error("SMOKE_FAIL full shaft charge does not cock the arm")
 		return false
+	# Mouse-left swings from the player's left. Charge yaw/roll signs are the
+	# rig's left side (positive hips yaw, positive weapon roll) vs the mirror.
+	var right_full: Dictionary = ToolStrikePoses.tool_charge_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.RIGHT, 1.0)
+	if (shaft_full["hips"] as Vector3).y <= 0.0 or (right_full["hips"] as Vector3).y >= 0.0:
+		push_error("SMOKE_FAIL goad charge hips are not mirrored onto the aim side")
+		return false
+	if (shaft_full["weapon"] as Vector3).z <= 0.0 or (right_full["weapon"] as Vector3).z >= 0.0:
+		push_error("SMOKE_FAIL goad charge shaft is cocked on the wrong side")
+		return false
+	var aim_left: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, -1.0, 0.0, 1.0)
+	var aim_right: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, 1.0, 0.0, 1.0)
+	var aim_low: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, 0.0, 1.0, 1.0)
+	var aim_mid: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, -1.0, 0.0, 0.5)
+	if (aim_left["weapon"] as Vector3).distance_to(shaft_full["weapon"] as Vector3) > 0.02:
+		push_error("SMOKE_FAIL full left aim is not the left charge pose")
+		return false
+	if (aim_right["weapon"] as Vector3).z >= 0.0:
+		push_error("SMOKE_FAIL right aim shaft is not on the player's right")
+		return false
+	if (aim_low["weapon"] as Vector3).distance_to(stab_full["weapon"] as Vector3) > 0.02:
+		push_error("SMOKE_FAIL look-down aim is not the stab chamber")
+		return false
+	if absf((aim_mid["hips"] as Vector3).y) >= absf((aim_left["hips"] as Vector3).y) - deg_to_rad(8.0):
+		push_error("SMOKE_FAIL mid aim is not a shorter version of the full aim")
+		return false
+	if signf((aim_mid["hips"] as Vector3).y) != signf((aim_left["hips"] as Vector3).y):
+		push_error("SMOKE_FAIL mid aim flipped off the full aim")
+		return false
 	return true
 
 

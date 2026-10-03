@@ -1,6 +1,8 @@
 extends CharacterBody3D
 ## Third-person controller. Default feel is the cattle goad (hold-to-charge,
-## release to strike; look picks shaft or stab). Hold F for a shaft guard
+## release to strike). While LMB is held the shaft tracks look left/right and
+## up/down; look-down is the stab aim, and the release continues that pose.
+## Hold F for a shaft guard
 ## (RMB stays heavy). Neutral look keeps the chest shaft. While F is held,
 ## look left/right/up/down faces the shaft to that side (the offset latches
 ## until the look returns to center). Hatchet hold-release wiring is unchanged when the
@@ -72,6 +74,9 @@ var _charge_aim_delta: Vector2 = Vector2.ZERO ## mouse aim offset while holding 
 var _hatchet_charge_armed: bool = false
 const CHARGE_AIM_SIDE_THRESH := 12.0 ## px horizontal aim for left/right
 const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
+## Goad aim stick. Full left/right/stab by the time the strike cardinal locks,
+## and it keeps tracking back toward center. Not used for guard faces.
+const GOAD_AIM_SPAN := 18.0
 ## Light footwork step during charge (does NOT cancel charge). Sprint still cancels.
 const CHARGE_STEP_SPEED := 4.4
 const CHARGE_STEP_SECS := 0.13
@@ -161,6 +166,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Mouse aim while charging selects strike arc (top / left / right).
 	if combat.is_charging and event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_charge_aim_delta += (event as InputEventMouseMotion).relative
+		if combat.current_weapon == CombatSystem.Weapon.GOAD:
+			_charge_aim_delta.x = clampf(_charge_aim_delta.x, -GOAD_AIM_SPAN, GOAD_AIM_SPAN)
+			_charge_aim_delta.y = clampf(_charge_aim_delta.y, -GOAD_AIM_SPAN, GOAD_AIM_SPAN)
 		_apply_charge_direction_from_input()
 
 	if event.is_action_pressed("attack_light"):
@@ -581,25 +589,32 @@ func _on_charge_updated(ratio: float, direction: StringName) -> void:
 		locomotion.lock_attack(0.05)
 
 
-func _apply_goad_charge_pose(ratio: float, direction: StringName) -> void:
+func _apply_goad_charge_pose(ratio: float, _direction: StringName) -> void:
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
-	var dir_enum := CombatSystem.StrikeDirection.TOP
-	match direction:
-		&"left":
-			dir_enum = CombatSystem.StrikeDirection.LEFT
-		&"right":
-			dir_enum = CombatSystem.StrikeDirection.RIGHT
-		&"bottom":
-			dir_enum = CombatSystem.StrikeDirection.BOTTOM
-		_:
-			dir_enum = CombatSystem.StrikeDirection.TOP
-	var pose: Dictionary = ToolStrikePoses.tool_charge_pose(CombatSystem.Weapon.GOAD, dir_enum, ratio)
+	# Cardinal direction still picks the strike on release. The body tracks
+	# the mouse continuously so the weapon is already on that side.
+	var aim := _goad_aim_axes()
+	var pose: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, ratio)
 	_apply_tool_pose(pose)
 	if locomotion:
 		locomotion.lock_attack(0.08)
+
+
+func _goad_aim_axes() -> Vector2:
+	## -1 left / +1 right, -1 up / +1 down. Down is the stab aim.
+	## Camera pitch counts when the mouse offset is quiet, same as the strike.
+	var ax := clampf(_charge_aim_delta.x / GOAD_AIM_SPAN, -1.0, 1.0)
+	var ay := clampf(_charge_aim_delta.y / GOAD_AIM_SPAN, -1.0, 1.0)
+	if pivot:
+		var pitch_n := clampf(pivot.rotation.x / deg_to_rad(18.0), -1.0, 1.0)
+		if pitch_n > 0.0:
+			ay = maxf(ay, pitch_n)
+		else:
+			ay = minf(ay, pitch_n)
+	return Vector2(ax, ay)
 
 
 func _on_charge_cancelled(_weapon: StringName) -> void:
@@ -797,31 +812,37 @@ func _play_tool_body_strike(kind: StringName, _weapon: StringName) -> void:
 	var heavy := kind == &"heavy"
 	var direction := combat.last_strike_direction()
 	var weapon_id := combat.current_weapon
+	var from_charge := _tool_pose_active and weapon_id == CombatSystem.Weapon.GOAD
 	var commit := 1.0
-	if weapon_id == CombatSystem.Weapon.GOAD:
+	if weapon_id == CombatSystem.Weapon.GOAD and not from_charge:
 		var power := combat.last_attack_power
 		if power >= 0.0:
 			# Tap stays small. Full hold commits the whole body. Mid is between.
 			commit = lerpf(0.82, 1.5, clampf(power, 0.0, 1.0))
 		elif heavy:
 			commit = 1.28
-	var pose_windup: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"windup", heavy), commit)
-	var pose_contact: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"contact", heavy), commit)
-	var pose_follow: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"follow", heavy), commit)
+	# A held goad is already in the aim pose. Do not scale a different contact
+	# over it — that restages the body (the pop). The strike continues the aim.
+	var pose_scale_heavy := heavy and not from_charge
+	var pose_windup: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"windup", pose_scale_heavy), commit)
+	var pose_contact: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"contact", pose_scale_heavy), commit)
+	var pose_follow: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"follow", pose_scale_heavy), commit)
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(weapon_id)
 	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, recovery)
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
-	# A goad hold already cocked the body. Release continues from that pose
-	# into the strike (full) or a short extra windup (tap), then back to idle.
-	var from_charge := _tool_pose_active and weapon_id == CombatSystem.Weapon.GOAD
+	# Release continues from the live aim. Heavy hold drives into the strike.
+	# A tap still takes the short windup, which is the same side as the aim.
 	var start_pose: Dictionary = _current_tool_pose(pose_idle) if from_charge else pose_idle
+	if from_charge and heavy:
+		# Windup key IS the aim the body is already holding, not a second cock.
+		pose_windup = start_pose
 	_tool_pose_active = true
 	_arm_tween = create_tween()
 	if from_charge and heavy:
-		var drive := maxf(0.06, float(phases["windup_move"]) * 0.35 + float(phases["to_contact"]))
+		var drive := maxf(0.18, float(phases["windup_move"]) * 0.85 + float(phases["to_contact"]))
 		_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_contact), 0.0, 1.0, drive).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	else:
 		_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_windup), 0.0, 1.0, phases["windup_move"]).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
