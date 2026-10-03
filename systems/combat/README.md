@@ -6,9 +6,9 @@ Stamina-based, **directional** melee for Ríocht’s cattle-farm starter kit.
 
 | Weapon | Role | Notes |
 |---|---|---|
-| **Hatchet** (default) | Primary | Directional chop arcs (**top / left / right**); hold-to-charge power |
-| **Knife** | Fast / low damage | Lower stamina cost, short reach (tap light / RMB heavy) |
-| **Cattle goad / staff** | Reach + **drove** | Longer hitbox; on `raid_cattle` applies `apply_goad` impulse (no HP damage to herd) |
+| **Cattle goad / staff** (player default) | Reach + **drove** | Tap shaft strikes **top / left / right**, plus **bottom** point stab. Not the hatchet charge. On `raid_cattle` applies `apply_goad` (no HP damage to herd) |
+| **Knife** | Fast / low damage | Short close slash, **top / left / right** only (tap light / RMB heavy) |
+| **Hatchet** | Still in the kit | Directional chop arcs (**top / left / right** only); hold-to-charge power. Equip with **1** |
 | Spear / shield | **Later** | Not starting gear — unlock via scavenge / craft / life path |
 
 No starting sword or shield. `CombatSystem.enable_block` stays off until shield gear exists.
@@ -19,21 +19,23 @@ No starting sword or shield. `CombatSystem.enable_block` stays off until shield 
 |---|---|
 | WASD | Move (camera-relative yaw on body). **Not** used for strike direction |
 | Mouse | Look + **aim strike dir while charging** (look left/right/up → left/right/top) |
-| **Hold LMB** | **Charge** hatchet (power scales 0→1 over ~0.75s). Release to strike |
-| **Release LMB** | Strike in aimed direction; tap (~short hold) = light, long hold = power |
-| Camera pitch up | Favors **top** overhead |
+| **Tap LMB** (goad/knife) | Immediate strike. Look/flick **left / right / up** picks the arc. Goad look-down is a **bottom stab**. Neutral is **top**. Not a 0.75s charge |
+| **Hold LMB** (hatchet, key **1**) | **Charge** hatchet (power scales 0→1 over ~0.75s). Release to strike. Top/left/right only |
+| **Release LMB** (hatchet) | Strike in aimed direction; tap (~short hold) = light, long hold = power |
+| Camera pitch up | Favors **top** |
+| Camera pitch down | **Goad stab** only. Knife/hatchet have no bottom |
 | RMB | Heavy for **knife/goad only** — hatchet has **no** instant full-power (hold-release only) |
 | Sprint / hit-stun | **Cancels** an in-progress hatchet charge |
 | Space | Jump |
 | Shift | Sprint (drains stamina) |
-| Q | Cycle weapon (hatchet → knife → goad) |
+| Q | Cycle weapon (goad → knife → hatchet) |
 | 1 / 2 / 3 | Select hatchet / knife / goad |
 | Esc | Capture / release mouse |
 | **Ctrl / C** | Crouch (stealth — see `systems/stealth/README.md`) |
 
 ### Directional hatchet (feel notes)
 
-Third-person scheme: **hold attack to charge**, **aim with the mouse** while holding (left/right/up), **release to commit**. Neutral defaults to **top**. Charging allows half-speed footwork. Sprint or taking a hit **cancels** charge. Knife/goad keep tap light / RMB heavy for now (scheme TBD later).
+Third-person scheme: **hold attack to charge**, **aim with the mouse** while holding (left/right/up), **release to commit**. Neutral defaults to **top**. Charging allows half-speed footwork. Sprint or taking a hit **cancels** charge. Knife/goad are tap strikes (look picks top/left/right; goad look-down is a point stab) with a full-body weight shift. They do not use the hatchet hold-charge.
 
 ### Hatchet timing polish (#2)
 

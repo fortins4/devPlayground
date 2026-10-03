@@ -52,7 +52,7 @@ func _refresh() -> void:
 		var dir := String(_combat.direction_name())
 		var pct := int(round(_combat.get_charge_ratio() * 100.0))
 		charge_line = "\nCHARGE %d%%  dir=%s  (release to strike)" % [pct, dir]
-	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nHold LMB charge·release  mouse aim dir  tap WASD step  Q 1–3  Shift cancels  Hold E drag  Esc" % [
+	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nGoad/knife: tap LMB (look L/R/up, goad look-down = stab)  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
 		int(_combat.health), int(_combat.max_health),
 		int(_combat.stamina), int(_combat.max_stamina),
 		w,

@@ -1,6 +1,7 @@
 class_name CombatSystem
 extends Node
-## Reusable greybox combat component (hatchet-first cattle-farm kit).
+## Reusable greybox combat component. Player feel target is the cattle goad;
+## hatchet hold-release (top/left/right, 0.75s charge) stays intact.
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
 
@@ -24,12 +25,13 @@ signal charge_cancelled(weapon: StringName)
 signal charge_released(ratio: float, direction: StringName, kind: StringName)
 
 enum Weapon { HATCHET, KNIFE, GOAD }
-enum StrikeDirection { TOP, LEFT, RIGHT }
+enum StrikeDirection { TOP, LEFT, RIGHT, BOTTOM }
 
 const DIRECTION_NAMES := {
 	StrikeDirection.TOP: &"top",
 	StrikeDirection.LEFT: &"left",
 	StrikeDirection.RIGHT: &"right",
+	StrikeDirection.BOTTOM: &"bottom",
 }
 
 const WEAPON_NAMES := {
@@ -136,8 +138,9 @@ const PROFILES := {
 		&"heavy": {"damage": 16.0, "windup": 0.12, "active": 0.12, "reach": 1.1},
 	},
 	Weapon.GOAD: {
-		&"light": {"damage": 10.0, "windup": 0.14, "active": 0.12, "reach": 1.7},
-		&"heavy": {"damage": 20.0, "windup": 0.2, "active": 0.16, "reach": 1.85},
+		# Tap shaft swing / point jab — not the hatchet 0.75s hold-charge.
+		&"light": {"damage": 10.0, "windup": 0.20, "active": 0.15, "reach": 1.75},
+		&"heavy": {"damage": 20.0, "windup": 0.26, "active": 0.16, "reach": 1.9},
 	},
 }
 
@@ -262,7 +265,8 @@ func set_weapon(weapon: Weapon) -> void:
 
 
 func cycle_weapon(direction: int = 1) -> void:
-	var values: Array = [Weapon.HATCHET, Weapon.KNIFE, Weapon.GOAD]
+	# Goad is the default feel. Q steps goad → knife → hatchet (hatchet still in the cycle).
+	var values: Array = [Weapon.GOAD, Weapon.KNIFE, Weapon.HATCHET]
 	var idx := values.find(current_weapon)
 	idx = (idx + direction) % values.size()
 	if idx < 0:
@@ -284,6 +288,15 @@ func try_sprint_drain(delta: float) -> bool:
 
 func direction_name(direction: StrikeDirection = charge_direction) -> StringName:
 	return DIRECTION_NAMES.get(direction, &"top")
+
+
+func _clamp_strike_direction(direction: StrikeDirection) -> StrikeDirection:
+	## Bottom exists only on the cattle goad (point stab). Knife and hatchet stay top/left/right.
+	if direction != StrikeDirection.BOTTOM:
+		return direction
+	if current_weapon == Weapon.GOAD:
+		return direction
+	return StrikeDirection.TOP
 
 
 func last_strike_direction() -> StrikeDirection:
@@ -338,6 +351,9 @@ func begin_charge() -> bool:
 func set_charge_direction(direction: StrikeDirection) -> void:
 	if not is_charging:
 		return
+	# Hatchet aim is top/left/right only — never a stab.
+	if direction == StrikeDirection.BOTTOM:
+		direction = StrikeDirection.TOP
 	if charge_direction == direction:
 		return
 	charge_direction = direction
@@ -406,6 +422,7 @@ func try_attack(
 		return false
 	if is_charging:
 		cancel_charge()
+	direction = _clamp_strike_direction(direction)
 	var profile: Dictionary = PROFILES[current_weapon].get(kind, PROFILES[current_weapon][&"light"])
 	var wname: StringName = WEAPON_NAMES[current_weapon]
 	var light_p: Dictionary = PROFILES[current_weapon][&"light"]
@@ -474,6 +491,11 @@ func try_attack(
 			windup *= float(scales.get("windup", 1.0))
 			active *= float(scales.get("active", 1.0))
 			recovery *= float(scales.get("recovery", 1.0))
+	# Goad point jab is a quicker commit than a shaft swing, and reaches a bit farther.
+	if current_weapon == Weapon.GOAD and direction == StrikeDirection.BOTTOM:
+		windup *= 0.72
+		active *= 0.85
+		reach += 0.2
 	# Spend fires here on strike commit (release path). Refuse if insufficient.
 	if current_weapon == Weapon.HATCHET and resolved_tier != &"":
 		if not spend_for_charge(resolved_tier):
@@ -747,6 +769,15 @@ func _activate_hitbox_after(
 func _position_hitbox(reach: float, direction: StrikeDirection = StrikeDirection.TOP) -> void:
 	if _hitbox == null or _owner_body == null:
 		return
+	# Goad bottom is a narrow point jab straight ahead, not a wide shaft arc.
+	if direction == StrikeDirection.BOTTOM:
+		_hitbox.position = Vector3(0.08, 1.05, -reach * 0.82)
+		var shape_node := _hitbox.get_node_or_null("CollisionShape3D") as CollisionShape3D
+		if shape_node and shape_node.shape is BoxShape3D:
+			var box := (shape_node.shape as BoxShape3D).duplicate() as BoxShape3D
+			box.size = Vector3(0.22, 0.22, reach * 0.62)
+			shape_node.shape = box
+		return
 	# Local -Z is facing forward for CharacterBody3D yaw; bias by strike side.
 	var lateral := 0.0
 	var height := 1.0
@@ -903,6 +934,10 @@ func _play_weapon_swing(
 ) -> void:
 	if _weapon_visual == null:
 		return
+	# Goad/knife stay in the hand. The body pose turns them; a free tween would
+	# float the mesh off the kerne. Hatchet keeps this swing tween.
+	if current_weapon != Weapon.HATCHET:
+		return
 	if _swing_tween and _swing_tween.is_valid():
 		_swing_tween.kill()
 	if _charge_pose_tween and _charge_pose_tween.is_valid():
@@ -979,7 +1014,8 @@ func swing_phase_durations(kind: StringName, windup: float, active: float, recov
 
 func _swing_poses(kind: StringName, direction: StrikeDirection = StrikeDirection.TOP) -> Dictionary:
 	## Degrees + local positions; heavy = bigger arc / higher cock than light.
-	## Hatchet respects top / left / right chop arcs; knife/goad keep legacy diagonals.
+	## Hatchet: top / left / right only. Knife/goad weapon tween is unused
+	## (hand-glued); body poses live in tool_strike_poses.gd.
 	var rest_pos := _weapon_rest_transform.origin
 	var heavy := kind == &"heavy"
 	match current_weapon:
