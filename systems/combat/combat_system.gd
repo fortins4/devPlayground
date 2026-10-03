@@ -4,6 +4,7 @@ extends Node
 ## (hold-release, four directions, same 0.75s full charge as the hatchet).
 ## Hatchet hold-release (top/left/right only) stays intact. No charge glow.
 ## Goad shaft block is a held guard (stick across the body), not a parry window.
+## Knife is a tap: left/right cuts, top thrust. No knife charge, no bottom stab.
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
 
@@ -141,8 +142,9 @@ const PROFILES := {
 		&"heavy": {"damage": 28.0, "windup": 0.34, "active": 0.16, "reach": 1.5},
 	},
 	Weapon.KNIFE: {
-		&"light": {"damage": 8.0, "windup": 0.06, "active": 0.1, "reach": 1.0},
-		&"heavy": {"damage": 16.0, "windup": 0.12, "active": 0.12, "reach": 1.1},
+		# Longer than the old chest-tuck, still short of the goad (1.65 / 2.2).
+		&"light": {"damage": 8.0, "windup": 0.06, "active": 0.1, "reach": 1.28},
+		&"heavy": {"damage": 16.0, "windup": 0.12, "active": 0.12, "reach": 1.42},
 	},
 	Weapon.GOAD: {
 		# Hold-release: tap/early = light, full 0.75s = heavy. Power lerps between.
@@ -515,6 +517,11 @@ func try_attack(
 		windup *= 0.72
 		active *= 0.85
 		reach += 0.2
+	# Knife top is a chest-height thrust: farther than a side cut, still short of the goad.
+	if current_weapon == Weapon.KNIFE and direction == StrikeDirection.TOP:
+		windup *= 0.82
+		active *= 0.9
+		reach += 0.16
 	# Spend fires here on strike commit (release path). Refuse if insufficient.
 	if current_weapon == Weapon.HATCHET and resolved_tier != &"":
 		if not spend_for_charge(resolved_tier):
@@ -820,13 +827,29 @@ func _activate_hitbox_after(
 func _position_hitbox(reach: float, direction: StrikeDirection = StrikeDirection.TOP) -> void:
 	if _hitbox == null or _owner_body == null:
 		return
+	var shape_node := _hitbox.get_node_or_null("CollisionShape3D") as CollisionShape3D
+	var box: BoxShape3D = null
+	if shape_node and shape_node.shape is BoxShape3D:
+		box = (shape_node.shape as BoxShape3D).duplicate() as BoxShape3D
 	# Goad bottom is a narrow point jab straight ahead, not a wide shaft arc.
 	if direction == StrikeDirection.BOTTOM:
 		_hitbox.position = Vector3(0.08, 1.05, -reach * 0.82)
-		var shape_node := _hitbox.get_node_or_null("CollisionShape3D") as CollisionShape3D
-		if shape_node and shape_node.shape is BoxShape3D:
-			var box := (shape_node.shape as BoxShape3D).duplicate() as BoxShape3D
+		if box:
 			box.size = Vector3(0.22, 0.22, reach * 0.62)
+			shape_node.shape = box
+		return
+	# Knife top thrust: narrow point at chest height. Not a wide cut, not the goad's low stab.
+	if current_weapon == Weapon.KNIFE and direction == StrikeDirection.TOP:
+		_hitbox.position = Vector3(0.2, 1.22, -reach * 0.74)
+		if box:
+			box.size = Vector3(0.26, 0.26, reach * 0.48)
+			shape_node.shape = box
+		return
+	if current_weapon == Weapon.KNIFE:
+		var cut_lat := -0.62 if direction == StrikeDirection.LEFT else 0.62
+		_hitbox.position = Vector3(cut_lat, 1.12, -reach * 0.58)
+		if box:
+			box.size = Vector3(0.9, 0.5, reach * 0.62)
 			shape_node.shape = box
 		return
 	# Local -Z is facing forward for CharacterBody3D yaw; bias by strike side.
@@ -843,9 +866,7 @@ func _position_hitbox(reach: float, direction: StrikeDirection = StrikeDirection
 			lateral = 0.0
 			height = 1.25 if current_weapon == Weapon.HATCHET else 1.0
 	_hitbox.position = Vector3(lateral, height, -reach * 0.55)
-	var shape_node := _hitbox.get_node_or_null("CollisionShape3D") as CollisionShape3D
-	if shape_node and shape_node.shape is BoxShape3D:
-		var box := (shape_node.shape as BoxShape3D).duplicate() as BoxShape3D
+	if box:
 		# USER LOCK: wider side hitboxes for sparring / flank chops.
 		var width := 1.15 if direction != StrikeDirection.TOP else 0.55
 		var tall := 0.85 if direction == StrikeDirection.TOP else 0.72

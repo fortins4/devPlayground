@@ -53,7 +53,7 @@ func _refresh() -> void:
 		charge_line = "\nCHARGE %.2f / %.2fs  dir=%s  (release to strike)" % [_combat.charge_time, _combat.charge_full_secs, dir]
 	elif _combat.is_shaft_blocking:
 		charge_line = "\nSHAFT BLOCK  hold F  (release to idle)"
-	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nGoad: hold LMB (look L/R/up shaft, look-down stab; tap=light, 0.75s=full)  hold F shaft-block  Knife: tap LMB  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
+	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nGoad: hold LMB (look L/R/up shaft, look-down stab; tap=light, 0.75s=full)  hold F shaft-block  Knife: tap LMB (look L/R = CUT, neutral/look-up = THRUST, no stab)  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
 		int(_combat.health), int(_combat.max_health),
 		int(_combat.stamina), int(_combat.max_stamina),
 		w,

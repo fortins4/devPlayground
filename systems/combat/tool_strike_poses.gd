@@ -5,7 +5,9 @@ extends RefCounted
 ## Goad: top / left / right are shaft swings. Bottom is a point stab (lunge).
 ## Charge phase is the hold windup (bigger than the swing windup). No glow.
 ## Shaft block is a held guard: both hands on the stick, stick across the body.
-## Knife: top / left / right only, shorter reach, still a weight shift.
+## Knife: left / right are cuts (blade across). Top is a chest-height thrust
+## (point forward) — not the goad's look-down stab, and not a bottom direction.
+## No knife charge glow. Reach is longer than the old chest-tuck, shorter than the goad.
 ## Keys are KerneLocomotion joint names plus "weapon" (player-space euler for the mesh).
 
 
@@ -31,8 +33,9 @@ static func tool_strike_pose(weapon: int, direction: int, phase: StringName, hea
 
 
 ## Hold windup. ratio 0 = idle, 1 = full 0.75s cock. Mid (~0.53) is the same
-## shape but clearly short of the committed full pose. Knife is a shorter
-## windup only — no knife stab, and not the goad charge.
+## shape but clearly short of the committed full pose. Knife does not charge
+## in play (begin_charge refuses it). This helper is goad/hatchet-facing;
+## a knife blend stays a short cock, never a goad charge.
 static func tool_charge_pose(weapon: int, direction: int, ratio: float) -> Dictionary:
 	var is_knife := weapon == 1
 	if is_knife and direction == 3:
@@ -77,85 +80,87 @@ static func _charge_blend(ratio: float) -> float:
 
 
 static func _knife_spec(direction: int, phase: StringName) -> Dictionary:
-	# Smaller than the goad, but hips/feet still leave a neutral stance.
+	# direction 0 = thrust: arm punches forward, point leads at chest height.
+	# direction 1 / 2 = cuts: arm out, blade across (not a jab).
+	# Bottom is rewritten to top before this runs. Not the goad look-down lunge.
 	match phase:
 		&"idle":
-			return _pack(Vector3(0, 2, 0), Vector3(6, 4, -2), Vector3(-2, 0, 0),
-				Vector3(-8, -6, 16), Vector3(18, 0, 0),
-				Vector3(-46, 22, -40), Vector3(-18, 0, 0),
+			return _pack(Vector3(0, 2, 0), Vector3(4, 4, -2), Vector3(-2, 0, 0),
+				Vector3(-10, -8, 14), Vector3(22, 0, 0),
+				Vector3(-24, 16, -22), Vector3(-48, 0, 0),
 				Vector3(4, 0, -3), Vector3(6, 0, 0),
 				Vector3(3, 0, 3), Vector3(6, 0, 0),
-				Vector3(-52, 26, -62))
+				Vector3(-28, 16, -36))
 		&"windup":
 			match direction:
 				1:
-					return _pack(Vector3(4, -16, 6), Vector3(-4, -14, 4), Vector3(2, 8, 0),
-						Vector3(12, 18, -22), Vector3(10, 0, 0),
-						Vector3(-28, 28, -48), Vector3(-10, 0, 0),
+					return _pack(Vector3(4, -18, 4), Vector3(-4, -12, 3), Vector3(2, 6, 0),
+						Vector3(8, 14, -12), Vector3(12, 0, 0),
+						Vector3(20, 10, -8), Vector3(-42, 0, 0),
 						Vector3(-8, 0, 4), Vector3(16, 0, 0),
-						Vector3(14, 0, -4), Vector3(10, 0, 0),
-						Vector3(-18, 36, -20))
+						Vector3(12, 0, -4), Vector3(10, 0, 0),
+						Vector3(-40, 20, 40))
 				2:
-					return _pack(Vector3(4, 16, -6), Vector3(-4, 14, -4), Vector3(2, -8, 0),
-						Vector3(6, -10, 18), Vector3(8, 0, 0),
-						Vector3(-30, -32, 36), Vector3(-12, 0, 0),
-						Vector3(12, 0, -4), Vector3(8, 0, 0),
-						Vector3(-10, 0, 6), Vector3(18, 0, 0),
-						Vector3(-16, -34, 28))
+					return _pack(Vector3(4, 16, -4), Vector3(-4, 12, -3), Vector3(2, -6, 0),
+						Vector3(6, -10, 12), Vector3(10, 0, 0),
+						Vector3(18, 24, 6), Vector3(-40, 0, 0),
+						Vector3(10, 0, -4), Vector3(8, 0, 0),
+						Vector3(-8, 0, 4), Vector3(18, 0, 0),
+						Vector3(-40, -20, -40))
 				_:
-					return _pack(Vector3(8, -4, 0), Vector3(-12, -4, 0), Vector3(6, 0, 0),
-						Vector3(-16, 8, 10), Vector3(6, 0, 0),
-						Vector3(-70, 6, -18), Vector3(-16, 0, 0),
-						Vector3(-6, 0, -2), Vector3(14, 0, 0),
-						Vector3(10, 0, 2), Vector3(18, 0, 0),
-						Vector3(-18, 12, -24))
+					return _pack(Vector3(-6, 0, 0), Vector3(-8, -2, 0), Vector3(4, 0, 0),
+						Vector3(6, 8, 10), Vector3(8, 0, 0),
+						Vector3(10, 8, 6), Vector3(-50, 0, 0),
+						Vector3(-4, 0, -2), Vector3(12, 0, 0),
+						Vector3(10, 0, 2), Vector3(14, 0, 0),
+						Vector3(-50, 30, 20))
 		&"follow":
 			match direction:
 				1:
-					return _pack(Vector3(6, 22, -10), Vector3(8, 16, -8), Vector3(-2, -6, 0),
-						Vector3(16, -22, -28), Vector3(14, 0, 0),
-						Vector3(18, -8, 48), Vector3(12, 0, 0),
-						Vector3(22, 0, -12), Vector3(6, 0, 0),
-						Vector3(-16, 0, 6), Vector3(28, 0, 0),
-						Vector3(12, -28, 58))
+					return _pack(Vector3(4, 22, -4), Vector3(6, 16, -4), Vector3(-2, -6, 0),
+						Vector3(10, -16, -10), Vector3(14, 0, 0),
+						Vector3(48, -10, 6), Vector3(8, 0, 0),
+						Vector3(20, 0, -6), Vector3(6, 0, 0),
+						Vector3(-12, 0, 4), Vector3(24, 0, 0),
+						Vector3(-170, 8, 90))
 				2:
-					return _pack(Vector3(6, -22, 10), Vector3(8, -16, 8), Vector3(-2, 6, 0),
-						Vector3(14, 16, 22), Vector3(12, 0, 0),
-						Vector3(16, 10, -46), Vector3(10, 0, 0),
-						Vector3(-14, 0, 6), Vector3(26, 0, 0),
-						Vector3(20, 0, -10), Vector3(8, 0, 0),
-						Vector3(10, 30, -52))
+					return _pack(Vector3(4, -24, 4), Vector3(6, -18, 4), Vector3(-2, 6, 0),
+						Vector3(8, 14, 10), Vector3(12, 0, 0),
+						Vector3(58, -62, 8), Vector3(6, 0, 0),
+						Vector3(-10, 0, 4), Vector3(22, 0, 0),
+						Vector3(18, 0, -6), Vector3(8, 0, 0),
+						Vector3(-170, -8, -90))
 				_:
-					return _pack(Vector3(-8, 2, 0), Vector3(16, 4, 0), Vector3(-4, 0, 0),
-						Vector3(18, -12, -16), Vector3(10, 0, 0),
-						Vector3(36, 6, 22), Vector3(14, 0, 0),
-						Vector3(28, 0, -4), Vector3(4, 0, 0),
-						Vector3(-18, 0, 4), Vector3(32, 0, 0),
-						Vector3(22, 4, 16))
+					return _pack(Vector3(14, 0, 0), Vector3(14, 0, 0), Vector3(-6, 0, 0),
+						Vector3(-22, 14, 14), Vector3(16, 0, 0),
+						Vector3(84, -4, 10), Vector3(2, 0, 0),
+						Vector3(36, 0, -2), Vector3(6, 0, 0),
+						Vector3(-18, 0, 4), Vector3(22, 0, 0),
+						Vector3(-180, -90, 120))
 		_:
 			# contact
 			match direction:
-				1:
-					return _pack(Vector3(4, 16, -8), Vector3(6, 12, -6), Vector3(0, -4, 0),
-						Vector3(10, -16, -20), Vector3(12, 0, 0),
-						Vector3(8, 4, 36), Vector3(8, 0, 0),
-						Vector3(18, 0, -10), Vector3(4, 0, 0),
-						Vector3(-12, 0, 5), Vector3(22, 0, 0),
-						Vector3(6, -18, 42))
-				2:
-					return _pack(Vector3(4, -16, 8), Vector3(6, -12, 6), Vector3(0, 4, 0),
-						Vector3(8, 14, 18), Vector3(10, 0, 0),
-						Vector3(10, -2, -34), Vector3(6, 0, 0),
-						Vector3(-10, 0, 5), Vector3(20, 0, 0),
-						Vector3(16, 0, -8), Vector3(6, 0, 0),
-						Vector3(4, 20, -40))
-				_:
-					return _pack(Vector3(-6, 0, 0), Vector3(12, 2, 0), Vector3(-2, 0, 0),
-						Vector3(12, -8, -12), Vector3(8, 0, 0),
-						Vector3(22, 4, 16), Vector3(10, 0, 0),
-						Vector3(22, 0, -3), Vector3(2, 0, 0),
-						Vector3(-14, 0, 3), Vector3(26, 0, 0),
-						Vector3(14, 2, 10))
+				1: # left cut — blade across the chest, edge leading left
+					return _pack(Vector3(4, 18, -4), Vector3(4, 14, -4), Vector3(-2, -4, 0),
+						Vector3(8, -12, -10), Vector3(14, 0, 0),
+						Vector3(55, -22, 8), Vector3(8, 0, 0),
+						Vector3(18, 0, -6), Vector3(6, 0, 0),
+						Vector3(-12, 0, 4), Vector3(22, 0, 0),
+						Vector3(-180, 0, 90))
+				2: # right cut — arm extended to the open side, blade horizontal
+					return _pack(Vector3(4, -18, 4), Vector3(4, -14, 4), Vector3(-2, 4, 0),
+						Vector3(6, 12, 10), Vector3(12, 0, 0),
+						Vector3(65, -50, 10), Vector3(8, 0, 0),
+						Vector3(-10, 0, 4), Vector3(20, 0, 0),
+						Vector3(16, 0, -6), Vector3(8, 0, 0),
+						Vector3(-180, 0, -90))
+				_: # thrust — punch forward, point up-forward, feet stay under (not a goad lunge)
+					return _pack(Vector3(6, 0, 0), Vector3(8, 0, 0), Vector3(-2, 0, 0),
+						Vector3(-16, 10, 10), Vector3(10, 0, 0),
+						Vector3(80, 0, 12), Vector3(4, 0, 0),
+						Vector3(8, 0, -2), Vector3(12, 0, 0),
+						Vector3(-8, 0, 2), Vector3(14, 0, 0),
+						Vector3(-180, -90, 120))
 
 
 static func _goad_spec(direction: int, phase: StringName) -> Dictionary:

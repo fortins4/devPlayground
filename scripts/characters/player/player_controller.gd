@@ -2,7 +2,7 @@ extends CharacterBody3D
 ## Third-person controller. Default feel is the cattle goad (hold-to-charge,
 ## release to strike; look picks shaft or stab). Hold F for a shaft block
 ## (RMB stays heavy). Hatchet hold-release wiring is unchanged when the
-## hatchet is equipped. Knife stays a tap.
+## hatchet is equipped. Knife stays a tap: left/right cuts, top thrust.
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 ## HealthCombatBridge (sibling) mirrors player CombatSystem ↔ CharacterHealth.
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
@@ -470,7 +470,8 @@ func _heavy_or_ignore_hatchet() -> void:
 
 
 func _resolve_tool_strike_direction() -> CombatSystem.StrikeDirection:
-	## Tap aim for goad/knife. Neutral is a top shaft strike.
+	## Tap aim for goad/knife. Neutral / look-up is top.
+	## Goad top is a shaft strike; knife top is a thrust (point), not a cut.
 	## Look/flick down is a goad stab only — knife and hatchet have no bottom.
 	var mx := _tool_aim_delta.x
 	var my := _tool_aim_delta.y
@@ -932,7 +933,8 @@ func _idle_weapon_euler() -> Vector3:
 		CombatSystem.Weapon.GOAD:
 			return Vector3(deg_to_rad(-18.0), deg_to_rad(6.0), deg_to_rad(-6.0))
 		CombatSystem.Weapon.KNIFE:
-			return Vector3(deg_to_rad(-52.0), deg_to_rad(26.0), deg_to_rad(-62.0))
+			# Matches tool idle: blade up beside the chest, not the strike thrust.
+			return Vector3(deg_to_rad(-28.0), deg_to_rad(16.0), deg_to_rad(-36.0))
 		_:
 			return Vector3(deg_to_rad(-12.0), deg_to_rad(6.0), deg_to_rad(-14.0))
 

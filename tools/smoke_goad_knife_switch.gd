@@ -105,6 +105,39 @@ func _run() -> void:
 		push_error("SMOKE_FAIL knife accepted a bottom stab")
 		quit(1)
 		return
+	# Bottom clamps to top, and knife top is the thrust — farther than the old 1.0 tuck.
+	if combat._last_attack_reach < 1.35:
+		push_error("SMOKE_FAIL knife thrust reach still short (%s)" % combat._last_attack_reach)
+		quit(1)
+		return
+	var k_idle: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.KNIFE, CombatSystem.StrikeDirection.TOP, &"idle", false)
+	var k_cut: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.KNIFE, CombatSystem.StrikeDirection.LEFT, &"contact", false)
+	var k_thrust: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.KNIFE, CombatSystem.StrikeDirection.TOP, &"contact", false)
+	var cut_w: Vector3 = k_cut["weapon"]
+	var thrust_w: Vector3 = k_thrust["weapon"]
+	var cut_arm: float = (k_cut["right_arm"] as Vector3).x
+	var thrust_arm: float = (k_thrust["right_arm"] as Vector3).x
+	var idle_arm: float = (k_idle["right_arm"] as Vector3).x
+	var cut_along: Vector3 = Basis.from_euler(cut_w) * Vector3.UP
+	var thrust_along: Vector3 = Basis.from_euler(thrust_w) * Vector3.UP
+	if absf(cut_along.x) < 0.75 or absf(cut_along.y) > 0.45:
+		push_error("SMOKE_FAIL knife cut is not a sideways blade %s" % cut_along)
+		quit(1)
+		return
+	if thrust_along.z > -0.85 or absf(thrust_along.x) > 0.35:
+		push_error("SMOKE_FAIL knife thrust point is not forward %s" % thrust_along)
+		quit(1)
+		return
+	if thrust_arm < deg_to_rad(70.0) or thrust_arm < cut_arm + deg_to_rad(20.0) or thrust_arm < idle_arm + deg_to_rad(70.0):
+		push_error("SMOKE_FAIL knife thrust arm is not a jab past the cut and idle")
+		quit(1)
+		return
+	var goad_stab_thigh: float = (poses["bottom"]["left_thigh"] as Vector3).x
+	var knife_thigh: float = (k_thrust["left_thigh"] as Vector3).x
+	if knife_thigh > goad_stab_thigh - deg_to_rad(12.0):
+		push_error("SMOKE_FAIL knife thrust stole the goad lunge")
+		quit(1)
+		return
 	combat.is_attacking = false
 	combat.attack_recovery_left = 0.0
 
