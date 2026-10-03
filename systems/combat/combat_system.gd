@@ -3,7 +3,8 @@ extends Node
 ## Reusable greybox combat component. Player feel target is the cattle goad
 ## (hold-release, four directions, same 0.75s full charge as the hatchet).
 ## Hatchet hold-release (top/left/right only) stays intact. No charge glow.
-## Goad shaft block is a held guard (stick across the body), not a parry window.
+## Goad shaft block is a held guard, not a parry window. Neutral face is the
+## chest shaft (any frontal hit). Look faces cover left, right, high, or low.
 ## Knife is a tap: left/right cuts, top thrust. No knife charge, no bottom stab.
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
@@ -70,8 +71,12 @@ var stamina: float = StaminaEconomy.MAX_STAMINA
 var current_weapon: Weapon = Weapon.HATCHET
 var is_dead: bool = false
 var is_blocking: bool = false
-## Goad only: shaft held across the body. Not enable_block (shield) and not a timed parry.
+## Goad only: held shaft guard. Not enable_block (shield) and not a timed parry.
 var is_shaft_blocking: bool = false
+## Which way the held goad faces. chest | left | right | high | low.
+## chest keeps the old frontal catch. The other four stop only that side.
+## Independent of sparring guard_face / BlockPostureTable.
+var shaft_guard_face: StringName = &"chest"
 ## Which strike face is guarded when blocking (top/left/right). Mismatch = open.
 var guard_direction: StrikeDirection = StrikeDirection.TOP
 ## Face-guard posture (BlockPostureTable). Used when enable_face_guard; independent of shield block.
@@ -559,9 +564,11 @@ func set_blocking(holding: bool) -> void:
 	is_blocking = holding and stamina > StaminaEconomy.BLOCK_MIN_STAMINA
 
 
-## Hold the cattle goad across the body. Goad only — knife and hatchet refuse.
-## This is a guard, not a perfect-parry: there is no timing window. While the
-## flag is set, a frontal hit is caught. Releasing the hold clears it.
+## Hold the cattle goad. Goad only — knife and hatchet refuse.
+## This is a guard, not a perfect-parry: there is no timing window.
+## Raising the guard starts on the chest face (any frontal hit). Call
+## set_shaft_guard_face while it is held to shift left / right / high / low.
+## Releasing the hold clears it. A mismatched face does not catch.
 func set_shaft_block(holding: bool) -> bool:
 	if (
 		not holding
@@ -572,10 +579,49 @@ func set_shaft_block(holding: bool) -> bool:
 		or stamina <= StaminaEconomy.BLOCK_MIN_STAMINA
 	):
 		is_shaft_blocking = false
+		shaft_guard_face = &"chest"
 		return false
+	var raising := not is_shaft_blocking
 	is_shaft_blocking = true
 	is_blocking = false
+	if raising:
+		shaft_guard_face = &"chest"
 	return true
+
+
+## Shift the held guard. Ignored names fall back to chest.
+## top/bottom are accepted as high/low so look dirs can be passed through.
+func set_shaft_guard_face(face: StringName) -> void:
+	shaft_guard_face = normalize_shaft_guard_face(face)
+
+
+static func normalize_shaft_guard_face(face: StringName) -> StringName:
+	match face:
+		&"left", &"right", &"high", &"low", &"chest":
+			return face
+		&"top":
+			return &"high"
+		&"bottom":
+			return &"low"
+		_:
+			return &"chest"
+
+
+## True when the current held face covers this strike.
+## chest: every direction. left/right/high/low: that side only.
+## Low is the face that stops a bottom stab. High and the sides do not.
+func shaft_face_stops_direction(direction: StrikeDirection) -> bool:
+	match shaft_guard_face:
+		&"left":
+			return direction == StrikeDirection.LEFT
+		&"right":
+			return direction == StrikeDirection.RIGHT
+		&"high":
+			return direction == StrikeDirection.TOP
+		&"low":
+			return direction == StrikeDirection.BOTTOM
+		_:
+			return true
 
 
 ## Sparring face-guard (BlockPostureTable). Independent of enable_block shield stubs.
@@ -721,19 +767,29 @@ func apply_damage(
 ) -> float:
 	if is_dead or amount <= 0.0:
 		return 0.0
-	# Held shaft catch. Up or not — no timing window, no counter.
-	if is_shaft_blocking and current_weapon == Weapon.GOAD and frontal:
+	# Held shaft catch. No timing window, no counter.
+	# Chest stops any frontal hit (the old block). A faced guard stops only
+	# its side: low stops a front stab, high stops an overhead, sides stop
+	# that flank. A face that does not cover the strike lets it through.
+	if (
+		is_shaft_blocking
+		and current_weapon == Weapon.GOAD
+		and frontal
+		and shaft_face_stops_direction(strike_direction)
+	):
 		var caught := amount
 		_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
 		blocked.emit(_owner_body, from, caught)
 		if stamina <= StaminaEconomy.BLOCK_MIN_STAMINA:
 			is_shaft_blocking = false
+			shaft_guard_face = &"chest"
 		return 0.0
 	# Hit-stun: drop any in-progress charge.
 	if is_charging:
 		cancel_charge()
 	if is_shaft_blocking:
 		is_shaft_blocking = false
+		shaft_guard_face = &"chest"
 	var mitigated := 0.0
 	var attack_dir: StringName = DIRECTION_NAMES.get(strike_direction, &"top")
 	var face_mitigated := false

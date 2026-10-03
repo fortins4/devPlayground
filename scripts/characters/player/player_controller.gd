@@ -1,7 +1,9 @@
 extends CharacterBody3D
 ## Third-person controller. Default feel is the cattle goad (hold-to-charge,
-## release to strike; look picks shaft or stab). Hold F for a shaft block
-## (RMB stays heavy). Hatchet hold-release wiring is unchanged when the
+## release to strike; look picks shaft or stab). Hold F for a shaft guard
+## (RMB stays heavy). Neutral look keeps the chest shaft. While F is held,
+## look left/right/up/down faces the shaft to that side (the offset latches
+## until the look returns to center). Hatchet hold-release wiring is unchanged when the
 ## hatchet is equipped. Knife stays a tap: left/right cuts, top thrust.
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 ## HealthCombatBridge (sibling) mirrors player CombatSystem ↔ CharacterHealth.
@@ -85,6 +87,7 @@ var _tool_weapon_euler: Vector3 = Vector3.ZERO
 var _tool_pose_active: bool = false
 ## True while the goad shaft-block pose is applied (so sprint/release can drop it).
 var _shaft_pose_applied: bool = false
+## While F is held, look offset is not decayed so a side/high/low face stays put.
 const TOOL_AIM_SIDE := 10.0
 const TOOL_AIM_VERT := 8.0
 
@@ -180,7 +183,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	_tool_aim_delta = _tool_aim_delta.move_toward(Vector2.ZERO, 150.0 * delta)
+	# Decay strike-aim unless a guard is up. A held face keeps the look that set it.
+	if combat == null or not combat.is_shaft_blocking:
+		_tool_aim_delta = _tool_aim_delta.move_toward(Vector2.ZERO, 150.0 * delta)
 	if combat and combat.is_charging and not is_mounted:
 		_apply_charge_direction_from_input()
 
@@ -343,6 +348,7 @@ func _tick_shaft_block() -> void:
 	)
 	combat.set_shaft_block(want)
 	if combat.is_shaft_blocking:
+		combat.set_shaft_guard_face(_resolve_shaft_guard_face())
 		_apply_shaft_block_pose()
 		_shaft_pose_applied = true
 	elif _shaft_pose_applied:
@@ -358,8 +364,35 @@ func _apply_shaft_block_pose() -> void:
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
-	_apply_tool_pose(ToolStrikePoses.tool_shaft_block_pose())
+	var face: StringName = &"chest"
+	if combat:
+		face = combat.shaft_guard_face
+	_apply_tool_pose(ToolStrikePoses.tool_shaft_guard_pose(face))
 	locomotion.lock_attack(0.12)
+
+
+## Hold F, then look. Same deadzones as a goad strike, but neutral is the chest
+## shaft — not a top strike. Horizontal look wins over vertical. Camera pitch
+## counts as up/down when the mouse offset is quiet.
+##   look left  → left    look right → right
+##   look up    → high    look down  → low
+##   centered   → chest
+func _resolve_shaft_guard_face() -> StringName:
+	var mx := _tool_aim_delta.x
+	var my := _tool_aim_delta.y
+	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
+	var pitch_down := pivot != null and pivot.rotation.x >= deg_to_rad(12.0)
+	if absf(mx) >= TOOL_AIM_SIDE and absf(mx) >= absf(my) * 0.85:
+		if mx < 0.0:
+			return &"left"
+		return &"right"
+	var down_bias := 12.0 if pitch_down else 0.0
+	if (my >= TOOL_AIM_VERT or pitch_down) and absf(my) + down_bias >= absf(mx) * 0.75:
+		return &"low"
+	var up_bias := 12.0 if pitch_up else 0.0
+	if (my <= -TOOL_AIM_VERT or pitch_up) and absf(my) + up_bias >= absf(mx) * 0.75:
+		return &"high"
+	return &"chest"
 
 
 func _apply_crouch_visual(delta: float) -> void:
@@ -836,9 +869,15 @@ func _apply_tool_pose(pose: Dictionary) -> void:
 	if locomotion == null:
 		return
 	_tool_pose_active = true
+	var drop := 0.0
+	if pose.has("root_drop"):
+		drop = float(pose["root_drop"])
+	locomotion.set_root_drop(drop)
 	for k in pose.keys():
 		if String(k) == "weapon":
 			_tool_weapon_euler = pose[k]
+			continue
+		if String(k) == "root_drop":
 			continue
 		locomotion.set_combat_additive(String(k), pose[k])
 	_sync_weapon_to_hand()

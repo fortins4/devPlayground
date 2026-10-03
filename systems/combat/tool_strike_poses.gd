@@ -4,7 +4,10 @@ extends RefCounted
 ##
 ## Goad: top / left / right are shaft swings. Bottom is a point stab (lunge).
 ## Charge phase is the hold windup (bigger than the swing windup). No glow.
-## Shaft block is a held guard: both hands on the stick, stick across the body.
+## Shaft block is a held guard: both hands on the stick.
+## Neutral look keeps the chest shaft. Look left/right/up/down shifts that
+## same hold onto the left side, right side, a rising high shaft, or a low
+## shaft across the bottom. Not a swing and not a perfect-parry pose.
 ## Knife: left / right are cuts (blade across). Top is a chest-height thrust
 ## (point forward) — not the goad's look-down stab, and not a bottom direction.
 ## No knife charge glow. Reach is longer than the old chest-tuck, shorter than the goad.
@@ -56,15 +59,71 @@ static func tool_charge_pose(weapon: int, direction: int, ratio: float) -> Dicti
 
 ## Held goad guard. Not a swing, not a stab chamber, not idle.
 ## Degrees are authored so both forearm tips meet the shaft across the chest.
+## This is the neutral / chest face. Look faces live in tool_shaft_guard_pose.
 static func tool_shaft_block_pose() -> Dictionary:
-	var spec := _pack(
+	return _deg_pose(_pack(
 		Vector3(2, -8, 2), Vector3(-2, 6, -3), Vector3(2, 2, 0),
 		Vector3(95, 35, 45), Vector3(-60, 10, 8),
 		Vector3(70, -6, 22), Vector3(-42, 12, -6),
 		Vector3(22, 6, -10), Vector3(20, 0, 0),
 		Vector3(-8, -2, 10), Vector3(22, 0, 0),
 		Vector3(18, -8, 72)
-	)
+	))
+
+
+## face: chest | left | right | high | low.
+## chest is the existing diagonal shaft across the body.
+## left/right stand the shaft on that flank. high raises it overhead.
+## low drops it across the thighs so a front stab meets the stick, not a lunge.
+static func tool_shaft_guard_pose(face: StringName) -> Dictionary:
+	match face:
+		&"left":
+			# Both hands on a shaft that stands on the left, in front. Not a swing.
+			return _deg_pose(_pack(
+				Vector3(0, 8, -2), Vector3(0, 6, -4), Vector3(2, 6, -2),
+				Vector3(168, 30, 42), Vector3(-75, 0, 0),
+				Vector3(84, 58, 12), Vector3(-36, 8, 4),
+				Vector3(8, 4, -4), Vector3(10, 0, 0),
+				Vector3(6, -2, 4), Vector3(10, 0, 0),
+				Vector3(-20, 48, 0)
+			))
+		&"right":
+			# Shaft stands on the right shoulder, in front. Off hand meets it.
+			return _deg_pose(_pack(
+				Vector3(0, -8, 3), Vector3(0, -6, 4), Vector3(2, -6, 2),
+				Vector3(90, -30, 12), Vector3(16, 0, 0),
+				Vector3(88, -30, -20), Vector3(-70, 0, 0),
+				Vector3(6, 2, -4), Vector3(10, 0, 0),
+				Vector3(10, -4, 6), Vector3(12, 0, 0),
+				Vector3(-12, 20, 16)
+			))
+		&"high":
+			# Shaft across the face, both hands up. Not the overhead chop.
+			return _deg_pose(_pack(
+				Vector3(-6, 0, 0), Vector3(-12, 0, 0), Vector3(-8, 0, 0),
+				Vector3(156, 54, 42), Vector3(30, 0, 0),
+				Vector3(150, -28, 6), Vector3(-62, 4, 6),
+				Vector3(4, 0, -3), Vector3(6, 0, 0),
+				Vector3(4, 0, 3), Vector3(6, 0, 0),
+				Vector3(30, -15, 75)
+			))
+		&"low":
+			# Hips drop, knees fold, shaft flat across the thighs. Stops a stab.
+			var low := _deg_pose(_pack(
+				Vector3(12, 0, 0), Vector3(16, 0, 0), Vector3(-6, 0, 0),
+				Vector3(0, -6, -42), Vector3(30, 0, 0),
+				Vector3(22, -8, 18), Vector3(8, 0, 6),
+				Vector3(42, 0, -38), Vector3(-70, 0, 0),
+				Vector3(42, 0, 38), Vector3(-70, 0, 0),
+				Vector3(36, 4, 88)
+			))
+			low["root_drop"] = 0.28
+			return low
+		_:
+			return tool_shaft_block_pose()
+
+
+static func _deg_pose(spec: Dictionary) -> Dictionary:
 	var pose := {}
 	for k in spec.keys():
 		var d: Vector3 = spec[k]

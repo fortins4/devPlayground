@@ -89,6 +89,15 @@ func has_combat_additive(joint: String) -> bool:
 	return _combat_overrides.has(joint)
 
 
+## Drop the skeleton root for a crouched guard. 0 restores the authored rest.
+func set_root_drop(drop: float) -> void:
+	var n: Node3D = joints.get("root") as Node3D
+	if n == null or not _rest.has("root"):
+		return
+	var rest_pos: Vector3 = _rest["root"]["pos"]
+	n.position = rest_pos + Vector3(0.0, -drop, 0.0)
+
+
 func clear_combat_additives() -> void:
 	# Snap overridden joints back to rest before clearing so we don't freeze mid-pose.
 	for key in _combat_overrides.keys():
@@ -96,6 +105,7 @@ func clear_combat_additives() -> void:
 		if n and _rest.has(key):
 			n.rotation = _rest[key]["rot"] as Vector3
 	_combat_overrides.clear()
+	set_root_drop(0.0)
 
 
 ## Snap all joints back to authored rest (used on dismount).
