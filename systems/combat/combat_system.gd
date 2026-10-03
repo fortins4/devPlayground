@@ -1,6 +1,9 @@
 class_name CombatSystem
 extends Node
-## Reusable greybox combat component (hatchet-first cattle-farm kit).
+## Reusable greybox combat component. Player feel target is the cattle goad
+## (hold-release, four directions, same 0.75s full charge as the hatchet).
+## Hatchet hold-release (top/left/right only) stays intact. No charge glow.
+## Goad shaft block is a held guard (stick across the body), not a parry window.
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
 
@@ -24,12 +27,13 @@ signal charge_cancelled(weapon: StringName)
 signal charge_released(ratio: float, direction: StringName, kind: StringName)
 
 enum Weapon { HATCHET, KNIFE, GOAD }
-enum StrikeDirection { TOP, LEFT, RIGHT }
+enum StrikeDirection { TOP, LEFT, RIGHT, BOTTOM }
 
 const DIRECTION_NAMES := {
 	StrikeDirection.TOP: &"top",
 	StrikeDirection.LEFT: &"left",
 	StrikeDirection.RIGHT: &"right",
+	StrikeDirection.BOTTOM: &"bottom",
 }
 
 const WEAPON_NAMES := {
@@ -65,6 +69,8 @@ var stamina: float = StaminaEconomy.MAX_STAMINA
 var current_weapon: Weapon = Weapon.HATCHET
 var is_dead: bool = false
 var is_blocking: bool = false
+## Goad only: shaft held across the body. Not enable_block (shield) and not a timed parry.
+var is_shaft_blocking: bool = false
 ## Which strike face is guarded when blocking (top/left/right). Mismatch = open.
 var guard_direction: StrikeDirection = StrikeDirection.TOP
 ## Face-guard posture (BlockPostureTable). Used when enable_face_guard; independent of shield block.
@@ -96,6 +102,9 @@ var _last_attack_direction: StringName = &""
 var _last_attack_tier: StringName = &""
 var _last_attack_damage: float = -1.0
 var _last_attack_reach: float = -1.0
+## Power passed into the last committed strike. -1 = discrete light/heavy.
+## 0 = tap release, 1 = full 0.75s hold. Mid values sit between.
+var last_attack_power: float = -1.0
 ## Last hatchet charge↔STA spend (ChargeStaminaTable; set on release commit).
 var _last_charge_spend_tier: StringName = &""
 var _last_charge_spend_cost: float = -1.0
@@ -136,8 +145,9 @@ const PROFILES := {
 		&"heavy": {"damage": 16.0, "windup": 0.12, "active": 0.12, "reach": 1.1},
 	},
 	Weapon.GOAD: {
-		&"light": {"damage": 10.0, "windup": 0.14, "active": 0.12, "reach": 1.7},
-		&"heavy": {"damage": 20.0, "windup": 0.2, "active": 0.16, "reach": 1.85},
+		# Hold-release: tap/early = light, full 0.75s = heavy. Power lerps between.
+		&"light": {"damage": 10.0, "windup": 0.18, "active": 0.14, "reach": 1.65},
+		&"heavy": {"damage": 22.0, "windup": 0.30, "active": 0.18, "reach": 2.2},
 	},
 }
 
@@ -217,6 +227,7 @@ func _physics_process(delta: float) -> void:
 	var regenerating := (
 		not is_attacking
 		and not is_blocking
+		and not is_shaft_blocking
 		and not is_charging
 		and stamina_regen_delay_left <= 0.0
 	)
@@ -256,13 +267,15 @@ func set_weapon(weapon: Weapon) -> void:
 		return
 	if is_charging:
 		cancel_charge()
+	is_shaft_blocking = false
 	current_weapon = weapon
 	_apply_weapon_visual()
 	weapon_changed.emit(WEAPON_NAMES[current_weapon])
 
 
 func cycle_weapon(direction: int = 1) -> void:
-	var values: Array = [Weapon.HATCHET, Weapon.KNIFE, Weapon.GOAD]
+	# Goad is the default feel. Q steps goad → knife → hatchet (hatchet still in the cycle).
+	var values: Array = [Weapon.GOAD, Weapon.KNIFE, Weapon.HATCHET]
 	var idx := values.find(current_weapon)
 	idx = (idx + direction) % values.size()
 	if idx < 0:
@@ -275,6 +288,8 @@ func try_sprint_drain(delta: float) -> bool:
 		return false
 	if is_charging:
 		cancel_charge()
+	# Sprint drops a held shaft guard the same way it drops a charge.
+	is_shaft_blocking = false
 	var cost := sprint_stamina_per_sec * delta
 	if stamina < cost * 0.5:
 		return false
@@ -284,6 +299,15 @@ func try_sprint_drain(delta: float) -> bool:
 
 func direction_name(direction: StrikeDirection = charge_direction) -> StringName:
 	return DIRECTION_NAMES.get(direction, &"top")
+
+
+func _clamp_strike_direction(direction: StrikeDirection) -> StrikeDirection:
+	## Bottom exists only on the cattle goad (point stab). Knife and hatchet stay top/left/right.
+	if direction != StrikeDirection.BOTTOM:
+		return direction
+	if current_weapon == Weapon.GOAD:
+		return direction
+	return StrikeDirection.TOP
 
 
 func last_strike_direction() -> StrikeDirection:
@@ -319,13 +343,17 @@ func get_charge_ratio() -> float:
 
 
 func begin_charge() -> bool:
-	## Start hold-to-charge (hatchet directional). Knife/goad fall back to light tap via release.
+	## Hold-to-charge. Hatchet: top/left/right. Goad: those plus the bottom stab.
+	## Knife stays a tap (this returns false) so a light press is not a windup.
 	if is_dead or is_attacking or is_charging:
 		return false
-	if current_weapon != Weapon.HATCHET or not enable_directional_hatchet:
+	var hatchet := current_weapon == Weapon.HATCHET and enable_directional_hatchet
+	var goad := current_weapon == Weapon.GOAD
+	if not hatchet and not goad:
 		return false
 	is_charging = true
 	is_blocking = false
+	is_shaft_blocking = false
 	charge_time = 0.0
 	charge_ratio = 0.0
 	charge_direction = StrikeDirection.TOP
@@ -338,6 +366,8 @@ func begin_charge() -> bool:
 func set_charge_direction(direction: StrikeDirection) -> void:
 	if not is_charging:
 		return
+	# Bottom stab is goad-only. Hatchet (and knife) clamp back to top.
+	direction = _clamp_strike_direction(direction)
 	if charge_direction == direction:
 		return
 	charge_direction = direction
@@ -374,7 +404,12 @@ func release_charged_attack() -> bool:
 	# Near-full charge maps to HatchetAttackTable &"max" tier via power >= 0.95.
 	var power := 0.0 if kind == &"light" else clampf(ratio, 0.22, 1.0)
 	charge_released.emit(power if kind == &"heavy" else 0.0, DIRECTION_NAMES[direction], kind)
-	return try_attack(kind, direction, power)
+	var committed := try_attack(kind, direction, power)
+	if not committed:
+		# Release with no stamina must not freeze the windup pose.
+		_clear_charge_pose()
+		charge_cancelled.emit(WEAPON_NAMES[current_weapon])
+	return committed
 
 
 func try_attack_directional(direction: StringName, tier: StringName) -> bool:
@@ -406,6 +441,7 @@ func try_attack(
 		return false
 	if is_charging:
 		cancel_charge()
+	direction = _clamp_strike_direction(direction)
 	var profile: Dictionary = PROFILES[current_weapon].get(kind, PROFILES[current_weapon][&"light"])
 	var wname: StringName = WEAPON_NAMES[current_weapon]
 	var light_p: Dictionary = PROFILES[current_weapon][&"light"]
@@ -474,6 +510,11 @@ func try_attack(
 			windup *= float(scales.get("windup", 1.0))
 			active *= float(scales.get("active", 1.0))
 			recovery *= float(scales.get("recovery", 1.0))
+	# Goad point jab is a quicker commit than a shaft swing, and reaches a bit farther.
+	if current_weapon == Weapon.GOAD and direction == StrikeDirection.BOTTOM:
+		windup *= 0.72
+		active *= 0.85
+		reach += 0.2
 	# Spend fires here on strike commit (release path). Refuse if insufficient.
 	if current_weapon == Weapon.HATCHET and resolved_tier != &"":
 		if not spend_for_charge(resolved_tier):
@@ -484,6 +525,7 @@ func try_attack(
 		_spend_stamina(cost)
 	is_attacking = true
 	is_blocking = false
+	is_shaft_blocking = false
 	_hit_this_swing.clear()
 	attack_recovery_left = windup + active + recovery
 	_last_attack_kind = kind
@@ -495,6 +537,7 @@ func try_attack(
 	_last_attack_tier = resolved_tier
 	_last_attack_damage = damage
 	_last_attack_reach = reach
+	last_attack_power = power
 	_play_weapon_swing(kind, windup, active, recovery, direction)
 	attack_performed.emit(_owner_body, kind, wname)
 	_activate_hitbox_after(windup, active, reach, damage, kind, direction)
@@ -507,6 +550,25 @@ func set_blocking(holding: bool) -> void:
 		is_blocking = false
 		return
 	is_blocking = holding and stamina > StaminaEconomy.BLOCK_MIN_STAMINA
+
+
+## Hold the cattle goad across the body. Goad only — knife and hatchet refuse.
+## This is a guard, not a perfect-parry: there is no timing window. While the
+## flag is set, a frontal hit is caught. Releasing the hold clears it.
+func set_shaft_block(holding: bool) -> bool:
+	if (
+		not holding
+		or current_weapon != Weapon.GOAD
+		or is_dead
+		or is_attacking
+		or is_charging
+		or stamina <= StaminaEconomy.BLOCK_MIN_STAMINA
+	):
+		is_shaft_blocking = false
+		return false
+	is_shaft_blocking = true
+	is_blocking = false
+	return true
 
 
 ## Sparring face-guard (BlockPostureTable). Independent of enable_block shield stubs.
@@ -652,9 +714,19 @@ func apply_damage(
 ) -> float:
 	if is_dead or amount <= 0.0:
 		return 0.0
+	# Held shaft catch. Up or not — no timing window, no counter.
+	if is_shaft_blocking and current_weapon == Weapon.GOAD and frontal:
+		var caught := amount
+		_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
+		blocked.emit(_owner_body, from, caught)
+		if stamina <= StaminaEconomy.BLOCK_MIN_STAMINA:
+			is_shaft_blocking = false
+		return 0.0
 	# Hit-stun: drop any in-progress charge.
 	if is_charging:
 		cancel_charge()
+	if is_shaft_blocking:
+		is_shaft_blocking = false
 	var mitigated := 0.0
 	var attack_dir: StringName = DIRECTION_NAMES.get(strike_direction, &"top")
 	var face_mitigated := false
@@ -710,6 +782,7 @@ func _die() -> void:
 	is_dead = true
 	is_attacking = false
 	is_blocking = false
+	is_shaft_blocking = false
 	is_charging = false
 	posture_break_left = 0.0
 	if _hitbox:
@@ -746,6 +819,15 @@ func _activate_hitbox_after(
 
 func _position_hitbox(reach: float, direction: StrikeDirection = StrikeDirection.TOP) -> void:
 	if _hitbox == null or _owner_body == null:
+		return
+	# Goad bottom is a narrow point jab straight ahead, not a wide shaft arc.
+	if direction == StrikeDirection.BOTTOM:
+		_hitbox.position = Vector3(0.08, 1.05, -reach * 0.82)
+		var shape_node := _hitbox.get_node_or_null("CollisionShape3D") as CollisionShape3D
+		if shape_node and shape_node.shape is BoxShape3D:
+			var box := (shape_node.shape as BoxShape3D).duplicate() as BoxShape3D
+			box.size = Vector3(0.22, 0.22, reach * 0.62)
+			shape_node.shape = box
 		return
 	# Local -Z is facing forward for CharacterBody3D yaw; bias by strike side.
 	var lateral := 0.0
@@ -903,6 +985,10 @@ func _play_weapon_swing(
 ) -> void:
 	if _weapon_visual == null:
 		return
+	# Goad/knife stay in the hand. The body pose turns them; a free tween would
+	# float the mesh off the kerne. Hatchet keeps this swing tween.
+	if current_weapon != Weapon.HATCHET:
+		return
 	if _swing_tween and _swing_tween.is_valid():
 		_swing_tween.kill()
 	if _charge_pose_tween and _charge_pose_tween.is_valid():
@@ -979,7 +1065,8 @@ func swing_phase_durations(kind: StringName, windup: float, active: float, recov
 
 func _swing_poses(kind: StringName, direction: StrikeDirection = StrikeDirection.TOP) -> Dictionary:
 	## Degrees + local positions; heavy = bigger arc / higher cock than light.
-	## Hatchet respects top / left / right chop arcs; knife/goad keep legacy diagonals.
+	## Hatchet: top / left / right only. Knife/goad weapon tween is unused
+	## (hand-glued); body poses live in tool_strike_poses.gd.
 	var rest_pos := _weapon_rest_transform.origin
 	var heavy := kind == &"heavy"
 	match current_weapon:
@@ -1161,6 +1248,10 @@ static func hatchet_idle_arm_pose() -> Dictionary:
 
 func _update_charge_pose(ratio: float, direction: StrikeDirection) -> void:
 	if _weapon_visual == null or is_attacking:
+		return
+	# Goad charge is a whole-body pose glued to the hand (player controller).
+	# Do not run the hatchet weapon-cock tween or the shaft floats off the arm.
+	if current_weapon != Weapon.HATCHET:
 		return
 	# Fallback weapon cock for capture/smoke hosts without player hand-follow.
 	# Live player overwrites this each frame by parenting the hatchet to the posed arm.

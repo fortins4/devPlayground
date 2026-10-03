@@ -1,5 +1,9 @@
 extends CharacterBody3D
-## Third-person controller + hatchet-first combat wiring for the greybox slice.
+## Third-person controller. Default feel is the cattle goad (hold-to-charge,
+## release to strike; look picks shaft or stab). Hold F for a shaft block
+## (RMB stays heavy). Hatchet hold-release wiring is unchanged when the
+## hatchet is equipped. Knife stays a tap.
+const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 ## HealthCombatBridge (sibling) mirrors player CombatSystem ↔ CharacterHealth.
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
 ## Locomotion: procedural kerne joints via KerneLocomotion (walk/run/sprint/crouch/idle).
@@ -74,6 +78,16 @@ var _charge_step_left: float = 0.0
 var _charge_step_cd: float = 0.0
 var _charge_step_dir: Vector3 = Vector3.ZERO
 
+## Recent mouse look used to pick a goad/knife tap direction (not hatchet charge).
+var _tool_aim_delta: Vector2 = Vector2.ZERO
+## Player-space weapon euler while a goad/knife body strike owns the mesh.
+var _tool_weapon_euler: Vector3 = Vector3.ZERO
+var _tool_pose_active: bool = false
+## True while the goad shaft-block pose is applied (so sprint/release can drop it).
+var _shaft_pose_applied: bool = false
+const TOOL_AIM_SIDE := 10.0
+const TOOL_AIM_VERT := 8.0
+
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -106,10 +120,14 @@ func _bind_locomotion_joints() -> void:
 	if right_arm:
 		_arm_base_rotation = right_arm.rotation
 	_sync_back_goad_visibility()
+	_apply_weapon_idle_pose()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		var motion := event as InputEventMouseMotion
+		_tool_aim_delta += motion.relative
+		_tool_aim_delta = _tool_aim_delta.limit_length(96.0)
 		if is_mounted and mounted_horse and is_instance_valid(mounted_horse):
 			# Yaw the horse; keep rider facing saddle-forward.
 			mounted_horse.rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
@@ -162,6 +180,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_tool_aim_delta = _tool_aim_delta.move_toward(Vector2.ZERO, 150.0 * delta)
 	if combat and combat.is_charging and not is_mounted:
 		_apply_charge_direction_from_input()
 
@@ -218,6 +237,7 @@ func _physics_process(delta: float) -> void:
 		if combat.is_charging:
 			combat.cancel_charge()
 			_hatchet_charge_armed = false
+		# try_sprint_drain also drops a held goad shaft block.
 		sprinting = combat.try_sprint_drain(delta)
 	elif want_sprint and combat == null:
 		sprinting = true
@@ -260,6 +280,7 @@ func _physics_process(delta: float) -> void:
 	_update_drag_stamina(delta)
 	if not is_mounted:
 		_tick_locomotion(delta, horiz.length(), sprinting, locked)
+		_tick_shaft_block()
 		_sync_weapon_to_hand()
 
 
@@ -275,22 +296,70 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 	if locomotion == null:
 		return
 	# Charge locks walk-arm swing so aim cock reads cleanly; swing uses same path.
-	var attacking := combat != null and (combat.is_attacking or combat.is_charging)
+	var attacking := combat != null and (combat.is_attacking or combat.is_charging or combat.is_shaft_blocking)
 	var local_dir := Vector3.ZERO
 	var input_dir := _move_vector()
 	if not locked:
 		local_dir = Vector3(input_dir.x, 0.0, input_dir.y)
 	locomotion.tick(delta, horiz_speed, sprinting, is_crouching, attacking, local_dir)
-	# Idle hatchet ready-hold when standing (not charging / swinging).
+	# Idle ready-hold when standing (not charging / swinging).
 	if (
 		combat
-		and combat.current_weapon == CombatSystem.Weapon.HATCHET
 		and not combat.is_charging
 		and not combat.is_attacking
+		and not combat.is_shaft_blocking
 		and horiz_speed < 0.25
 		and not is_mounted
 	):
-		_apply_idle_hatchet_hold()
+		_apply_weapon_idle_pose()
+	elif (
+		combat
+		and not combat.is_attacking
+		and not combat.is_charging
+		and not combat.is_shaft_blocking
+		and combat.current_weapon != CombatSystem.Weapon.HATCHET
+		and horiz_speed >= 0.25
+	):
+		# Drop full-body tool additives so the walk cycle can move the legs.
+		_tool_pose_active = false
+		if locomotion.has_combat_additive("left_thigh") or locomotion.has_combat_additive("hips"):
+			locomotion.clear_combat_additives()
+
+
+func _tick_shaft_block() -> void:
+	## Hold F. RMB stays the heavy strike. Releasing F returns to idle.
+	## Sprint (already resolved this frame) drops the guard.
+	if combat == null:
+		return
+	var want := (
+		Input.is_action_pressed("shaft_block")
+		and combat.current_weapon == CombatSystem.Weapon.GOAD
+		and not _sprinting
+		and not combat.is_attacking
+		and not combat.is_charging
+		and not combat.is_dead
+		and not is_mounted
+		and not is_dragging()
+	)
+	combat.set_shaft_block(want)
+	if combat.is_shaft_blocking:
+		_apply_shaft_block_pose()
+		_shaft_pose_applied = true
+	elif _shaft_pose_applied:
+		_shaft_pose_applied = false
+		if not combat.is_attacking and not combat.is_charging:
+			_clear_attack_additives()
+
+
+func _apply_shaft_block_pose() -> void:
+	if locomotion == null:
+		return
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+	_apply_tool_pose(ToolStrikePoses.tool_shaft_block_pose())
+	locomotion.lock_attack(0.12)
 
 
 func _apply_crouch_visual(delta: float) -> void:
@@ -359,16 +428,21 @@ func _move_vector() -> Vector2:
 func _begin_hatchet_or_light() -> void:
 	if combat == null:
 		return
-	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
-		_charge_aim_delta = Vector2.ZERO
+	var hatchet := combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet
+	var goad := combat.current_weapon == CombatSystem.Weapon.GOAD
+	if hatchet or goad:
+		# Goad keeps the look you already had; hatchet aim starts neutral (top).
+		_charge_aim_delta = _tool_aim_delta if goad else Vector2.ZERO
 		_hatchet_charge_armed = true
 		if not combat.begin_charge():
 			_hatchet_charge_armed = false
-			combat.try_attack(&"light", CombatSystem.StrikeDirection.TOP)
+			var fallback := _resolve_tool_strike_direction() if goad else CombatSystem.StrikeDirection.TOP
+			combat.try_attack(&"light", fallback)
 		else:
 			_apply_charge_direction_from_input()
 	else:
-		combat.try_attack(&"light")
+		combat.try_attack(&"light", _resolve_tool_strike_direction())
+		_tool_aim_delta = Vector2.ZERO
 
 
 func _release_hatchet_or_ignore() -> void:
@@ -391,7 +465,27 @@ func _heavy_or_ignore_hatchet() -> void:
 	if combat.is_charging:
 		combat.cancel_charge()
 		_hatchet_charge_armed = false
-	combat.try_attack(&"heavy")
+	combat.try_attack(&"heavy", _resolve_tool_strike_direction())
+	_tool_aim_delta = Vector2.ZERO
+
+
+func _resolve_tool_strike_direction() -> CombatSystem.StrikeDirection:
+	## Tap aim for goad/knife. Neutral is a top shaft strike.
+	## Look/flick down is a goad stab only — knife and hatchet have no bottom.
+	var mx := _tool_aim_delta.x
+	var my := _tool_aim_delta.y
+	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
+	var pitch_down := pivot != null and pivot.rotation.x >= deg_to_rad(12.0)
+	var goad := combat != null and combat.current_weapon == CombatSystem.Weapon.GOAD
+	if absf(mx) >= TOOL_AIM_SIDE and absf(mx) >= absf(my) * 0.85:
+		if mx < 0.0:
+			return CombatSystem.StrikeDirection.LEFT
+		return CombatSystem.StrikeDirection.RIGHT
+	if goad and (my >= TOOL_AIM_VERT or pitch_down) and absf(my) + (12.0 if pitch_down else 0.0) >= absf(mx) * 0.75:
+		return CombatSystem.StrikeDirection.BOTTOM
+	if my <= -TOOL_AIM_VERT or pitch_up:
+		return CombatSystem.StrikeDirection.TOP
+	return CombatSystem.StrikeDirection.TOP
 
 
 func _apply_charge_direction_from_input() -> void:
@@ -401,16 +495,21 @@ func _apply_charge_direction_from_input() -> void:
 
 
 func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
-	## Mouse aim only (no WASD / flick): look offset while charging + camera pitch.
-	## Aim left/right → side chops; aim up or pitch up → top; neutral → top.
+	## Mouse aim only (no WASD): look offset while charging + camera pitch.
+	## Left/right/up = shaft. Goad look-down = stab. Hatchet never stabs.
 	var mx := _charge_aim_delta.x
 	var my := _charge_aim_delta.y
 	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
+	var pitch_down := pivot != null and pivot.rotation.x >= deg_to_rad(12.0)
+	var goad := combat != null and combat.current_weapon == CombatSystem.Weapon.GOAD
 
 	if absf(mx) >= CHARGE_AIM_SIDE_THRESH and absf(mx) >= absf(my) * 0.9:
 		if mx < 0.0:
 			return CombatSystem.StrikeDirection.LEFT
 		return CombatSystem.StrikeDirection.RIGHT
+
+	if goad and (my >= CHARGE_AIM_TOP_THRESH or pitch_down) and absf(my) + (12.0 if pitch_down else 0.0) >= absf(mx) * 0.75:
+		return CombatSystem.StrikeDirection.BOTTOM
 
 	if my <= -CHARGE_AIM_TOP_THRESH or pitch_up:
 		return CombatSystem.StrikeDirection.TOP
@@ -419,8 +518,11 @@ func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
 
 
 func _on_charge_updated(ratio: float, direction: StringName) -> void:
-	## Arm + torso track hatchet aim face while charging (procedural, not a static stick).
+	## Goad: whole-body windup. Hatchet: arm + torso cock (unchanged).
 	if combat == null or not combat.is_charging or combat.is_attacking:
+		return
+	if combat.current_weapon == CombatSystem.Weapon.GOAD:
+		_apply_goad_charge_pose(ratio, direction)
 		return
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
@@ -443,6 +545,27 @@ func _on_charge_updated(ratio: float, direction: StringName) -> void:
 	_apply_torso_additive(pose["torso"] as Vector3)
 	if locomotion:
 		locomotion.lock_attack(0.05)
+
+
+func _apply_goad_charge_pose(ratio: float, direction: StringName) -> void:
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+	var dir_enum := CombatSystem.StrikeDirection.TOP
+	match direction:
+		&"left":
+			dir_enum = CombatSystem.StrikeDirection.LEFT
+		&"right":
+			dir_enum = CombatSystem.StrikeDirection.RIGHT
+		&"bottom":
+			dir_enum = CombatSystem.StrikeDirection.BOTTOM
+		_:
+			dir_enum = CombatSystem.StrikeDirection.TOP
+	var pose: Dictionary = ToolStrikePoses.tool_charge_pose(CombatSystem.Weapon.GOAD, dir_enum, ratio)
+	_apply_tool_pose(pose)
+	if locomotion:
+		locomotion.lock_attack(0.08)
 
 
 func _on_charge_cancelled(_weapon: StringName) -> void:
@@ -468,6 +591,10 @@ func _apply_idle_hatchet_hold() -> void:
 
 func _on_weapon_changed(weapon: StringName) -> void:
 	_sync_back_goad_visibility()
+	_tool_pose_active = false
+	if locomotion:
+		locomotion.clear_combat_additives()
+		_apply_weapon_idle_pose()
 	# Hide belt knife mesh when knife is drawn as active weapon.
 	if locomotion == null:
 		return
@@ -489,6 +616,10 @@ func _sync_back_goad_visibility() -> void:
 
 
 func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName) -> void:
+	# Goad/knife: whole-body weight shift. Hatchet keeps the arm/torso chop below.
+	if weapon != &"hatchet":
+		_play_tool_body_strike(kind, weapon)
+		return
 	# Body + arm follow weapon swing phases; timings match CombatSystem (post dir scale).
 	if combat == null:
 		return
@@ -541,21 +672,6 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 				torso_windup = Vector3(deg_to_rad(-18.0 if heavy else -10.0), deg_to_rad(-8.0), 0.0)
 				torso_contact = Vector3(deg_to_rad(20.0 if heavy else 12.0), deg_to_rad(5.0), 0.0)
 				torso_follow = Vector3(deg_to_rad(28.0 if heavy else 16.0), deg_to_rad(8.0), 0.0)
-
-	if weapon == &"goad":
-		windup_delta = Vector3(deg_to_rad(-70.0 if heavy else -40.0), deg_to_rad(-5.0), deg_to_rad(-10.0))
-		contact_delta = Vector3(deg_to_rad(40.0 if heavy else 22.0), deg_to_rad(5.0), deg_to_rad(15.0))
-		follow_delta = Vector3(deg_to_rad(60.0 if heavy else 35.0), deg_to_rad(8.0), deg_to_rad(20.0))
-		torso_windup = Vector3(deg_to_rad(-12.0 if heavy else -6.0), 0.0, 0.0)
-		torso_contact = Vector3(deg_to_rad(16.0 if heavy else 8.0), 0.0, 0.0)
-		torso_follow = Vector3(deg_to_rad(20.0 if heavy else 10.0), 0.0, 0.0)
-	elif weapon == &"knife":
-		windup_delta = Vector3(deg_to_rad(-25.0 if heavy else -14.0), deg_to_rad(-25.0 if heavy else -14.0), deg_to_rad(-40.0 if heavy else -22.0))
-		contact_delta = Vector3(deg_to_rad(10.0 if heavy else 5.0), deg_to_rad(20.0), deg_to_rad(55.0 if heavy else 35.0))
-		follow_delta = Vector3(deg_to_rad(20.0 if heavy else 10.0), deg_to_rad(30.0), deg_to_rad(70.0 if heavy else 45.0))
-		torso_windup = Vector3(0.0, deg_to_rad(-8.0), 0.0)
-		torso_contact = Vector3(deg_to_rad(4.0), deg_to_rad(10.0), 0.0)
-		torso_follow = Vector3(deg_to_rad(6.0), deg_to_rad(12.0), 0.0)
 
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
@@ -612,15 +728,119 @@ func _apply_torso_additive(v: Vector3) -> void:
 
 
 func _clear_attack_additives() -> void:
+	_tool_pose_active = false
 	if locomotion:
 		locomotion.clear_combat_additives()
-	if (
-		combat
-		and combat.current_weapon == CombatSystem.Weapon.HATCHET
-		and not combat.is_charging
-		and not combat.is_attacking
-	):
+	if combat and not combat.is_charging and not combat.is_attacking:
+		_apply_weapon_idle_pose()
+
+
+func _apply_weapon_idle_pose() -> void:
+	if combat == null or locomotion == null:
+		return
+	if combat.is_attacking or combat.is_charging or combat.is_shaft_blocking:
+		return
+	if _arm_tween and _arm_tween.is_valid():
+		return
+	if combat.current_weapon == CombatSystem.Weapon.HATCHET:
 		_apply_idle_hatchet_hold()
+		_sync_weapon_to_hand()
+		return
+	_tool_pose_active = false
+	_apply_tool_pose(ToolStrikePoses.tool_idle_pose(combat.current_weapon))
+	_tool_pose_active = false
+	_sync_weapon_to_hand()
+
+
+func _play_tool_body_strike(kind: StringName, _weapon: StringName) -> void:
+	if combat == null or locomotion == null:
+		return
+	var timings: Dictionary = combat.last_attack_timings()
+	var windup: float = float(timings.get("windup", 0.2))
+	var active: float = float(timings.get("active", 0.14))
+	var recovery: float = float(timings.get("recovery", 0.3))
+	locomotion.lock_attack(windup + active + recovery)
+	var heavy := kind == &"heavy"
+	var direction := combat.last_strike_direction()
+	var weapon_id := combat.current_weapon
+	var commit := 1.0
+	if weapon_id == CombatSystem.Weapon.GOAD:
+		var power := combat.last_attack_power
+		if power >= 0.0:
+			# Tap stays small. Full hold commits the whole body. Mid is between.
+			commit = lerpf(0.82, 1.5, clampf(power, 0.0, 1.0))
+		elif heavy:
+			commit = 1.28
+	var pose_windup: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"windup", heavy), commit)
+	var pose_contact: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"contact", heavy), commit)
+	var pose_follow: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"follow", heavy), commit)
+	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(weapon_id)
+	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, recovery)
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+	# A goad hold already cocked the body. Release continues from that pose
+	# into the strike (full) or a short extra windup (tap), then back to idle.
+	var from_charge := _tool_pose_active and weapon_id == CombatSystem.Weapon.GOAD
+	var start_pose: Dictionary = _current_tool_pose(pose_idle) if from_charge else pose_idle
+	_tool_pose_active = true
+	_arm_tween = create_tween()
+	if from_charge and heavy:
+		var drive := maxf(0.06, float(phases["windup_move"]) * 0.35 + float(phases["to_contact"]))
+		_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_contact), 0.0, 1.0, drive).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	else:
+		_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_windup), 0.0, 1.0, phases["windup_move"]).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		if float(phases["windup_hold"]) > 0.0:
+			_arm_tween.tween_interval(float(phases["windup_hold"]))
+		_arm_tween.tween_method(_lerp_tool_pose.bind(pose_windup, pose_contact), 0.0, 1.0, phases["to_contact"]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if float(phases["contact_hold"]) > 0.0:
+		_arm_tween.tween_interval(float(phases["contact_hold"]))
+	_arm_tween.tween_method(_lerp_tool_pose.bind(pose_contact, pose_follow), 0.0, 1.0, phases["follow"]).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_lerp_tool_pose.bind(pose_follow, pose_idle), 0.0, 1.0, recovery).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_callback(_clear_attack_additives)
+
+
+func _lerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
+	var blended := {}
+	for k in to_pose.keys():
+		var a: Vector3 = from_pose.get(k, Vector3.ZERO)
+		var b: Vector3 = to_pose[k]
+		blended[k] = a.lerp(b, t)
+	_apply_tool_pose(blended)
+
+
+func _scale_tool_pose(pose: Dictionary, scale: float) -> Dictionary:
+	if absf(scale - 1.0) < 0.001:
+		return pose
+	var out := {}
+	for k in pose.keys():
+		out[k] = (pose[k] as Vector3) * scale
+	return out
+
+
+func _current_tool_pose(fallback: Dictionary) -> Dictionary:
+	var pose := {}
+	for k in fallback.keys():
+		if String(k) == "weapon":
+			pose[k] = _tool_weapon_euler
+		elif locomotion and locomotion.has_combat_additive(String(k)):
+			pose[k] = locomotion.get_combat_additive(String(k))
+		else:
+			pose[k] = fallback[k]
+	return pose
+
+
+func _apply_tool_pose(pose: Dictionary) -> void:
+	if locomotion == null:
+		return
+	_tool_pose_active = true
+	for k in pose.keys():
+		if String(k) == "weapon":
+			_tool_weapon_euler = pose[k]
+			continue
+		locomotion.set_combat_additive(String(k), pose[k])
+	_sync_weapon_to_hand()
 
 
 func _on_hit_landed(_attacker: Node, _target: Node, damage: float, kind: StringName) -> void:
@@ -663,17 +883,20 @@ func _sync_weapon_to_hand() -> void:
 	## Keep hatchet/knife/goad near the right forearm tip so swings read with the arm.
 	if weapon_visual == null or locomotion == null:
 		return
-	if combat and combat.is_attacking:
-		return  # CombatSystem owns WeaponVisual transform during swings
+	# Hatchet swing tween owns WeaponVisual. Goad/knife stay glued to the hand.
+	if combat and combat.is_attacking and combat.current_weapon == CombatSystem.Weapon.HATCHET:
+		return
 	var forearm := locomotion.get_joint("right_forearm")
-	if forearm == null:
+	if forearm == null or not forearm.is_inside_tree():
 		return
 	# Tip of forearm in player local space
 	var tip_global := forearm.to_global(Vector3(0.0, -0.28, 0.05))
 	weapon_visual.global_position = tip_global
 
-	var rot := Vector3(deg_to_rad(-12.0), deg_to_rad(6.0), deg_to_rad(-14.0))  # idle ready grip
-	if combat and combat.is_charging:
+	var rot := _idle_weapon_euler()
+	if _tool_pose_active and combat and combat.current_weapon != CombatSystem.Weapon.HATCHET:
+		rot = _tool_weapon_euler
+	elif combat and combat.is_charging:
 		var t := clampf(combat.charge_ratio, 0.0, 1.0)
 		t = t * t
 		match combat.charge_direction:
@@ -698,8 +921,20 @@ func _sync_weapon_to_hand() -> void:
 	weapon_visual.rotation = rot
 	_weapon_base_y = weapon_visual.position.y
 	# Keep combat idle rest in sync while not charging so recovery returns to grip.
-	if combat and not combat.is_charging:
+	if combat and not combat.is_charging and not combat.is_attacking:
 		combat.set_weapon_rest_transform(weapon_visual.transform)
+
+
+func _idle_weapon_euler() -> Vector3:
+	if combat == null:
+		return Vector3(deg_to_rad(-12.0), deg_to_rad(6.0), deg_to_rad(-14.0))
+	match combat.current_weapon:
+		CombatSystem.Weapon.GOAD:
+			return Vector3(deg_to_rad(-18.0), deg_to_rad(6.0), deg_to_rad(-6.0))
+		CombatSystem.Weapon.KNIFE:
+			return Vector3(deg_to_rad(-52.0), deg_to_rad(26.0), deg_to_rad(-62.0))
+		_:
+			return Vector3(deg_to_rad(-12.0), deg_to_rad(6.0), deg_to_rad(-14.0))
 
 func begin_drag(body: Node3D) -> void:
 	if body == null or is_mounted:
