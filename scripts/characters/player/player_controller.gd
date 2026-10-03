@@ -1,6 +1,7 @@
 extends CharacterBody3D
-## Third-person controller. Default feel is the cattle goad (tap strikes);
-## hatchet hold-release wiring is unchanged when the hatchet is equipped.
+## Third-person controller. Default feel is the cattle goad (hold-to-charge,
+## release to strike; look picks shaft or stab). Hatchet hold-release wiring
+## is unchanged when the hatchet is equipped. Knife stays a tap.
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 ## HealthCombatBridge (sibling) mirrors player CombatSystem ↔ CharacterHealth.
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
@@ -384,12 +385,16 @@ func _move_vector() -> Vector2:
 func _begin_hatchet_or_light() -> void:
 	if combat == null:
 		return
-	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
-		_charge_aim_delta = Vector2.ZERO
+	var hatchet := combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet
+	var goad := combat.current_weapon == CombatSystem.Weapon.GOAD
+	if hatchet or goad:
+		# Goad keeps the look you already had; hatchet aim starts neutral (top).
+		_charge_aim_delta = _tool_aim_delta if goad else Vector2.ZERO
 		_hatchet_charge_armed = true
 		if not combat.begin_charge():
 			_hatchet_charge_armed = false
-			combat.try_attack(&"light", CombatSystem.StrikeDirection.TOP)
+			var fallback := _resolve_tool_strike_direction() if goad else CombatSystem.StrikeDirection.TOP
+			combat.try_attack(&"light", fallback)
 		else:
 			_apply_charge_direction_from_input()
 	else:
@@ -447,16 +452,21 @@ func _apply_charge_direction_from_input() -> void:
 
 
 func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
-	## Mouse aim only (no WASD / flick): look offset while charging + camera pitch.
-	## Aim left/right → side chops; aim up or pitch up → top; neutral → top.
+	## Mouse aim only (no WASD): look offset while charging + camera pitch.
+	## Left/right/up = shaft. Goad look-down = stab. Hatchet never stabs.
 	var mx := _charge_aim_delta.x
 	var my := _charge_aim_delta.y
 	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
+	var pitch_down := pivot != null and pivot.rotation.x >= deg_to_rad(12.0)
+	var goad := combat != null and combat.current_weapon == CombatSystem.Weapon.GOAD
 
 	if absf(mx) >= CHARGE_AIM_SIDE_THRESH and absf(mx) >= absf(my) * 0.9:
 		if mx < 0.0:
 			return CombatSystem.StrikeDirection.LEFT
 		return CombatSystem.StrikeDirection.RIGHT
+
+	if goad and (my >= CHARGE_AIM_TOP_THRESH or pitch_down) and absf(my) + (12.0 if pitch_down else 0.0) >= absf(mx) * 0.75:
+		return CombatSystem.StrikeDirection.BOTTOM
 
 	if my <= -CHARGE_AIM_TOP_THRESH or pitch_up:
 		return CombatSystem.StrikeDirection.TOP
@@ -465,8 +475,11 @@ func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
 
 
 func _on_charge_updated(ratio: float, direction: StringName) -> void:
-	## Arm + torso track hatchet aim face while charging (procedural, not a static stick).
+	## Goad: whole-body windup. Hatchet: arm + torso cock (unchanged).
 	if combat == null or not combat.is_charging or combat.is_attacking:
+		return
+	if combat.current_weapon == CombatSystem.Weapon.GOAD:
+		_apply_goad_charge_pose(ratio, direction)
 		return
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
@@ -489,6 +502,27 @@ func _on_charge_updated(ratio: float, direction: StringName) -> void:
 	_apply_torso_additive(pose["torso"] as Vector3)
 	if locomotion:
 		locomotion.lock_attack(0.05)
+
+
+func _apply_goad_charge_pose(ratio: float, direction: StringName) -> void:
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+	var dir_enum := CombatSystem.StrikeDirection.TOP
+	match direction:
+		&"left":
+			dir_enum = CombatSystem.StrikeDirection.LEFT
+		&"right":
+			dir_enum = CombatSystem.StrikeDirection.RIGHT
+		&"bottom":
+			dir_enum = CombatSystem.StrikeDirection.BOTTOM
+		_:
+			dir_enum = CombatSystem.StrikeDirection.TOP
+	var pose: Dictionary = ToolStrikePoses.tool_charge_pose(CombatSystem.Weapon.GOAD, dir_enum, ratio)
+	_apply_tool_pose(pose)
+	if locomotion:
+		locomotion.lock_attack(0.08)
 
 
 func _on_charge_cancelled(_weapon: StringName) -> void:
@@ -686,21 +720,37 @@ func _play_tool_body_strike(kind: StringName, _weapon: StringName) -> void:
 	var heavy := kind == &"heavy"
 	var direction := combat.last_strike_direction()
 	var weapon_id := combat.current_weapon
-	var pose_windup: Dictionary = ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"windup", heavy)
-	var pose_contact: Dictionary = ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"contact", heavy)
-	var pose_follow: Dictionary = ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"follow", heavy)
+	var commit := 1.0
+	if weapon_id == CombatSystem.Weapon.GOAD:
+		var power := combat.last_attack_power
+		if power >= 0.0:
+			# Tap stays small. Full hold commits the whole body. Mid is between.
+			commit = lerpf(0.82, 1.5, clampf(power, 0.0, 1.0))
+		elif heavy:
+			commit = 1.28
+	var pose_windup: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"windup", heavy), commit)
+	var pose_contact: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"contact", heavy), commit)
+	var pose_follow: Dictionary = _scale_tool_pose(ToolStrikePoses.tool_strike_pose(weapon_id, direction, &"follow", heavy), commit)
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(weapon_id)
 	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, recovery)
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
+	# A goad hold already cocked the body. Release continues from that pose
+	# into the strike (full) or a short extra windup (tap), then back to idle.
+	var from_charge := _tool_pose_active and weapon_id == CombatSystem.Weapon.GOAD
+	var start_pose: Dictionary = _current_tool_pose(pose_idle) if from_charge else pose_idle
 	_tool_pose_active = true
 	_arm_tween = create_tween()
-	_arm_tween.tween_method(_lerp_tool_pose.bind(pose_idle, pose_windup), 0.0, 1.0, phases["windup_move"]).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	if float(phases["windup_hold"]) > 0.0:
-		_arm_tween.tween_interval(float(phases["windup_hold"]))
-	_arm_tween.tween_method(_lerp_tool_pose.bind(pose_windup, pose_contact), 0.0, 1.0, phases["to_contact"]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if from_charge and heavy:
+		var drive := maxf(0.06, float(phases["windup_move"]) * 0.35 + float(phases["to_contact"]))
+		_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_contact), 0.0, 1.0, drive).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	else:
+		_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_windup), 0.0, 1.0, phases["windup_move"]).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		if float(phases["windup_hold"]) > 0.0:
+			_arm_tween.tween_interval(float(phases["windup_hold"]))
+		_arm_tween.tween_method(_lerp_tool_pose.bind(pose_windup, pose_contact), 0.0, 1.0, phases["to_contact"]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	if float(phases["contact_hold"]) > 0.0:
 		_arm_tween.tween_interval(float(phases["contact_hold"]))
 	_arm_tween.tween_method(_lerp_tool_pose.bind(pose_contact, pose_follow), 0.0, 1.0, phases["follow"]).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -715,6 +765,27 @@ func _lerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> vo
 		var b: Vector3 = to_pose[k]
 		blended[k] = a.lerp(b, t)
 	_apply_tool_pose(blended)
+
+
+func _scale_tool_pose(pose: Dictionary, scale: float) -> Dictionary:
+	if absf(scale - 1.0) < 0.001:
+		return pose
+	var out := {}
+	for k in pose.keys():
+		out[k] = (pose[k] as Vector3) * scale
+	return out
+
+
+func _current_tool_pose(fallback: Dictionary) -> Dictionary:
+	var pose := {}
+	for k in fallback.keys():
+		if String(k) == "weapon":
+			pose[k] = _tool_weapon_euler
+		elif locomotion and locomotion.has_combat_additive(String(k)):
+			pose[k] = locomotion.get_combat_additive(String(k))
+		else:
+			pose[k] = fallback[k]
+	return pose
 
 
 func _apply_tool_pose(pose: Dictionary) -> void:

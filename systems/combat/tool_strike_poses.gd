@@ -3,6 +3,7 @@ extends RefCounted
 ## Authored in degrees. Hatchet chops do NOT use this table.
 ##
 ## Goad: top / left / right are shaft swings. Bottom is a point stab (lunge).
+## Charge phase is the hold windup (bigger than the swing windup). No glow.
 ## Knife: top / left / right only, shorter reach, still a weight shift.
 ## Keys are KerneLocomotion joint names plus "weapon" (player-space euler for the mesh).
 
@@ -26,6 +27,33 @@ static func tool_strike_pose(weapon: int, direction: int, phase: StringName, hea
 			scale = 1.08 if String(k) == "weapon" else 1.16
 		pose[String(k)] = Vector3(deg_to_rad(d.x * scale), deg_to_rad(d.y * scale), deg_to_rad(d.z * scale))
 	return pose
+
+
+## Hold windup. ratio 0 = idle, 1 = full 0.75s cock. Mid (~0.53) is the same
+## shape but clearly short of the committed full pose. Knife is a shorter
+## windup only — no knife stab, and not the goad charge.
+static func tool_charge_pose(weapon: int, direction: int, ratio: float) -> Dictionary:
+	var is_knife := weapon == 1
+	if is_knife and direction == 3:
+		direction = 0
+	var idle := tool_strike_pose(weapon, direction, &"idle", false)
+	var full: Dictionary = tool_strike_pose(weapon, direction, &"windup", false) if is_knife else tool_strike_pose(weapon, direction, &"charge", false)
+	var t := _charge_blend(ratio)
+	if is_knife:
+		t *= 0.55
+	var pose := {}
+	for k in full.keys():
+		var a: Vector3 = idle.get(k, Vector3.ZERO)
+		var b: Vector3 = full[k]
+		pose[k] = a.lerp(b, t)
+	return pose
+
+
+static func _charge_blend(ratio: float) -> float:
+	# 0.40s / 0.75s ≈ 0.53 lands near half the cock. The last third of the
+	# hold adds the committed lean so full still reads heavier than mid.
+	var t := clampf(ratio, 0.0, 1.0)
+	return t * (0.72 + 0.28 * t)
 
 
 static func _knife_spec(direction: int, phase: StringName) -> Dictionary:
@@ -121,6 +149,37 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 				Vector3(2, 0, -3), Vector3(4, 0, 0),
 				Vector3(2, 0, 3), Vector3(4, 0, 0),
 				Vector3(-18, 6, -6))
+		&"charge":
+			# Full 0.75s hold. Deeper than swing windup so mid vs full stills differ.
+			match direction:
+				1: # left shaft — hard coil, shaft hauled back, both feet loaded
+					return _pack(Vector3(12, -52, -18), Vector3(-14, -36, -14), Vector3(8, 18, 0),
+						Vector3(-22, 40, 32), Vector3(22, 0, 0),
+						Vector3(-70, 74, -108), Vector3(-42, 0, 0),
+						Vector3(-26, 0, 12), Vector3(40, 0, 0),
+						Vector3(34, 0, -16), Vector3(46, 0, 0),
+						Vector3(-56, 42, -124))
+				2: # right shaft
+					return _pack(Vector3(12, 52, 18), Vector3(-14, 36, 14), Vector3(8, -18, 0),
+						Vector3(16, -28, -24), Vector3(18, 0, 0),
+						Vector3(-66, -76, 106), Vector3(-38, 0, 0),
+						Vector3(32, 0, -14), Vector3(44, 0, 0),
+						Vector3(-24, 0, 14), Vector3(42, 0, 0),
+						Vector3(-52, -40, 122))
+				3: # stab chamber — lean back, front foot planted, point not yet thrust
+					return _pack(Vector3(36, 0, 0), Vector3(28, 0, 0), Vector3(-12, 0, 0),
+						Vector3(-32, 22, 28), Vector3(28, 0, 0),
+						Vector3(-64, 10, -22), Vector3(-28, 0, 0),
+						Vector3(46, 0, -8), Vector3(22, 0, 0),
+						Vector3(-22, 0, 6), Vector3(58, 0, 0),
+						Vector3(-88, 8, -14))
+				_: # top shaft — knees deep, chest back, shaft cocked overhead
+					return _pack(Vector3(28, -16, 0), Vector3(-40, -12, 0), Vector3(20, 8, 0),
+						Vector3(-44, 28, 26), Vector3(22, 0, 0),
+						Vector3(-158, -14, -36), Vector3(-52, 0, 0),
+						Vector3(-24, 0, -10), Vector3(48, 0, 0),
+						Vector3(34, 0, 10), Vector3(54, 0, 0),
+						Vector3(70, 18, -32))
 		&"windup":
 			match direction:
 				1: # left shaft — coil onto the right leg, shaft cocked to the right

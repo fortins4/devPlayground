@@ -1,6 +1,6 @@
 extends SceneTree
-## Smoke: player starts on the cattle goad; four goad directions; knife has no stab;
-## hatchet hold-charge (top/left/right, 0.75s) still exists.
+## Smoke: goad hold-charge (four directions, 0.75s, light tap vs full);
+## knife has no stab and no charge; hatchet hold-charge (top/left/right) remains.
 
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 
@@ -33,8 +33,7 @@ func _run() -> void:
 		push_error("SMOKE_FAIL non-goad mesh visible at start")
 		quit(1)
 		return
-	if combat.begin_charge():
-		push_error("SMOKE_FAIL goad should not enter hatchet charge")
+	if not _check_goad_charge(combat):
 		quit(1)
 		return
 
@@ -86,6 +85,10 @@ func _run() -> void:
 		push_error("SMOKE_FAIL knife switch")
 		quit(1)
 		return
+	if combat.begin_charge():
+		push_error("SMOKE_FAIL knife should stay a tap, not a charge")
+		quit(1)
+		return
 	if not combat.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM):
 		push_error("SMOKE_FAIL knife attack")
 		quit(1)
@@ -134,6 +137,134 @@ func _run() -> void:
 
 	print("SMOKE_OK goad-knife-switch")
 	quit(0)
+
+
+
+func _check_goad_charge(combat: CombatSystem) -> bool:
+	combat.stamina = combat.max_stamina
+	if absf(combat.charge_full_secs - 0.75) > 0.001:
+		push_error("SMOKE_FAIL charge_full_secs is not 0.75")
+		return false
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL goad charge did not start")
+		return false
+	combat.set_charge_direction(CombatSystem.StrikeDirection.LEFT)
+	if combat.charge_direction != CombatSystem.StrikeDirection.LEFT:
+		push_error("SMOKE_FAIL goad charge ignored left")
+		return false
+	combat.set_charge_direction(CombatSystem.StrikeDirection.BOTTOM)
+	if combat.charge_direction != CombatSystem.StrikeDirection.BOTTOM:
+		push_error("SMOKE_FAIL goad charge rejected stab")
+		return false
+	# Direction can change again during the hold.
+	combat.set_charge_direction(CombatSystem.StrikeDirection.RIGHT)
+	combat.set_charge_direction(CombatSystem.StrikeDirection.TOP)
+	if combat.charge_direction != CombatSystem.StrikeDirection.TOP:
+		push_error("SMOKE_FAIL goad charge direction stuck")
+		return false
+	combat.charge_time = 0.05
+	combat.charge_ratio = combat.charge_time / combat.charge_full_secs
+	combat.set_charge_direction(CombatSystem.StrikeDirection.LEFT)
+	if not combat.release_charged_attack():
+		push_error("SMOKE_FAIL early goad release failed")
+		return false
+	if combat.is_charging:
+		push_error("SMOKE_FAIL early release left goad charging")
+		return false
+	var light_t: Dictionary = combat.last_attack_timings()
+	if light_t["kind"] != &"light" or light_t["direction"] != &"left":
+		push_error("SMOKE_FAIL early release was not a left light")
+		return false
+	var light_reach := combat._last_attack_reach
+	_reset_attack(combat)
+
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL mid charge restart failed")
+		return false
+	combat.charge_time = 0.40
+	combat.charge_ratio = combat.charge_time / combat.charge_full_secs
+	combat.set_charge_direction(CombatSystem.StrikeDirection.BOTTOM)
+	if not combat.release_charged_attack():
+		push_error("SMOKE_FAIL mid goad release failed")
+		return false
+	var mid_reach := combat._last_attack_reach
+	if mid_reach <= light_reach + 0.02:
+		push_error("SMOKE_FAIL mid charge reach did not sit above light")
+		return false
+	if combat.last_attack_power < 0.4 or combat.last_attack_power > 0.7:
+		push_error("SMOKE_FAIL mid power not between light and full")
+		return false
+	_reset_attack(combat)
+
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL full charge restart failed")
+		return false
+	combat.charge_time = 0.75
+	combat.charge_ratio = 1.0
+	combat.set_charge_direction(CombatSystem.StrikeDirection.BOTTOM)
+	if not combat.release_charged_attack():
+		push_error("SMOKE_FAIL full goad release failed")
+		return false
+	if combat.is_charging:
+		push_error("SMOKE_FAIL full release stuck in windup")
+		return false
+	var full_t: Dictionary = combat.last_attack_timings()
+	if full_t["kind"] != &"heavy" or full_t["direction"] != &"bottom":
+		push_error("SMOKE_FAIL full release was not a heavy stab")
+		return false
+	if combat._last_attack_reach <= mid_reach + 0.02:
+		push_error("SMOKE_FAIL full reach did not exceed mid")
+		return false
+	if combat.last_attack_power < 0.95:
+		push_error("SMOKE_FAIL full power not at the top of the charge")
+		return false
+	_reset_attack(combat)
+
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL charge before hit-stun failed")
+		return false
+	combat.apply_damage(1.0, null)
+	if combat.is_charging:
+		push_error("SMOKE_FAIL hit-stun did not cancel goad charge")
+		return false
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL charge before sprint failed")
+		return false
+	if not combat.try_sprint_drain(0.05):
+		push_error("SMOKE_FAIL sprint drain failed")
+		return false
+	if combat.is_charging:
+		push_error("SMOKE_FAIL sprint did not cancel goad charge")
+		return false
+
+	var shaft_mid: Dictionary = ToolStrikePoses.tool_charge_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.LEFT, 0.40 / 0.75)
+	var shaft_full: Dictionary = ToolStrikePoses.tool_charge_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.LEFT, 1.0)
+	var hip_gap := absf((shaft_full["hips"] as Vector3).y) - absf((shaft_mid["hips"] as Vector3).y)
+	if hip_gap < deg_to_rad(12.0):
+		push_error("SMOKE_FAIL shaft mid/full hips too similar")
+		return false
+	var stab_mid: Dictionary = ToolStrikePoses.tool_charge_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.BOTTOM, 0.40 / 0.75)
+	var stab_full: Dictionary = ToolStrikePoses.tool_charge_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.BOTTOM, 1.0)
+	var thigh_gap := (stab_full["left_thigh"] as Vector3).x - (stab_mid["left_thigh"] as Vector3).x
+	var lean_gap := (stab_full["hips"] as Vector3).x - (stab_mid["hips"] as Vector3).x
+	if thigh_gap < deg_to_rad(10.0) or lean_gap < deg_to_rad(8.0):
+		push_error("SMOKE_FAIL stab mid/full not more committed")
+		return false
+	# Full stab windup must move more than a static idle hold.
+	var idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	if absf((stab_full["left_thigh"] as Vector3).x - (idle["left_thigh"] as Vector3).x) < deg_to_rad(25.0):
+		push_error("SMOKE_FAIL full stab charge does not plant the front foot")
+		return false
+	if absf((shaft_full["right_arm"] as Vector3).z - (idle["right_arm"] as Vector3).z) < deg_to_rad(40.0):
+		push_error("SMOKE_FAIL full shaft charge does not cock the arm")
+		return false
+	return true
+
+
+func _reset_attack(combat: CombatSystem) -> void:
+	combat.is_attacking = false
+	combat.attack_recovery_left = 0.0
+	combat.stamina = combat.max_stamina
 
 
 func _dir(name: String) -> int:

@@ -1,7 +1,8 @@
 class_name CombatSystem
 extends Node
-## Reusable greybox combat component. Player feel target is the cattle goad;
-## hatchet hold-release (top/left/right, 0.75s charge) stays intact.
+## Reusable greybox combat component. Player feel target is the cattle goad
+## (hold-release, four directions, same 0.75s full charge as the hatchet).
+## Hatchet hold-release (top/left/right only) stays intact. No charge glow.
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
 
@@ -98,6 +99,9 @@ var _last_attack_direction: StringName = &""
 var _last_attack_tier: StringName = &""
 var _last_attack_damage: float = -1.0
 var _last_attack_reach: float = -1.0
+## Power passed into the last committed strike. -1 = discrete light/heavy.
+## 0 = tap release, 1 = full 0.75s hold. Mid values sit between.
+var last_attack_power: float = -1.0
 ## Last hatchet charge↔STA spend (ChargeStaminaTable; set on release commit).
 var _last_charge_spend_tier: StringName = &""
 var _last_charge_spend_cost: float = -1.0
@@ -138,9 +142,9 @@ const PROFILES := {
 		&"heavy": {"damage": 16.0, "windup": 0.12, "active": 0.12, "reach": 1.1},
 	},
 	Weapon.GOAD: {
-		# Tap shaft swing / point jab — not the hatchet 0.75s hold-charge.
-		&"light": {"damage": 10.0, "windup": 0.20, "active": 0.15, "reach": 1.75},
-		&"heavy": {"damage": 20.0, "windup": 0.26, "active": 0.16, "reach": 1.9},
+		# Hold-release: tap/early = light, full 0.75s = heavy. Power lerps between.
+		&"light": {"damage": 10.0, "windup": 0.18, "active": 0.14, "reach": 1.65},
+		&"heavy": {"damage": 22.0, "windup": 0.30, "active": 0.18, "reach": 2.2},
 	},
 }
 
@@ -332,10 +336,13 @@ func get_charge_ratio() -> float:
 
 
 func begin_charge() -> bool:
-	## Start hold-to-charge (hatchet directional). Knife/goad fall back to light tap via release.
+	## Hold-to-charge. Hatchet: top/left/right. Goad: those plus the bottom stab.
+	## Knife stays a tap (this returns false) so a light press is not a windup.
 	if is_dead or is_attacking or is_charging:
 		return false
-	if current_weapon != Weapon.HATCHET or not enable_directional_hatchet:
+	var hatchet := current_weapon == Weapon.HATCHET and enable_directional_hatchet
+	var goad := current_weapon == Weapon.GOAD
+	if not hatchet and not goad:
 		return false
 	is_charging = true
 	is_blocking = false
@@ -351,9 +358,8 @@ func begin_charge() -> bool:
 func set_charge_direction(direction: StrikeDirection) -> void:
 	if not is_charging:
 		return
-	# Hatchet aim is top/left/right only — never a stab.
-	if direction == StrikeDirection.BOTTOM:
-		direction = StrikeDirection.TOP
+	# Bottom stab is goad-only. Hatchet (and knife) clamp back to top.
+	direction = _clamp_strike_direction(direction)
 	if charge_direction == direction:
 		return
 	charge_direction = direction
@@ -390,7 +396,12 @@ func release_charged_attack() -> bool:
 	# Near-full charge maps to HatchetAttackTable &"max" tier via power >= 0.95.
 	var power := 0.0 if kind == &"light" else clampf(ratio, 0.22, 1.0)
 	charge_released.emit(power if kind == &"heavy" else 0.0, DIRECTION_NAMES[direction], kind)
-	return try_attack(kind, direction, power)
+	var committed := try_attack(kind, direction, power)
+	if not committed:
+		# Release with no stamina must not freeze the windup pose.
+		_clear_charge_pose()
+		charge_cancelled.emit(WEAPON_NAMES[current_weapon])
+	return committed
 
 
 func try_attack_directional(direction: StringName, tier: StringName) -> bool:
@@ -517,6 +528,7 @@ func try_attack(
 	_last_attack_tier = resolved_tier
 	_last_attack_damage = damage
 	_last_attack_reach = reach
+	last_attack_power = power
 	_play_weapon_swing(kind, windup, active, recovery, direction)
 	attack_performed.emit(_owner_body, kind, wname)
 	_activate_hitbox_after(windup, active, reach, damage, kind, direction)
@@ -1197,6 +1209,10 @@ static func hatchet_idle_arm_pose() -> Dictionary:
 
 func _update_charge_pose(ratio: float, direction: StrikeDirection) -> void:
 	if _weapon_visual == null or is_attacking:
+		return
+	# Goad charge is a whole-body pose glued to the hand (player controller).
+	# Do not run the hatchet weapon-cock tween or the shaft floats off the arm.
+	if current_weapon != Weapon.HATCHET:
 		return
 	# Fallback weapon cock for capture/smoke hosts without player hand-follow.
 	# Live player overwrites this each frame by parenting the hatchet to the posed arm.
