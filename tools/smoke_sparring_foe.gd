@@ -79,5 +79,66 @@ func _run() -> void:
 		return
 	print("SMOKE side_hitbox_width=", shaped.size.x)
 
+	if not await _check_goad_jab():
+		quit(1)
+		return
 	print("SPARRING_FOE_SMOKE_OK")
 	quit(0)
+
+
+func _check_goad_jab() -> bool:
+	## Foe attack is the uncharged goad point. Low guard stops it. High does not.
+	var player := (load("res://scenes/characters/player/player.tscn") as PackedScene).instantiate()
+	root.add_child(player)
+	player.set_physics_process(false)
+	player.set_process(false)
+	var foe := (load("res://scenes/characters/npcs/dummy_fighter.tscn") as PackedScene).instantiate()
+	root.add_child(foe)
+	foe.set_physics_process(false)
+	foe.set_process(false)
+	await process_frame
+	await process_frame
+	var pc := player.get_node("CombatSystem") as CombatSystem
+	var fc := foe.get_node("CombatSystem") as CombatSystem
+	pc.enable_hit_feedback = false
+	fc.enable_hit_feedback = false
+	fc.hit_stop_light = 0.0
+	fc.hit_stop_heavy = 0.0
+	if fc.current_weapon != CombatSystem.Weapon.GOAD:
+		push_error("SMOKE_FAIL sparring foe is not holding the goad")
+		return false
+	if not fc.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM):
+		push_error("SMOKE_FAIL foe jab did not start")
+		return false
+	if fc.last_strike_direction() != CombatSystem.StrikeDirection.BOTTOM:
+		push_error("SMOKE_FAIL foe jab was not the point")
+		return false
+	if fc.last_attack_power >= 0.0 or fc.last_attack_timings()["kind"] != &"light":
+		push_error("SMOKE_FAIL foe jab was charged or heavy")
+		return false
+	fc.is_attacking = false
+	fc.attack_recovery_left = 0.0
+	player._sprinting = false
+	player.pivot.rotation.x = 0.0
+	player._tool_aim_delta = Vector2(0.0, 40.0)
+	player._tick_shaft_block()
+	if pc.shaft_guard_face != &"low" or not pc.is_shaft_blocking or pc.is_attacking:
+		push_error("SMOKE_FAIL look-down did not hold the low guard")
+		return false
+	pc.health = pc.max_health
+	var stopped := pc.apply_damage(18.0, foe, true, CombatSystem.StrikeDirection.BOTTOM)
+	if stopped > 0.01 or pc.health < pc.max_health - 0.01:
+		push_error("SMOKE_FAIL low guard did not stop the foe jab")
+		return false
+	pc.health = pc.max_health
+	pc.stamina = pc.max_stamina
+	if not pc.set_shaft_block(true):
+		push_error("SMOKE_FAIL could not raise guard for a high face")
+		return false
+	pc.set_shaft_guard_face(&"high")
+	var leaked := pc.apply_damage(18.0, foe, true, CombatSystem.StrikeDirection.BOTTOM)
+	if leaked < 14.0:
+		push_error("SMOKE_FAIL high guard stopped the jab")
+		return false
+	print("SMOKE goad_jab uncharged low-stops high-open")
+	return true

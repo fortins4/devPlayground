@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3 uid="uid://cq8riochtdummy01"]
+[gd_scene load_steps=13 format=3 uid="uid://cq8riochtdummy01"]
 
 [ext_resource type="Script" path="res://scripts/characters/npcs/dummy_fighter.gd" id="1_dummy"]
 [ext_resource type="Script" path="res://systems/combat/combat_system.gd" id="2_combat"]
@@ -22,6 +22,12 @@ size = Vector3(0.04, 0.5, 0.04)
 
 [sub_resource type="BoxMesh" id="Mesh_blade"]
 size = Vector3(0.2, 0.12, 0.04)
+
+[sub_resource type="BoxMesh" id="Mesh_goad"]
+size = Vector3(0.045, 1.75, 0.045)
+
+[sub_resource type="BoxMesh" id="Mesh_goad_tip"]
+size = Vector3(0.08, 0.12, 0.08)
 
 [sub_resource type="BoxShape3D" id="BoxShape_hitbox"]
 size = Vector3(0.55, 0.7, 1.2)
@@ -69,11 +75,21 @@ visible = false
 [node name="Goad" type="Node3D" parent="WeaponVisual"]
 visible = false
 
+[node name="Staff" type="MeshInstance3D" parent="WeaponVisual/Goad"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.62, 0)
+mesh = SubResource("Mesh_goad")
+surface_material_override/0 = SubResource("Mat_wood")
+
+[node name="Tip" type="MeshInstance3D" parent="WeaponVisual/Goad"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.52, 0)
+mesh = SubResource("Mesh_goad_tip")
+surface_material_override/0 = SubResource("Mat_iron")
+
 [node name="CombatSystem" type="Node" parent="."]
 script = ExtResource("2_combat")
 max_health = 80.0
 team = 1
-starting_weapon = 0
+starting_weapon = 2
 enable_block = false
 
 [node name="Hitbox" type="Area3D" parent="."]

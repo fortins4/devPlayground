@@ -2,8 +2,10 @@ extends CharacterBody3D
 ## Sparring foe: switches which face (top/left/right) they guard; other faces open.
 ## Uses Systems face-guard / BlockPostureTable via CombatSystem.apply_sparring_foe_guard_defaults().
 ## enable_block stubs remain on CombatSystem for older path — face-guard is proper when enabled.
+## His attack is the uncharged goad point jab (same move as the player's). Not a heavy, not a parry.
 
 const CorpseSpawnerScript := preload("res://systems/stealth/corpse_spawner.gd")
+const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 
 const MOVE_SPEED := 1.55
 const AGGRO_RANGE := 12.0
@@ -42,6 +44,9 @@ var _guard_faces: Array = [
 	CombatSystem.StrikeDirection.RIGHT,
 ]
 var _guard_idx: int = 0
+## Goad jab pose. Contact while the swing is live, windup during the telegraph.
+var _jab_phase: StringName = &""
+var _jab_weapon_euler: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -49,8 +54,9 @@ func _ready() -> void:
 		_weapon_rest = weapon_visual.transform
 	if combat:
 		combat.team = 1
-		combat.starting_weapon = CombatSystem.Weapon.HATCHET
-		combat.set_weapon(CombatSystem.Weapon.HATCHET)
+		combat.starting_weapon = CombatSystem.Weapon.GOAD
+		combat.set_weapon(CombatSystem.Weapon.GOAD)
+		_hide_stowed_goad()
 		# Systems API: enable face-guard + BlockPostureTable soak/posture numbers.
 		# Do not hardcode posture/mitigation here — see systems/combat/README.md.
 		combat.apply_sparring_foe_guard_defaults()
@@ -177,9 +183,18 @@ func _physics_process(delta: float) -> void:
 func _tick_locomotion(delta: float) -> void:
 	if locomotion == null:
 		return
+	var jab_live := _jab_live()
+	if jab_live:
+		_stage_jab(_jab_phase)
+	elif _jab_phase != &"":
+		_jab_phase = &""
+		locomotion.clear_combat_additives()
+		locomotion.set_root_drop(0.0)
 	var hs := Vector3(velocity.x, 0.0, velocity.z).length()
-	var attacking := combat != null and combat.is_attacking
+	var attacking := (combat != null and combat.is_attacking) or jab_live
 	locomotion.tick(delta, hs, false, false, attacking, Vector3.ZERO)
+	if jab_live:
+		_sync_goad_to_hand()
 
 
 func _begin_telegraph(kind: StringName, is_counter: bool) -> void:
@@ -191,8 +206,11 @@ func _begin_telegraph(kind: StringName, is_counter: bool) -> void:
 	_is_counter = is_counter
 	_set_state(State.TELEGRAPH)
 	_show_telegraph_visual(true, is_counter)
-	# Cock weapon into windup pose so the swing is readable in greybox.
-	if weapon_visual and combat:
+	# Goad: chamber the point. Other weapons keep the old weapon-mesh cock.
+	if combat.current_weapon == CombatSystem.Weapon.GOAD:
+		_jab_phase = &"windup"
+		pose_goad_jab(&"windup")
+	elif weapon_visual and combat:
 		var poses: Dictionary = combat.call("_swing_poses", kind)
 		weapon_visual.rotation_degrees = poses["windup_rot"]
 		weapon_visual.position = poses["windup_pos"]
@@ -203,10 +221,17 @@ func _release_attack() -> void:
 	if combat == null or combat.is_dead:
 		_set_state(State.CHASE)
 		return
-	# Let CombatSystem drive the actual Tween swing + hitbox.
-	if weapon_visual:
+	# Let CombatSystem drive the hitbox. The goad attack is one uncharged point.
+	if weapon_visual and combat.current_weapon != CombatSystem.Weapon.GOAD:
 		weapon_visual.transform = _weapon_rest
-	var ok: bool = combat.try_attack(_pending_attack_kind)
+	var ok := false
+	if combat.current_weapon == CombatSystem.Weapon.GOAD:
+		ok = combat.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM)
+		if ok:
+			_jab_phase = &"contact"
+			pose_goad_jab(&"contact")
+	else:
+		ok = combat.try_attack(_pending_attack_kind)
 	if ok:
 		_attack_cd = ATTACK_COOLDOWN
 		if _is_counter:
@@ -257,6 +282,9 @@ func _on_attack_performed(_attacker: Node, _kind: StringName, _weapon: StringNam
 	# After CombatSystem starts its swing tween, stay in recover until can_move.
 	if _state != State.RECOVER:
 		_set_state(State.RECOVER)
+	if _weapon == &"goad":
+		_jab_phase = &"contact"
+		pose_goad_jab(&"contact")
 
 
 func _set_state(next: State) -> void:
@@ -362,3 +390,56 @@ func _set_guard_face(direction: CombatSystem.StrikeDirection) -> void:
 			name = "TOP"
 	if _guard_hint:
 		_guard_hint.text = "GUARD %s — other faces open (face-guard)" % name
+
+
+func pose_goad_jab(phase: StringName) -> void:
+	## Uncharged point. Same body table as the player's jab. Not a heavy swing.
+	_jab_phase = phase
+	_stage_jab(phase)
+	if locomotion:
+		locomotion.tick(0.0, 0.0, false, false, true, Vector3.ZERO)
+	_sync_goad_to_hand()
+
+
+func _jab_live() -> bool:
+	if combat == null or locomotion == null:
+		return false
+	if combat.current_weapon != CombatSystem.Weapon.GOAD or _jab_phase == &"":
+		return false
+	return _state == State.TELEGRAPH or combat.is_attacking
+
+
+func _stage_jab(phase: StringName) -> void:
+	if locomotion == null:
+		return
+	var pose: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.BOTTOM, phase, false)
+	var drop := 0.0
+	if pose.has("root_drop"):
+		drop = float(pose["root_drop"])
+	locomotion.set_root_drop(drop)
+	for k in pose.keys():
+		if String(k) == "weapon":
+			_jab_weapon_euler = pose[k]
+			continue
+		if String(k) == "root_drop":
+			continue
+		locomotion.set_combat_additive(String(k), pose[k])
+
+
+func _sync_goad_to_hand() -> void:
+	if weapon_visual == null or locomotion == null:
+		return
+	var forearm := locomotion.get_joint("right_forearm")
+	if forearm == null or not forearm.is_inside_tree():
+		return
+	weapon_visual.global_position = forearm.to_global(Vector3(0.0, -0.28, 0.05))
+	weapon_visual.rotation = _jab_weapon_euler
+
+
+func _hide_stowed_goad() -> void:
+	var visual_node := get_node_or_null("Visual") as Node3D
+	if visual_node == null:
+		return
+	var back := visual_node.find_child("BackGoad", true, false) as Node3D
+	if back:
+		back.visible = false
