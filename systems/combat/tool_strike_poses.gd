@@ -282,16 +282,18 @@ static func tool_shaft_guard_pose(face: StringName) -> Dictionary:
 			left["grip_slide"] = -0.04
 			return left
 		&"right":
-			# Mirror: shaft on the player's right, clear of the face. Elbow bent.
+			# Shaft on the player's right, beside the head, not across the face.
+			# Elbow folds so the palm capsule wraps the shaft. grip_slide keeps
+			# the stick on that line instead of riding out with the forearm.
 			var right := _deg_pose(_pack(
 				Vector3(0, -10, 4), Vector3(0, -8, 2), Vector3(2, -8, 0),
 				Vector3(36, 18, -20), Vector3(-28, 0, 0),
-				Vector3(50.0, 54.1, 130.5), Vector3(6.5, -82.2, 50.4),
+				Vector3(-1.6, 14.8, 59.3), Vector3(-40.7, 21.2, 88.9),
 				Vector3(4, 2, -4), Vector3(8, 0, 0),
 				Vector3(6, -2, 4), Vector3(8, 0, 0),
-				Vector3(0, 0, -14)
+				Vector3(3.0, 0.0, -17.0)
 			))
-			right["grip_slide"] = -0.102
+			right["grip_slide"] = -0.05
 			return right
 		&"high":
 			# Shaft across the face, both hands up. Left elbow folds. Not the overhead chop.
