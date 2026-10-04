@@ -525,8 +525,9 @@ func _sync_goad_to_hand() -> void:
 	var forearm := locomotion.get_joint("right_forearm")
 	if forearm == null or not forearm.is_inside_tree():
 		return
-	weapon_visual.global_position = forearm.to_global(Vector3(0.0, -0.28, 0.05))
+	weapon_visual.global_position = forearm.to_global(Vector3(0.0, -0.22, 0.0))
 	weapon_visual.rotation = _jab_weapon_euler
+	ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
 
 
 func _hide_stowed_goad() -> void:

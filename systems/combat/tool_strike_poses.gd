@@ -615,3 +615,256 @@ static func _pack(
 		"right_shin": right_shin,
 		"weapon": weapon,
 	}
+
+
+## Keep the off hand on the goad and the shaft outside the body.
+## The right hand already owns the stick. This aims that stick, when needed,
+## onto a point the left hand can reach, then bends the left elbow so the
+## palm capsule meets the shaft. Weight is a correction on the live pose:
+## it does not retune guard tables or the settle curve. Not a parry.
+static func seat_goad_off_hand(loco: Object, weapon_visual: Node3D) -> void:
+	if loco == null or weapon_visual == null or not weapon_visual.is_inside_tree():
+		return
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	var left_arm := loco.get_joint("left_arm") as Node3D
+	var left_fore := loco.get_joint("left_forearm") as Node3D
+	var torso := loco.get_joint("torso") as Node3D
+	var head := loco.get_joint("head") as Node3D
+	if goad == null or left_arm == null or left_fore == null or torso == null or head == null:
+		return
+	var shoulder: Vector3 = left_arm.global_position
+	var right_arm := loco.get_joint("right_arm") as Node3D
+	var right_fore := loco.get_joint("right_forearm") as Node3D
+	if right_arm != null and right_fore != null and _point_in_body(weapon_visual.global_position, torso, head, loco):
+		_extrude_right_hand(loco, right_arm, right_fore, torso, weapon_visual.global_position)
+		var tip: Vector3 = right_fore.to_global(Vector3(0.0, -0.28, 0.05))
+		weapon_visual.global_position = tip
+	var origin: Vector3 = weapon_visual.global_position
+	var axis: Vector3 = weapon_visual.global_transform.basis.y.normalized()
+	var slide := -goad.position.y
+	if _palm_meets(left_fore, origin, axis, _shaft_span(slide)) and _shaft_is_clear(origin, axis, slide, torso, head, loco):
+		return
+	var best_grip := Vector3.INF
+	var best_axis := axis
+	var best_slide := slide
+	var best_cost := 999.0
+	var dirs: Array[Vector3] = [axis, -axis]
+	var side := axis.cross(Vector3.UP)
+	if side.length() < 0.001:
+		side = axis.cross(Vector3.FORWARD)
+	side = side.normalized()
+	var up := side.cross(axis).normalized()
+	var pitches: Array[float] = [-75.0, -45.0, -20.0, 0.0, 20.0, 45.0, 75.0]
+	var yaws: Array[float] = [-110.0, -70.0, -35.0, 0.0, 35.0, 70.0, 110.0]
+	for pitch in pitches:
+		for yaw in yaws:
+			dirs.append(axis.rotated(side, deg_to_rad(pitch)).rotated(up, deg_to_rad(yaw)).normalized())
+	for local_pt in [Vector3(0.0, 0.36, -0.42), Vector3(0.22, 0.40, -0.40), Vector3(-0.18, 0.38, -0.40), Vector3(0.12, 0.16, -0.42), Vector3(0.0, 0.58, -0.46), Vector3(0.28, 0.22, -0.36)]:
+		var world_pt: Vector3 = torso.to_global(local_pt)
+		var to_pt := world_pt - origin
+		if to_pt.length() > 0.05:
+			dirs.append(to_pt.normalized())
+			dirs.append(-to_pt.normalized())
+	for dir in dirs:
+		var found := _shaft_grip_point(shoulder, origin, dir, torso, head, loco)
+		if found == Vector3.INF:
+			continue
+		var t_off := (found - origin).dot(dir)
+		var use_slide := _slide_for(slide, 0.0, t_off)
+		if not _shaft_is_clear(origin, dir, use_slide, torso, head, loco):
+			continue
+		var ang := rad_to_deg(acos(clampf(axis.dot(dir), -1.0, 1.0)))
+		var cost := ang + absf(use_slide - slide) * 30.0
+		if cost < best_cost:
+			best_cost = cost
+			best_axis = dir
+			best_grip = found
+			best_slide = use_slide
+	if best_grip == Vector3.INF or best_cost >= 999.0:
+		if right_arm != null and right_fore != null:
+			_extrude_right_hand(loco, right_arm, right_fore, torso, weapon_visual.global_position)
+			weapon_visual.global_position = right_fore.to_global(Vector3(0.0, -0.22, 0.0))
+			origin = weapon_visual.global_position
+			var retry := _shaft_grip_point(shoulder, origin, -torso.global_transform.basis.z, torso, head, loco)
+			if retry == Vector3.INF:
+				retry = _shaft_grip_point(shoulder, origin, torso.global_transform.basis.y, torso, head, loco)
+			if retry == Vector3.INF:
+				return
+			best_grip = retry
+			best_axis = (retry - origin).normalized()
+			best_slide = _slide_for(slide, 0.0, (retry - origin).dot(best_axis))
+			if not _shaft_is_clear(origin, best_axis, best_slide, torso, head, loco):
+				return
+		else:
+			return
+	_aim_weapon_y(weapon_visual, best_axis)
+	goad.position.y = -best_slide
+	var radial := shoulder - best_grip
+	radial = radial - best_axis * radial.dot(best_axis)
+	if radial.length() < 0.001:
+		radial = -torso.global_transform.basis.z
+	radial = radial.normalized()
+	var palm_target: Vector3 = best_grip
+	var pole: Vector3 = shoulder - torso.global_transform.basis.x * 0.45 + torso.global_transform.basis.y * -0.25
+	_ik_left(loco, left_arm, left_fore, shoulder, pole, palm_target)
+
+
+
+static func _extrude_right_hand(loco: Object, arm: Node3D, fore: Node3D, torso: Node3D, origin: Vector3) -> void:
+	var lp: Vector3 = torso.to_local(origin)
+	var out := lp
+	out.z = minf(out.z, -0.38)
+	if absf(out.x) < 0.34:
+		var side := signf(out.x) if absf(out.x) > 0.04 else -1.0
+		out.x = side * 0.42
+	out.y = clampf(out.y, 0.08, 0.62)
+	var world: Vector3 = torso.to_global(out)
+	var shoulder: Vector3 = arm.global_position
+	var pole: Vector3 = shoulder + torso.global_transform.basis.x * signf(out.x) * 0.35 + torso.global_transform.basis.y * -0.2
+	_ik_right(loco, arm, fore, shoulder, pole, world)
+
+
+static func _ik_right(loco: Object, arm: Node3D, fore: Node3D, shoulder: Vector3, pole: Vector3, palm_target: Vector3) -> void:
+	var l1 := 0.30
+	var l2 := 0.28
+	var dist := clampf(shoulder.distance_to(palm_target), 0.12, l1 + l2 - 0.015)
+	var dir := (palm_target - shoulder).normalized()
+	var pole_v := pole - shoulder
+	var proj := pole_v - dir * pole_v.dot(dir)
+	if proj.length() < 0.001:
+		proj = dir.cross(Vector3.UP)
+	proj = proj.normalized()
+	var along := (l1 * l1 + dist * dist - l2 * l2) / (2.0 * dist)
+	var lat := sqrt(maxf(0.0, l1 * l1 - along * along))
+	var elbow := shoulder + dir * along + proj * lat
+	_store_aim(loco, arm, "right_arm", elbow - shoulder)
+	_store_aim(loco, fore, "right_forearm", palm_target - elbow)
+
+
+static func _shaft_span(slide: float) -> Vector2:
+	var center := 0.62 - slide
+	return Vector2(center - 0.875, center + 0.875)
+
+
+static func _slide_for(current: float, t_hand: float, t_off: float) -> float:
+	var lo := minf(t_hand, t_off) - 0.06
+	var hi := maxf(t_hand, t_off) + 0.06
+	# Segment is [-0.255 - slide, 1.495 - slide].
+	var slide_min := -0.255 - lo
+	var slide_max := 1.495 - hi
+	if slide_min > slide_max:
+		return current
+	return clampf(current, slide_min, slide_max)
+
+
+static func _shaft_grip_point(shoulder: Vector3, origin: Vector3, axis: Vector3, torso: Node3D, head: Node3D, loco: Object) -> Vector3:
+	var best := Vector3.INF
+	var best_score := 999.0
+	for i in 25:
+		var t := lerpf(-1.15, 1.35, float(i) / 24.0)
+		if absf(t) < 0.18:
+			continue
+		var p: Vector3 = origin + axis * t
+		var dist := p.distance_to(shoulder)
+		if dist < 0.16 or dist > 0.54:
+			continue
+		if _point_in_body(p, torso, head, loco):
+			continue
+		var score := absf(absf(t) - 0.36) + dist * 0.15
+		if score < best_score:
+			best_score = score
+			best = p
+	return best
+
+
+static func _shaft_is_clear(origin: Vector3, axis: Vector3, slide: float, torso: Node3D, head: Node3D, loco: Object) -> bool:
+	var span := _shaft_span(slide)
+	for i in 24:
+		var t := lerpf(span.x, span.y, float(i) / 23.0)
+		var p: Vector3 = origin + axis * t
+		if _point_in_body(p, torso, head, loco):
+			return false
+		var hp: Vector3 = head.to_local(p)
+		if absf(hp.y) < 0.22 and Vector2(hp.x, hp.z).length() < 0.22:
+			return false
+	return true
+
+
+static func _point_in_body(p: Vector3, torso: Node3D, head: Node3D, loco: Object) -> bool:
+	var lp: Vector3 = torso.to_local(p)
+	if absf(lp.x) < 0.25 and absf(lp.y - 0.28) < 0.27 and absf(lp.z) < 0.16:
+		return true
+	if absf(lp.x) < 0.28 and absf(lp.y - 0.02) < 0.17 and absf(lp.z) < 0.18:
+		return true
+	if head.to_local(p).length() < 0.17:
+		return true
+	for leg_name in ["left_thigh", "left_shin", "right_thigh", "right_shin"]:
+		var leg := loco.get_joint(leg_name) as Node3D
+		if leg == null:
+			continue
+		var ll: Vector3 = leg.to_local(p)
+		if ll.y < 0.04 and ll.y > -0.42 and Vector2(ll.x, ll.z).length() < 0.08:
+			return true
+	return false
+
+
+static func _palm_meets(fore: Node3D, origin: Vector3, axis: Vector3, span: Vector2) -> bool:
+	var best := 99.0
+	for i in 5:
+		var y := -0.27 + float(i) * 0.025
+		var p: Vector3 = fore.to_global(Vector3(0.0, y, 0.0))
+		var t := clampf((p - origin).dot(axis), span.x, span.y)
+		var d := p.distance_to(origin + axis * t) - 0.045 - 0.023
+		if d < best:
+			best = d
+	return best <= 0.012
+
+
+static func _aim_weapon_y(weapon_visual: Node3D, world_dir: Vector3) -> void:
+	var y := world_dir.normalized()
+	var parent := weapon_visual.get_parent() as Node3D
+	var local_y: Vector3 = parent.global_transform.basis.inverse() * y
+	var current := weapon_visual.transform.basis
+	var x := current.x
+	x = x - local_y * x.dot(local_y)
+	if x.length() < 0.001:
+		x = local_y.cross(Vector3.UP)
+	x = x.normalized()
+	var z := x.cross(local_y).normalized()
+	x = local_y.cross(z).normalized()
+	weapon_visual.basis = Basis(x, local_y, z)
+
+
+static func _ik_left(loco: Object, arm: Node3D, fore: Node3D, shoulder: Vector3, pole: Vector3, palm_target: Vector3) -> void:
+	var l1 := 0.30
+	var l2 := 0.24
+	var dist := clampf(shoulder.distance_to(palm_target), 0.12, l1 + l2 - 0.015)
+	var dir := (palm_target - shoulder).normalized()
+	var target := shoulder + dir * dist
+	var pole_v := pole - shoulder
+	var proj := pole_v - dir * pole_v.dot(dir)
+	if proj.length() < 0.001:
+		proj = dir.cross(Vector3.UP)
+	proj = proj.normalized()
+	var along := (l1 * l1 + dist * dist - l2 * l2) / (2.0 * dist)
+	var lat := sqrt(maxf(0.0, l1 * l1 - along * along))
+	var elbow := shoulder + dir * along + proj * lat
+	_store_aim(loco, arm, "left_arm", elbow - shoulder)
+	_store_aim(loco, fore, "left_forearm", palm_target - elbow)
+
+
+static func _store_aim(loco: Object, node: Node3D, joint: String, world_dir: Vector3) -> void:
+	var rot_before := node.rotation
+	var add_before: Vector3 = loco.get_combat_additive(joint)
+	var parent := node.get_parent() as Node3D
+	var local_dir: Vector3 = (parent.global_transform.basis.inverse() * world_dir).normalized()
+	var y := -local_dir
+	var hint := parent.global_transform.basis.inverse() * Vector3.UP
+	if absf(y.dot(hint)) > 0.92:
+		hint = parent.global_transform.basis.inverse() * Vector3.FORWARD
+	var x := hint.cross(y).normalized()
+	var z := x.cross(y).normalized()
+	x = y.cross(z).normalized()
+	node.basis = Basis(x, y, z)
+	var rest := rot_before - add_before
+	loco.set_combat_additive(joint, node.rotation - rest)

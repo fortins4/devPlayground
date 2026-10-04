@@ -1124,7 +1124,7 @@ func _sync_weapon_to_hand() -> void:
 	if forearm == null or not forearm.is_inside_tree():
 		return
 	# Tip of forearm in player local space
-	var tip_global := forearm.to_global(Vector3(0.0, -0.28, 0.05))
+	var tip_global := forearm.to_global(Vector3(0.0, -0.22, 0.0))
 	weapon_visual.global_position = tip_global
 	# Bent-elbow guards slide the hand along the stick and shift the mesh back,
 	# so the shaft line does not follow the elbow.
@@ -1159,6 +1159,8 @@ func _sync_weapon_to_hand() -> void:
 				)
 	weapon_visual.rotation = rot
 	_weapon_base_y = weapon_visual.position.y
+	if combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
+		ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
 	# Keep combat idle rest in sync while not charging so recovery returns to grip.
 	if combat and not combat.is_charging and not combat.is_attacking:
 		combat.set_weapon_rest_transform(weapon_visual.transform)
