@@ -1062,10 +1062,21 @@ func _play_hurt_flinch() -> void:
 	_hurt_reacting = true
 	_tool_pose_active = true
 	_arm_tween = create_tween()
-	_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_hurt), 0.0, 1.0, HURT_FLINCH_IN_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_blend_hurt_flinch.bind(start_pose, pose_hurt, false), 0.0, 1.0, HURT_FLINCH_IN_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_arm_tween.tween_interval(HURT_FLINCH_HOLD_SEC)
-	_arm_tween.tween_method(_slerp_tool_pose.bind(pose_hurt, pose_idle), 0.0, 1.0, HURT_FLINCH_OUT_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_method(_blend_hurt_flinch.bind(pose_hurt, pose_idle, true), 0.0, 1.0, HURT_FLINCH_OUT_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_arm_tween.tween_callback(_finish_hurt_flinch)
+
+
+func _blend_hurt_flinch(t: float, from_pose: Dictionary, to_pose: Dictionary, use_slerp: bool) -> void:
+	## Goad only: the short arc stays off the face. Other weapons keep the plain blend.
+	if combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
+		_apply_tool_pose(ToolStrikePoses.tool_goad_flinch_blend(from_pose, to_pose, t, use_slerp))
+		return
+	if use_slerp:
+		_slerp_tool_pose(t, from_pose, to_pose)
+	else:
+		_lerp_tool_pose(t, from_pose, to_pose)
 
 
 func _finish_hurt_flinch() -> void:

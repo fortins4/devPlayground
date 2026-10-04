@@ -209,7 +209,8 @@ static func tool_shaft_block_pose() -> Dictionary:
 
 
 ## Short hit flinch. Torso, head, and both arms recoil. The stick stays in
-## the right hand. Knees soften and the soles stay down. Not a knockdown.
+## the right hand and, for the goad, rises off to his right, clear of the face.
+## Knees soften and the soles stay down. Not a knockdown.
 static func tool_hurt_flinch_pose(weapon: int) -> Dictionary:
 	var pose := _deg_pose(_pack(
 		Vector3(2, -14, 4), Vector3(14, -24, 16), Vector3(10, -26, 12),
@@ -217,7 +218,7 @@ static func tool_hurt_flinch_pose(weapon: int) -> Dictionary:
 		Vector3(58, -12, 16), Vector3(-54, 0, 0),
 		Vector3(4, 0, -2), Vector3(-8, 0, 0),
 		Vector3(5, 0, 2), Vector3(-10, 0, 0),
-		Vector3(8, -24, 48)
+		Vector3(20, 50, -30)
 	))
 	if weapon == 2:
 		pose["root_drop"] = 0.04
@@ -226,6 +227,29 @@ static func tool_hurt_flinch_pose(weapon: int) -> Dictionary:
 		pose["weapon"] = idle_w + Vector3(deg_to_rad(-14.0), deg_to_rad(12.0), deg_to_rad(10.0))
 	else:
 		pose.erase("weapon")
+	return pose
+
+
+## Short blend into and out of the goad flinch.
+## A plain lerp swings the shaft across the face. A mid-blend turn
+## holds it out to his right. Weight is zero at both ends, so the
+## flinch pose and the ready pose stay put. Not the settle blend.
+static func tool_goad_flinch_blend(from_pose: Dictionary, to_pose: Dictionary, t: float, use_slerp: bool) -> Dictionary:
+	var pose := {}
+	for k in to_pose.keys():
+		if String(k) == "root_drop" or String(k) == "grip_slide":
+			pose[k] = lerpf(float(from_pose.get(k, 0.0)), float(to_pose[k]), t)
+			continue
+		var a: Vector3 = from_pose.get(k, Vector3.ZERO)
+		var b: Vector3 = to_pose[k]
+		if use_slerp:
+			pose[k] = Quaternion.from_euler(a).slerp(Quaternion.from_euler(b), t).get_euler()
+		else:
+			pose[k] = a.lerp(b, t)
+	var gate := sin(clampf(t, 0.0, 1.0) * PI)
+	if gate < 0.001 or not pose.has("weapon"):
+		return pose
+	pose["weapon"] = (pose["weapon"] as Vector3) + Vector3(deg_to_rad(-40.0), deg_to_rad(-60.0), deg_to_rad(-40.0)) * gate
 	return pose
 
 
