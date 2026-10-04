@@ -191,6 +191,27 @@ func is_hurt_flinching() -> bool:
 	return _hurt_reacting
 
 
+## Same incoming-hit name Cian uses. The shared seat reads it.
+var flinch_from: StringName = &"top"
+
+
+func _note_flinch_from() -> void:
+	if combat == null:
+		flinch_from = &"top"
+		return
+	match combat.incoming_strike_direction:
+		CombatSystem.StrikeDirection.RIGHT:
+			flinch_from = &"right"
+		CombatSystem.StrikeDirection.BOTTOM:
+			flinch_from = &"low"
+		CombatSystem.StrikeDirection.LEFT:
+			flinch_from = &"left"
+		_:
+			flinch_from = &"top"
+
+
+
+
 func _tick_locomotion(delta: float) -> void:
 	if locomotion == null:
 		return
@@ -268,6 +289,7 @@ func _on_damage_taken(amount: float, from: Node) -> void:
 	# A hit that gets through plays Cian's short flinch. Damage 0 never arrives here.
 	# A killing blow keeps the existing fall. The flinch is the reaction, not a counter.
 	if amount > 0.0 and combat != null and combat.health > 0.0:
+		_note_flinch_from()
 		if _play_hurt_flinch():
 			return
 	if interrupted:

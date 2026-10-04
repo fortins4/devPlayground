@@ -1032,6 +1032,7 @@ func _on_damage_taken(amount: float, _from: Node) -> void:
 		_hatchet_charge_armed = false
 	_screen_punch(0.07 if amount >= 12.0 else 0.045)
 	if amount > 0.0:
+		_note_flinch_from()
 		_play_hurt_flinch()
 
 
@@ -1045,6 +1046,27 @@ func _expire_hurt_react_if_tween_died() -> void:
 
 func is_hurt_flinching() -> bool:
 	return _hurt_reacting
+
+
+## Incoming hit the flinch leans away from. right / top / low / left.
+var flinch_from: StringName = &"top"
+
+
+func _note_flinch_from() -> void:
+	if combat == null:
+		flinch_from = &"top"
+		return
+	match combat.incoming_strike_direction:
+		CombatSystem.StrikeDirection.RIGHT:
+			flinch_from = &"right"
+		CombatSystem.StrikeDirection.BOTTOM:
+			flinch_from = &"low"
+		CombatSystem.StrikeDirection.LEFT:
+			flinch_from = &"left"
+		_:
+			flinch_from = &"top"
+
+
 
 
 func _play_hurt_flinch() -> void:

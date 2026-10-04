@@ -847,17 +847,77 @@ static func _flinch_needs_face_clear(weapon_visual: Node3D, goad: Node3D, head: 
 	return false
 
 
+static func _flinch_from_name(loco: Object) -> StringName:
+	var host := loco.get_parent() as Node
+	if host != null and "flinch_from" in host:
+		var named: StringName = host.get("flinch_from")
+		if named in [&"right", &"left", &"top", &"low"]:
+			return named
+	return &"top"
+
+
+static func _apply_flinch_lean(loco: Object, kind: StringName) -> void:
+	# Torso and head only. Hips and thighs stay on the shared flinch so the
+	# soles stay down. Not a guard pose and not a hatchet retune.
+	var torso := Vector3.ZERO
+	var head := Vector3.ZERO
+	match kind:
+		&"right":
+			# Hit from the player's right: bend toward his left (-X). Face stays readable.
+			torso = Vector3(deg_to_rad(6.0), deg_to_rad(14.0), deg_to_rad(28.0))
+			head = Vector3(deg_to_rad(0.0), deg_to_rad(8.0), deg_to_rad(14.0))
+		&"left":
+			torso = Vector3(deg_to_rad(6.0), deg_to_rad(-14.0), deg_to_rad(-28.0))
+			head = Vector3(deg_to_rad(0.0), deg_to_rad(-8.0), deg_to_rad(-14.0))
+		&"low":
+			# Rising hit: fold the chest back (+X sends the head toward +Z).
+			torso = Vector3(deg_to_rad(24.0), 0.0, 0.0)
+			head = Vector3(deg_to_rad(14.0), 0.0, 0.0)
+		_:
+			# Overhead: fold the chest down toward the face.
+			torso = Vector3(deg_to_rad(-46.0), 0.0, 0.0)
+			head = Vector3(deg_to_rad(-22.0), 0.0, 0.0)
+	loco.set_combat_additive("torso", torso)
+	loco.set_combat_additive("head", head)
+
+
 static func _seat_flinch_below_chin(loco: Object, weapon_visual: Node3D, goad: Node3D, left_arm: Node3D, left_fore: Node3D, right_arm: Node3D, right_fore: Node3D, torso: Node3D, head: Node3D) -> void:
-	# Below the chin, in front of the chest, clear of the eyes and the mouth.
-	# Not beside the left ear — that seat belongs to the left guard.
-	var right_pt: Vector3 = head.to_global(Vector3(0.16, -0.50, 0.42))
-	var left_pt: Vector3 = head.to_global(Vector3(-0.12, -0.52, 0.44))
+	var kind := _flinch_from_name(loco)
+	_apply_flinch_lean(loco, kind)
+	# Shaft stays off the eyes and the mouth. The line moves with the lean
+	# so a side hit is not the same bar as a duck or a lean-back.
+	# Head -Z is the face. The bar stays in front of the chest, under the chin.
+	var right_local := Vector3(0.20, -0.55, -0.62)
+	var left_local := Vector3(-0.20, -0.58, -0.66)
+	var r_pole_local := Vector3(0.32, -0.28, -0.4)
+	var l_pole_local := Vector3(-0.32, -0.28, -0.4)
+	match kind:
+		&"right":
+			right_local = Vector3(-0.08, -0.42, -0.62)
+			left_local = Vector3(-0.52, -0.30, -0.58)
+			r_pole_local = Vector3(-0.1, -0.2, -0.45)
+			l_pole_local = Vector3(-0.5, -0.12, -0.4)
+		&"left":
+			right_local = Vector3(0.52, -0.30, -0.58)
+			left_local = Vector3(0.08, -0.42, -0.62)
+			r_pole_local = Vector3(0.5, -0.12, -0.4)
+			l_pole_local = Vector3(0.1, -0.2, -0.45)
+		&"low":
+			# Chest open, bar still in front and under the chin. Not over the skull.
+			right_local = Vector3(0.22, -0.82, -0.62)
+			left_local = Vector3(-0.22, -0.86, -0.66)
+			r_pole_local = Vector3(0.34, -0.3, -0.4)
+			l_pole_local = Vector3(-0.34, -0.3, -0.4)
+		_:
+			pass
+	var right_pt: Vector3 = head.to_global(right_local)
+	var left_pt: Vector3 = head.to_global(left_local)
 	var basis := torso.global_transform.basis
 	var r_shoulder: Vector3 = right_arm.global_position
-	var r_pole: Vector3 = r_shoulder + basis.x * 0.28 + basis.y * -0.35 + basis.z * 0.22
+	var r_pole: Vector3 = r_shoulder + basis * r_pole_local
 	_ik_right(loco, right_arm, right_fore, r_shoulder, r_pole, right_pt)
 	var l_shoulder: Vector3 = left_arm.global_position
-	var l_pole: Vector3 = l_shoulder - basis.x * 0.28 + basis.y * -0.35 + basis.z * 0.22
+	var l_pole: Vector3 = l_shoulder + basis * l_pole_local
 	_ik_left(loco, left_arm, left_fore, l_shoulder, l_pole, left_pt)
 	var r_palm: Vector3 = right_fore.to_global(Vector3(0.0, -0.22, 0.0))
 	var l_palm: Vector3 = left_fore.to_global(Vector3(0.0, -0.22, 0.0))

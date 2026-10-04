@@ -133,6 +133,8 @@ var charge_time: float = 0.0
 var charge_ratio: float = 0.0
 var charge_direction: StrikeDirection = StrikeDirection.TOP
 var _last_strike_direction: StrikeDirection = StrikeDirection.TOP
+## Direction of the last hit that got through. Not the guard face.
+var incoming_strike_direction: StrikeDirection = StrikeDirection.TOP
 var _charge_pose_tween: Tween
 
 # Per-weapon feel timings. Knife/goad: damage+reach live here.
@@ -837,6 +839,7 @@ func apply_damage(
 				return 0.0
 	health = maxf(0.0, health - amount)
 	health_changed.emit(health, max_health)
+	incoming_strike_direction = strike_direction
 	damage_taken.emit(amount, from)
 	if enable_hit_feedback:
 		_play_hurt_feedback(amount, from)
