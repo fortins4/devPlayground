@@ -1,10 +1,11 @@
 class_name CombatSystem
 extends Node
 ## Reusable greybox combat component. Player feel target is the cattle goad
-## (hold-release, four directions, same 0.75s full charge as the hatchet).
+## (hold-release shaft swings, same 0.75s full charge as the hatchet).
 ## Hatchet hold-release (top/left/right only) stays intact. No charge glow.
-## Goad shaft block is a held guard, not a parry window. Neutral face is the
-## chest shaft (any frontal hit). Look faces cover left, right, high, or low.
+## Goad guard follows look. It is not a parry and not a held key. Chest stops
+## any frontal hit. Left, right, high, and low stop only that side.
+## The point jab is an uncharged bottom strike, never a charge direction.
 ## Knife is a tap: left/right cuts, top thrust. No knife charge, no bottom stab.
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
@@ -350,7 +351,7 @@ func get_charge_ratio() -> float:
 
 
 func begin_charge() -> bool:
-	## Hold-to-charge. Hatchet: top/left/right. Goad: those plus the bottom stab.
+	## Hold-to-charge. Hatchet and goad: top/left/right shaft. Not the goad jab.
 	## Knife stays a tap (this returns false) so a light press is not a windup.
 	if is_dead or is_attacking or is_charging:
 		return false
@@ -373,8 +374,10 @@ func begin_charge() -> bool:
 func set_charge_direction(direction: StrikeDirection) -> void:
 	if not is_charging:
 		return
-	# Bottom stab is goad-only. Hatchet (and knife) clamp back to top.
+	# Bottom is the uncharged goad jab, not a shaft charge. Hatchet/knife clamp to top.
 	direction = _clamp_strike_direction(direction)
+	if current_weapon == Weapon.GOAD and direction == StrikeDirection.BOTTOM:
+		direction = StrikeDirection.TOP
 	if charge_direction == direction:
 		return
 	charge_direction = direction
@@ -400,6 +403,9 @@ func release_charged_attack() -> bool:
 	var held := charge_time
 	var ratio := charge_ratio
 	var direction := charge_direction
+	# A shaft release is never the point jab, even if the field was poked.
+	if current_weapon == Weapon.GOAD and direction == StrikeDirection.BOTTOM:
+		direction = StrikeDirection.TOP
 	is_charging = false
 	charge_time = 0.0
 	charge_ratio = 0.0

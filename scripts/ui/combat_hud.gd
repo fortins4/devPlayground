@@ -53,8 +53,8 @@ func _refresh() -> void:
 		charge_line = "\nCHARGE %.2f / %.2fs  dir=%s  (release to strike)" % [_combat.charge_time, _combat.charge_full_secs, dir]
 	elif _combat.is_shaft_blocking:
 		var face := String(_combat.shaft_guard_face)
-		charge_line = "\nGUARD %s  hold F  (look L/R/up/down, neutral = chest)" % face.to_upper()
-	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nGoad: hold LMB (look L/R/up shaft, look-down stab; tap=light, 0.75s=full)  hold F guard (neutral chest, look picks face)  Knife: tap LMB (look L/R = CUT, neutral/look-up = THRUST, no stab)  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
+		charge_line = "\nGUARD %s  (look L/R/up/down, neutral = chest)" % face.to_upper()
+	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nGoad: look is the guard. LMB hold = shaft (L/R/up). Look-down + LMB, or RMB, = one jab. Knife: tap LMB (look L/R = CUT, neutral/look-up = THRUST, no stab)  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
 		int(_combat.health), int(_combat.max_health),
 		int(_combat.stamina), int(_combat.max_stamina),
 		w,

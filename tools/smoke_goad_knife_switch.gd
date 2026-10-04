@@ -1,6 +1,7 @@
 extends SceneTree
-## Smoke: goad hold-charge (four directions, 0.75s, light tap vs full);
-## goad shaft block (hold guard, not a parry window);
+## Smoke: goad shaft charge (left/right/top, 0.75s, light tap vs full);
+## look is the guard (no F), not a parry window;
+## look-down click and RMB are the same uncharged jab; R is not bound;
 ## knife has no stab and no charge; hatchet hold-charge (top/left/right) remains.
 
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
@@ -38,6 +39,9 @@ func _run() -> void:
 		quit(1)
 		return
 	if not _check_shaft_block(combat):
+		quit(1)
+		return
+	if not _check_mouse_jab(player, combat):
 		quit(1)
 		return
 
@@ -198,8 +202,11 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 		push_error("SMOKE_FAIL goad charge ignored left")
 		return false
 	combat.set_charge_direction(CombatSystem.StrikeDirection.BOTTOM)
-	if combat.charge_direction != CombatSystem.StrikeDirection.BOTTOM:
-		push_error("SMOKE_FAIL goad charge rejected stab")
+	if combat.charge_direction == CombatSystem.StrikeDirection.BOTTOM:
+		push_error("SMOKE_FAIL goad charge accepted a stab")
+		return false
+	if combat.charge_direction != CombatSystem.StrikeDirection.TOP:
+		push_error("SMOKE_FAIL goad charge did not keep a shaft")
 		return false
 	# Direction can change again during the hold.
 	combat.set_charge_direction(CombatSystem.StrikeDirection.RIGHT)
@@ -228,7 +235,7 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 		return false
 	combat.charge_time = 0.40
 	combat.charge_ratio = combat.charge_time / combat.charge_full_secs
-	combat.set_charge_direction(CombatSystem.StrikeDirection.BOTTOM)
+	combat.set_charge_direction(CombatSystem.StrikeDirection.TOP)
 	if not combat.release_charged_attack():
 		push_error("SMOKE_FAIL mid goad release failed")
 		return false
@@ -246,7 +253,7 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 		return false
 	combat.charge_time = 0.75
 	combat.charge_ratio = 1.0
-	combat.set_charge_direction(CombatSystem.StrikeDirection.BOTTOM)
+	combat.set_charge_direction(CombatSystem.StrikeDirection.TOP)
 	if not combat.release_charged_attack():
 		push_error("SMOKE_FAIL full goad release failed")
 		return false
@@ -254,8 +261,8 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 		push_error("SMOKE_FAIL full release stuck in windup")
 		return false
 	var full_t: Dictionary = combat.last_attack_timings()
-	if full_t["kind"] != &"heavy" or full_t["direction"] != &"bottom":
-		push_error("SMOKE_FAIL full release was not a heavy stab")
+	if full_t["kind"] != &"heavy" or full_t["direction"] != &"top":
+		push_error("SMOKE_FAIL full release was not a heavy shaft")
 		return false
 	if combat._last_attack_reach <= mid_reach + 0.02:
 		push_error("SMOKE_FAIL full reach did not exceed mid")
@@ -366,6 +373,93 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 		return false
 	return true
 
+
+
+
+func _check_mouse_jab(player: Node, combat: CombatSystem) -> bool:
+	if InputMap.has_action("shaft_block"):
+		push_error("SMOKE_FAIL F shaft block is still bound")
+		return false
+	for action in InputMap.get_actions():
+		for ev in InputMap.action_get_events(action):
+			if ev is InputEventKey and (ev as InputEventKey).physical_keycode == KEY_R:
+				push_error("SMOKE_FAIL R is bound to the stab")
+				return false
+			if ev is InputEventKey and (ev as InputEventKey).physical_keycode == KEY_F:
+				push_error("SMOKE_FAIL F is still bound")
+				return false
+	_reset_attack(combat)
+	combat.set_weapon(CombatSystem.Weapon.GOAD)
+	combat.health = combat.max_health
+	player._sprinting = false
+	player.pivot.rotation.x = 0.0
+	player._tool_aim_delta = Vector2(0.0, 40.0)
+	player._tick_shaft_block()
+	if combat.shaft_guard_face != &"low" or combat.is_attacking:
+		push_error("SMOKE_FAIL look-down was not only the low guard")
+		return false
+	player._begin_hatchet_or_light()
+	if combat.is_charging or combat.last_strike_direction() != CombatSystem.StrikeDirection.BOTTOM:
+		push_error("SMOKE_FAIL LMB look-down was not the uncharged jab")
+		return false
+	if combat.last_attack_timings()["kind"] != &"light" or combat.last_attack_power >= 0.0:
+		push_error("SMOKE_FAIL LMB jab carried charge")
+		return false
+	if combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL jab kept a guard face")
+		return false
+	var reach := combat._last_attack_reach
+	var windup := float(combat.last_attack_timings()["windup"])
+	var held := combat.attack_recovery_left
+	player._heavy_or_ignore_hatchet()
+	if absf(combat.attack_recovery_left - held) > 0.0001:
+		push_error("SMOKE_FAIL a second press repeated the jab")
+		return false
+	_reset_attack(combat)
+	player._tool_aim_delta = Vector2(40.0, -30.0)
+	player._heavy_or_ignore_hatchet()
+	if combat.last_strike_direction() != CombatSystem.StrikeDirection.BOTTOM:
+		push_error("SMOKE_FAIL RMB followed look instead of jabbing")
+		return false
+	if combat.last_attack_timings()["kind"] != &"light" or combat.last_attack_power >= 0.0:
+		push_error("SMOKE_FAIL RMB was not the uncharged jab")
+		return false
+	if absf(combat._last_attack_reach - reach) > 0.001 or absf(float(combat.last_attack_timings()["windup"]) - windup) > 0.001:
+		push_error("SMOKE_FAIL RMB jab differed from the look-down jab")
+		return false
+	_reset_attack(combat)
+	combat.set_shaft_block(true)
+	combat.set_shaft_guard_face(&"low")
+	if combat.apply_damage(20.0, null, true, CombatSystem.StrikeDirection.BOTTOM) > 0.01:
+		push_error("SMOKE_FAIL low guard did not stop the jab")
+		return false
+	_reset_attack(combat)
+	combat.health = combat.max_health
+	# Not looking down: left mouse is still a shaft charge, including high-left.
+	player._tool_aim_delta = Vector2(-36.0, -28.0)
+	player._begin_hatchet_or_light()
+	if not combat.is_charging or combat.charge_direction == CombatSystem.StrikeDirection.BOTTOM:
+		push_error("SMOKE_FAIL high-left click was not a shaft charge")
+		return false
+	if combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL shaft charge kept the guard")
+		return false
+	combat.cancel_charge()
+	# Knife RMB is not this jab. Hatchet RMB stays ignored.
+	combat.set_weapon(CombatSystem.Weapon.KNIFE)
+	player._tool_aim_delta = Vector2(0.0, 40.0)
+	player._heavy_or_ignore_hatchet()
+	if combat.last_strike_direction() == CombatSystem.StrikeDirection.BOTTOM or combat.last_attack_timings()["kind"] != &"heavy":
+		push_error("SMOKE_FAIL knife RMB became the goad jab")
+		return false
+	_reset_attack(combat)
+	combat.set_weapon(CombatSystem.Weapon.HATCHET)
+	player._heavy_or_ignore_hatchet()
+	if combat.is_attacking or combat.is_charging:
+		push_error("SMOKE_FAIL hatchet RMB changed")
+		return false
+	combat.set_weapon(CombatSystem.Weapon.GOAD)
+	return true
 
 
 func _check_shaft_block(combat: CombatSystem) -> bool:

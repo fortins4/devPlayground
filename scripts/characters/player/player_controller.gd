@@ -1,12 +1,14 @@
 extends CharacterBody3D
-## Third-person controller. Default feel is the cattle goad (hold-to-charge,
-## release to strike). While LMB is held the shaft tracks look left/right and
-## up/down; look-down is the stab aim, and the release continues that pose.
-## Hold F for a shaft guard
-## (RMB stays heavy). Neutral look keeps the chest shaft. While F is held,
-## look left/right/up/down faces the shaft to that side (the offset latches
-## until the look returns to center). Hatchet hold-release wiring is unchanged when the
-## hatchet is equipped. Knife stays a tap: left/right cuts, top thrust.
+## Third-person controller. Default feel is the cattle goad.
+## With the goad out, mouse look IS the guard (no held key): left, right,
+## high, low, or chest when the look is neutral. Sprint or an attack drops it.
+## Look-down alone is only the low guard. It does not stab.
+## Left click while looking down, or right click at any look, is one uncharged
+## point jab. Holding either button does not charge it or fire it again.
+## Any other left click is still a charged shaft swing (left/right/top,
+## including high-left). Look-down is not a shaft-swing direction.
+## Hatchet hold-release is unchanged. Knife stays a tap: left/right cuts,
+## neutral/look-up thrust. Knife RMB is not a stab.
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 ## HealthCombatBridge (sibling) mirrors player CombatSystem ↔ CharacterHealth.
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
@@ -95,7 +97,7 @@ var _tool_root_drop: float = 0.0
 var _tool_pose_active: bool = false
 ## True while the goad shaft-block pose is applied (so sprint/release can drop it).
 var _shaft_pose_applied: bool = false
-## While F is held, look offset is not decayed so a side/high/low face stays put.
+## While the goad guard is up, look offset is not decayed so a face stays put.
 const TOOL_AIM_SIDE := 10.0
 const TOOL_AIM_VERT := 8.0
 
@@ -179,7 +181,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_released("attack_light"):
 		_release_hatchet_or_ignore()
 	elif event.is_action_pressed("attack_heavy"):
-		# Knife/goad keep RMB heavy; hatchet is hold-release only (no instant full-power).
+		# Goad RMB is the uncharged jab. Knife RMB stays heavy. Hatchet ignores RMB.
 		_heavy_or_ignore_hatchet()
 	elif event.is_action_pressed("cycle_weapon"):
 		if combat.is_charging:
@@ -343,13 +345,12 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 
 
 func _tick_shaft_block() -> void:
-	## Hold F. RMB stays the heavy strike. Releasing F returns to idle.
-	## Sprint (already resolved this frame) drops the guard.
+	## Goad out: look is the guard. No held button. Sprint and attacks drop it.
+	## Not a parry — the face stays up for as long as he is still looking.
 	if combat == null:
 		return
 	var want := (
-		Input.is_action_pressed("shaft_block")
-		and combat.current_weapon == CombatSystem.Weapon.GOAD
+		combat.current_weapon == CombatSystem.Weapon.GOAD
 		and not _sprinting
 		and not combat.is_attacking
 		and not combat.is_charging
@@ -382,11 +383,10 @@ func _apply_shaft_block_pose() -> void:
 	locomotion.lock_attack(0.12)
 
 
-## Hold F, then look. Same deadzones as a goad strike, but neutral is the chest
-## shaft — not a top strike. Horizontal look wins over vertical. Camera pitch
-## counts as up/down when the mouse offset is quiet.
+## Look picks the guard face. No button. Horizontal look wins over vertical.
+## Camera pitch counts as up/down when the mouse offset is quiet.
 ##   look left  → left    look right → right
-##   look up    → high    look down  → low
+##   look up    → high    look down  → low (guard only, not a jab)
 ##   centered   → chest
 func _resolve_shaft_guard_face() -> StringName:
 	var mx := _tool_aim_delta.x
@@ -474,6 +474,10 @@ func _begin_hatchet_or_light() -> void:
 		return
 	var hatchet := combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet
 	var goad := combat.current_weapon == CombatSystem.Weapon.GOAD
+	# Already looking down: one uncharged jab. Do not start a shaft charge.
+	if goad and _resolve_shaft_guard_face() == &"low":
+		_fire_goad_jab()
+		return
 	if hatchet or goad:
 		# Goad keeps the look you already had; hatchet aim starts neutral (top).
 		_charge_aim_delta = _tool_aim_delta if goad else Vector2.ZERO
@@ -506,6 +510,10 @@ func _heavy_or_ignore_hatchet() -> void:
 	# Hatchet: hold-release only — RMB does not instant full-power.
 	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
 		return
+	# Goad RMB is the same uncharged point jab at any look. Not a heavy swing.
+	if combat.current_weapon == CombatSystem.Weapon.GOAD:
+		_fire_goad_jab()
+		return
 	if combat.is_charging:
 		combat.cancel_charge()
 		_hatchet_charge_armed = false
@@ -513,23 +521,28 @@ func _heavy_or_ignore_hatchet() -> void:
 	_tool_aim_delta = Vector2.ZERO
 
 
+func _fire_goad_jab() -> void:
+	## One uncharged point. Press only — the caller is an action press, so a
+	## held button does not charge or repeat. Look is left alone so the low
+	## guard can return after the jab.
+	if combat == null or combat.current_weapon != CombatSystem.Weapon.GOAD:
+		return
+	if combat.is_charging:
+		combat.cancel_charge()
+		_hatchet_charge_armed = false
+	combat.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM)
+
+
 func _resolve_tool_strike_direction() -> CombatSystem.StrikeDirection:
-	## Tap aim for goad/knife. Neutral / look-up is top.
-	## Goad top is a shaft strike; knife top is a thrust (point), not a cut.
-	## Look/flick down is a goad stab only — knife and hatchet have no bottom.
+	## Knife tap, and the goad fallback if a charge cannot start.
+	## Look-down is not a strike direction here — that click is the jab.
+	## Knife top is a thrust. Knife and hatchet have no bottom.
 	var mx := _tool_aim_delta.x
 	var my := _tool_aim_delta.y
-	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
-	var pitch_down := pivot != null and pivot.rotation.x >= deg_to_rad(12.0)
-	var goad := combat != null and combat.current_weapon == CombatSystem.Weapon.GOAD
 	if absf(mx) >= TOOL_AIM_SIDE and absf(mx) >= absf(my) * 0.85:
 		if mx < 0.0:
 			return CombatSystem.StrikeDirection.LEFT
 		return CombatSystem.StrikeDirection.RIGHT
-	if goad and (my >= TOOL_AIM_VERT or pitch_down) and absf(my) + (12.0 if pitch_down else 0.0) >= absf(mx) * 0.75:
-		return CombatSystem.StrikeDirection.BOTTOM
-	if my <= -TOOL_AIM_VERT or pitch_up:
-		return CombatSystem.StrikeDirection.TOP
 	return CombatSystem.StrikeDirection.TOP
 
 
@@ -540,25 +553,19 @@ func _apply_charge_direction_from_input() -> void:
 
 
 func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
-	## Mouse aim only (no WASD): look offset while charging + camera pitch.
-	## Left/right/up = shaft. Goad look-down = stab. Hatchet never stabs.
+	## Mouse aim while a shaft is charging. Left/right/up, including diagonals.
+	## Look-down is not a shaft direction. Hatchet never stabs.
 	var mx := _charge_aim_delta.x
 	var my := _charge_aim_delta.y
 	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
-	var pitch_down := pivot != null and pivot.rotation.x >= deg_to_rad(12.0)
-	var goad := combat != null and combat.current_weapon == CombatSystem.Weapon.GOAD
 
 	if absf(mx) >= CHARGE_AIM_SIDE_THRESH and absf(mx) >= absf(my) * 0.9:
 		if mx < 0.0:
 			return CombatSystem.StrikeDirection.LEFT
 		return CombatSystem.StrikeDirection.RIGHT
 
-	if goad and (my >= CHARGE_AIM_TOP_THRESH or pitch_down) and absf(my) + (12.0 if pitch_down else 0.0) >= absf(mx) * 0.75:
-		return CombatSystem.StrikeDirection.BOTTOM
-
 	if my <= -CHARGE_AIM_TOP_THRESH or pitch_up:
 		return CombatSystem.StrikeDirection.TOP
-
 	return CombatSystem.StrikeDirection.TOP
 
 
@@ -599,16 +606,24 @@ func _apply_goad_charge_pose(ratio: float, _direction: StringName) -> void:
 		_torso_tween.kill()
 	# Cardinal direction still picks the strike on release. The body tracks
 	# the mouse continuously so the weapon is already on that side.
-	var aim := _goad_aim_axes()
+	var aim := _shaft_aim_axes()
 	var pose: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, ratio)
 	_apply_tool_pose(pose)
 	if locomotion:
 		locomotion.lock_attack(0.08)
 
 
+func _shaft_aim_axes() -> Vector2:
+	## Shaft charge/swing only. Look-down is clamped off so the hold cannot
+	## chamber a jab. High-left and the other up diagonals still track.
+	var aim := _goad_aim_axes()
+	aim.y = minf(aim.y, 0.0)
+	return aim
+
+
 func _goad_aim_axes() -> Vector2:
-	## -1 left / +1 right, -1 up / +1 down. Down is the stab aim.
-	## Camera pitch counts when the mouse offset is quiet, same as the strike.
+	## -1 left / +1 right, -1 up / +1 down.
+	## Camera pitch counts when the mouse offset is quiet, same as the guard.
 	var ax := clampf(_charge_aim_delta.x / GOAD_AIM_SPAN, -1.0, 1.0)
 	var ay := clampf(_charge_aim_delta.y / GOAD_AIM_SPAN, -1.0, 1.0)
 	if pivot:
@@ -868,7 +883,10 @@ func _play_goad_release(kind: StringName, windup: float, active: float, from_cha
 	## Release continues the live aim. Contact and follow use the same blend
 	## as the hold, so a high-left chamber stays a high-left swing.
 	## No second windup, no cardinal snap, no 1.5x contact pop.
-	var aim := _goad_aim_axes()
+	var aim := _shaft_aim_axes()
+	# The jab is the point, at any look. It is not the shaft swing he was aiming.
+	if combat.last_strike_direction() == CombatSystem.StrikeDirection.BOTTOM:
+		aim = Vector2(0.0, 1.0)
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
 	var pose_contact: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"contact")
 	var pose_follow: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"follow")

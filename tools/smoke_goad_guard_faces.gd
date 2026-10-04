@@ -1,8 +1,9 @@
 extends SceneTree
-## Smoke: goad guard faces. Chest (neutral F) still stops every frontal hit
-## and still lets a rear hit through. Low stops a front stab and is not a
+## Smoke: goad guard faces. Look is the guard (no F). Chest stops every frontal
+## hit and still lets a rear hit through. Low stops a front stab and is not a
 ## timing window. High and the side faces do not stop that stab.
-## No charge glow, no perfect-parry, charge + four attacks stay.
+## Look-down alone does not stab. LMB-while-low and RMB are the same uncharged jab.
+## No charge glow, no perfect-parry. A shaft charge is not the jab.
 
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 
@@ -38,12 +39,15 @@ func _run() -> void:
 	if not _check_charge_still(combat):
 		quit(1)
 		return
+	if not _check_mouse_lock(player, combat):
+		quit(1)
+		return
 	print("SMOKE_OK goad-guard-faces low-stops-stab high-does-not chest-still-frontal")
 	quit(0)
 
 
 func _check_faces_selected(player: Node) -> bool:
-	# Scheme: hold F, look offset (same deadzone as a strike). Neutral = chest.
+	# Scheme: look offset only. No F. Neutral = chest. Down = low guard, not a jab.
 	player._tool_aim_delta = Vector2.ZERO
 	player.pivot.rotation.x = 0.0
 	if player._resolve_shaft_guard_face() != &"chest":
@@ -276,16 +280,19 @@ func _check_charge_still(combat: CombatSystem) -> bool:
 	combat.set_charge_direction(CombatSystem.StrikeDirection.RIGHT)
 	combat.set_charge_direction(CombatSystem.StrikeDirection.TOP)
 	combat.set_charge_direction(CombatSystem.StrikeDirection.BOTTOM)
-	if combat.charge_direction != CombatSystem.StrikeDirection.BOTTOM:
-		push_error("SMOKE_FAIL four attack directions broke")
+	if combat.charge_direction != CombatSystem.StrikeDirection.TOP:
+		push_error("SMOKE_FAIL shaft charge kept the stab")
 		return false
 	combat.charge_time = combat.charge_full_secs
 	combat.charge_ratio = 1.0
 	if not combat.release_charged_attack():
 		push_error("SMOKE_FAIL full release failed")
 		return false
-	if combat.last_strike_direction() != CombatSystem.StrikeDirection.BOTTOM:
-		push_error("SMOKE_FAIL full charge was not the stab")
+	if combat.last_strike_direction() != CombatSystem.StrikeDirection.TOP:
+		push_error("SMOKE_FAIL full charge released a stab")
+		return false
+	if combat.last_attack_power < 0.95:
+		push_error("SMOKE_FAIL full shaft charge lost its power")
 		return false
 	combat.is_attacking = false
 	combat.attack_recovery_left = 0.0
@@ -295,6 +302,83 @@ func _check_charge_still(combat: CombatSystem) -> bool:
 		push_error("SMOKE_FAIL knife gained a guard or a charge")
 		return false
 	combat.set_weapon(CombatSystem.Weapon.GOAD)
+	return true
+
+
+
+func _check_mouse_lock(player: Node, combat: CombatSystem) -> bool:
+	if not _keys_unbound():
+		return false
+	_reset(combat)
+	player._sprinting = false
+	player.pivot.rotation.x = 0.0
+	player._tool_aim_delta = Vector2(0.0, 40.0)
+	player._tick_shaft_block()
+	if player._resolve_shaft_guard_face() != &"low" or combat.shaft_guard_face != &"low":
+		push_error("SMOKE_FAIL look-down was not the low guard")
+		return false
+	if combat.is_attacking or combat.is_charging:
+		push_error("SMOKE_FAIL look-down alone stabbed or chambered")
+		return false
+	var hp := combat.health
+	player._begin_hatchet_or_light()
+	if combat.is_charging or combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL look-down click charged or kept the guard")
+		return false
+	if not combat.is_attacking or combat.last_strike_direction() != CombatSystem.StrikeDirection.BOTTOM:
+		push_error("SMOKE_FAIL look-down click was not the jab")
+		return false
+	var jab_t: Dictionary = combat.last_attack_timings()
+	if jab_t["kind"] != &"light" or combat.last_attack_power >= 0.0:
+		push_error("SMOKE_FAIL look-down click was charged")
+		return false
+	var jab_reach := combat._last_attack_reach
+	var recovery := combat.attack_recovery_left
+	player._begin_hatchet_or_light()
+	if absf(combat.attack_recovery_left - recovery) > 0.0001:
+		push_error("SMOKE_FAIL held look-down click repeated the jab")
+		return false
+	_reset(combat)
+	player._tool_aim_delta = Vector2(-40.0, 0.0)
+	player._heavy_or_ignore_hatchet()
+	if combat.is_charging or combat.last_strike_direction() != CombatSystem.StrikeDirection.BOTTOM:
+		push_error("SMOKE_FAIL RMB was not the jab")
+		return false
+	var rmb_t: Dictionary = combat.last_attack_timings()
+	if rmb_t["kind"] != &"light" or combat.last_attack_power >= 0.0:
+		push_error("SMOKE_FAIL RMB jab was a heavy or a charge")
+		return false
+	if absf(combat._last_attack_reach - jab_reach) > 0.001:
+		push_error("SMOKE_FAIL RMB jab did not match the look-down jab")
+		return false
+	if combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL jab left the guard up")
+		return false
+	_reset(combat)
+	combat.set_shaft_block(true)
+	combat.set_shaft_guard_face(&"low")
+	var stopped := combat.apply_damage(22.0, null, true, CombatSystem.StrikeDirection.BOTTOM)
+	if stopped > 0.01 or combat.health < hp - 0.01:
+		push_error("SMOKE_FAIL low guard did not stop the jab")
+		return false
+	if not combat.is_shaft_blocking:
+		push_error("SMOKE_FAIL low guard dropped on the jab it stopped")
+		return false
+	return true
+
+
+func _keys_unbound() -> bool:
+	if InputMap.has_action("shaft_block"):
+		push_error("SMOKE_FAIL F shaft block is still bound")
+		return false
+	for action in InputMap.get_actions():
+		for ev in InputMap.action_get_events(action):
+			if ev is InputEventKey and (ev as InputEventKey).physical_keycode == KEY_F:
+				push_error("SMOKE_FAIL F is still bound")
+				return false
+			if ev is InputEventKey and (ev as InputEventKey).physical_keycode == KEY_R:
+				push_error("SMOKE_FAIL R is bound")
+				return false
 	return true
 
 
