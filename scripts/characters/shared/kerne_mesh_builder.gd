@@ -256,34 +256,35 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 		# Sheathed knife on left hip — always visible kit silhouette
 		var belt_knife := Node3D.new()
 		belt_knife.name = "BeltKnife"
-		belt_knife.position = Vector3(-0.26, 0.02, 0.08)
-		belt_knife.rotation_degrees = Vector3(15.0, 0.0, 25.0)
+		# Left hip, just outside the tunic. Hangs on him when the knife is not drawn.
+		belt_knife.position = Vector3(-0.34, 0.14, 0.04)
+		belt_knife.rotation_degrees = Vector3(18.0, -40.0, 16.0)
 		torso.add_child(belt_knife)
 		var bk_handle := BoxMesh.new()
-		bk_handle.size = Vector3(0.03, 0.10, 0.03)
+		bk_handle.size = Vector3(0.045, 0.11, 0.04)
 		belt_knife.add_child(_mesh_inst(bk_handle, wood, "Handle"))
 		var bk_blade := BoxMesh.new()
-		bk_blade.size = Vector3(0.025, 0.18, 0.015)
+		bk_blade.size = Vector3(0.04, 0.20, 0.018)
 		var bk_b := _mesh_inst(bk_blade, iron, "Blade")
 		bk_b.position = Vector3(0.0, -0.12, 0.0)
 		belt_knife.add_child(bk_b)
 
-		# Goad stowed on the back. Face is +Z, so the shaft stays on -Z,
-		# behind the torso, and only rolls across the shoulders.
+		# Flat on the back. Face is +Z, so -Z is behind the torso.
+		# Short enough to stay inside the tunic from the front and the side.
 		var back_goad := Node3D.new()
 		back_goad.name = "BackGoad"
-		back_goad.position = Vector3(0.0, 0.34, -0.30)
-		back_goad.rotation_degrees = Vector3(0.0, 0.0, 76.0)
+		back_goad.position = Vector3(0.0, 0.40, -0.162)
+		back_goad.rotation_degrees = Vector3(0.0, 0.0, 90.0)
 		torso.add_child(back_goad)
 		var goad_mesh := BoxMesh.new()
-		goad_mesh.size = Vector3(0.035, 1.05, 0.035)
+		goad_mesh.size = Vector3(0.036, 0.26, 0.036)
 		var goad_mi := _mesh_inst(goad_mesh, wood, "Staff")
 		goad_mi.position = Vector3.ZERO
 		back_goad.add_child(goad_mi)
 		var tip_mesh := BoxMesh.new()
-		tip_mesh.size = Vector3(0.07, 0.08, 0.07)
+		tip_mesh.size = Vector3(0.05, 0.04, 0.05)
 		var tip_mi := _mesh_inst(tip_mesh, iron, "Tip")
-		tip_mi.position = Vector3(0.0, 0.50, 0.0)
+		tip_mi.position = Vector3(0.0, 0.12, 0.0)
 		back_goad.add_child(tip_mi)
 
 	return {

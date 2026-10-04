@@ -689,8 +689,8 @@ func _on_weapon_changed(weapon: StringName) -> void:
 		return
 	var belt_knife := visual_node.find_child("BeltKnife", true, false) as Node3D
 	if belt_knife:
-		# Sheath only while the hatchet is out. The live kit shows one weapon, or none.
-		belt_knife.visible = weapon == &"hatchet"
+		# On the hip whenever the knife is not in the hand.
+		belt_knife.visible = weapon != &"knife"
 
 
 func _sync_back_goad_visibility() -> void:
@@ -1206,7 +1206,7 @@ func _idle_weapon_euler() -> Vector3:
 	match combat.current_weapon:
 		CombatSystem.Weapon.GOAD:
 			# Across the chest, out in front. Not a vertical pole up the face.
-			return Vector3(deg_to_rad(22.0), deg_to_rad(-10.0), deg_to_rad(58.0))
+			return Vector3(deg_to_rad(6.0), deg_to_rad(-4.0), deg_to_rad(78.0))
 		CombatSystem.Weapon.KNIFE:
 			# Matches tool idle: blade up beside the chest, not the strike thrust.
 			return Vector3(deg_to_rad(-28.0), deg_to_rad(16.0), deg_to_rad(-36.0))
