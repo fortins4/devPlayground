@@ -966,16 +966,17 @@ static func _ik_right(loco: Object, arm: Node3D, fore: Node3D, shoulder: Vector3
 
 
 static func _shaft_span(slide: float) -> Vector2:
-	var center := 0.62 - slide
-	return Vector2(center - 0.875, center + 0.875)
+	# 1.30 shaft. Wood runs local y -0.255 .. 1.045. Center sits at 0.395.
+	var center := 0.395 - slide
+	return Vector2(center - 0.65, center + 0.65)
 
 
 static func _slide_for(current: float, t_hand: float, t_off: float) -> float:
 	var lo := minf(t_hand, t_off) - 0.06
 	var hi := maxf(t_hand, t_off) + 0.06
-	# Segment is [-0.255 - slide, 1.495 - slide].
+	# Segment is [-0.255 - slide, 1.045 - slide].
 	var slide_min := -0.255 - lo
-	var slide_max := 1.495 - hi
+	var slide_max := 1.045 - hi
 	if slide_min > slide_max:
 		return current
 	return clampf(current, slide_min, slide_max)
@@ -985,7 +986,7 @@ static func _shaft_grip_point(shoulder: Vector3, origin: Vector3, axis: Vector3,
 	var best := Vector3.INF
 	var best_score := 999.0
 	for i in 25:
-		var t := lerpf(-1.15, 1.35, float(i) / 24.0)
+		var t := lerpf(-0.20, 1.00, float(i) / 24.0)
 		if absf(t) < 0.18:
 			continue
 		var p: Vector3 = origin + axis * t

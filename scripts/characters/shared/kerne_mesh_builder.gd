@@ -269,23 +269,22 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 		bk_b.position = Vector3(0.0, -0.12, 0.0)
 		belt_knife.add_child(bk_b)
 
-		# Same goad as the hands: full 1.75 shaft and gray head. Not scaled.
-		# Head just off the right shoulder, under the skull. Butt on the back plane,
-		# lifted just enough that it clears the grass without standing over the skull.
+		# Same goad as the hands: 1.30 shaft, same 0.045 thickness, same gray head.
+		# Head beside the right shoulder. Butt just off the grass, against the back.
 		var back_goad := Node3D.new()
 		back_goad.name = "BackGoad"
-		back_goad.position = Vector3(0.056, -0.760, -0.199)
-		back_goad.rotation_degrees = Vector3(0.32, -0.05, -8.1)
+		back_goad.position = Vector3(0.189, -0.648, 0.209)
+		back_goad.rotation_degrees = Vector3(-2.50, 0.39, -8.92)
 		torso.add_child(back_goad)
 		var goad_mesh := BoxMesh.new()
-		goad_mesh.size = Vector3(0.045, 1.75, 0.045)
+		goad_mesh.size = Vector3(0.045, 1.30, 0.045)
 		var goad_mi := _mesh_inst(goad_mesh, wood, "Staff")
-		goad_mi.position = Vector3(0.0, 0.62, 0.0)
+		goad_mi.position = Vector3(0.0, 0.395, 0.0)
 		back_goad.add_child(goad_mi)
 		var tip_mesh := BoxMesh.new()
 		tip_mesh.size = Vector3(0.08, 0.12, 0.08)
 		var tip_mi := _mesh_inst(tip_mesh, iron, "Tip")
-		tip_mi.position = Vector3(0.0, 1.52, 0.0)
+		tip_mi.position = Vector3(0.0, 1.07, 0.0)
 		back_goad.add_child(tip_mi)
 
 	return {

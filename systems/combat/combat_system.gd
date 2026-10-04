@@ -151,14 +151,14 @@ const PROFILES := {
 		&"heavy": {"damage": 28.0, "windup": 0.34, "active": 0.16, "reach": 1.5},
 	},
 	Weapon.KNIFE: {
-		# Longer than the old chest-tuck, still short of the goad (1.65 / 2.2).
+		# Longer than the old chest-tuck, still short of the goad (1.23 / 1.63).
 		&"light": {"damage": 8.0, "windup": 0.06, "active": 0.1, "reach": 1.28},
 		&"heavy": {"damage": 16.0, "windup": 0.12, "active": 0.12, "reach": 1.42},
 	},
 	Weapon.GOAD: {
 		# Hold-release: tap/early = light, full 0.75s = heavy. Power lerps between.
-		&"light": {"damage": 10.0, "windup": 0.18, "active": 0.14, "reach": 1.65},
-		&"heavy": {"damage": 22.0, "windup": 0.30, "active": 0.18, "reach": 2.2},
+		&"light": {"damage": 10.0, "windup": 0.18, "active": 0.14, "reach": 1.23},
+		&"heavy": {"damage": 22.0, "windup": 0.30, "active": 0.18, "reach": 1.63},
 	},
 }
 
@@ -533,7 +533,7 @@ func try_attack(
 	if current_weapon == Weapon.GOAD and direction == StrikeDirection.BOTTOM:
 		windup *= 0.72
 		active *= 0.85
-		reach += 0.2
+		reach += 0.15
 	# Knife top is a chest-height thrust: farther than a side cut, still short of the goad.
 	if current_weapon == Weapon.KNIFE and direction == StrikeDirection.TOP:
 		windup *= 0.82
