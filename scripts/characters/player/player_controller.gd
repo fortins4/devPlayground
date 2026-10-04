@@ -1043,6 +1043,10 @@ func _expire_hurt_react_if_tween_died() -> void:
 	_hurt_reacting = false
 
 
+func is_hurt_flinching() -> bool:
+	return _hurt_reacting
+
+
 func _play_hurt_flinch() -> void:
 	## A landed hit. Charge is already dropped. A swing in progress yields
 	## the same way: the pose becomes the flinch, then the ready pose.

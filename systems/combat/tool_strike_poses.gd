@@ -637,6 +637,9 @@ static func seat_goad_off_hand(loco: Object, weapon_visual: Node3D) -> void:
 	if right_arm_early != null and right_fore_early != null and _is_authored_left_guard(loco, weapon_visual):
 		_seat_left_guard_beside(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
 		return
+	if right_arm_early != null and right_fore_early != null and _host_flinching(loco) and _flinch_needs_face_clear(weapon_visual, goad, head):
+		_seat_flinch_below_chin(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
+		return
 	var shoulder: Vector3 = left_arm.global_position
 	var right_arm := loco.get_joint("right_arm") as Node3D
 	var right_fore := loco.get_joint("right_forearm") as Node3D
@@ -752,6 +755,71 @@ static func _seat_left_guard_beside(loco: Object, weapon_visual: Node3D, goad: N
 	var axis: Vector3 = (l_palm - r_palm)
 	if axis.length() < 0.05:
 		axis = torso.global_transform.basis.y.normalized()
+	else:
+		axis = axis.normalized()
+	weapon_visual.global_position = r_palm
+	_aim_weapon_y(weapon_visual, axis)
+	var t_off := (l_palm - r_palm).dot(weapon_visual.global_transform.basis.y.normalized())
+	goad.position.y = -_slide_for(-goad.position.y, 0.0, t_off)
+
+
+
+## Flinch only. The generic seat aims a clipping shaft across the chest, which
+## carries it over the eyes and the mouth. Drop that line below the chin.
+## Guards and the left-guard seat do not use this.
+static func _host_flinching(loco: Object) -> bool:
+	var host := loco.get_parent() as Node
+	if host == null or not host.has_method("is_hurt_flinching"):
+		return false
+	return bool(host.call("is_hurt_flinching"))
+
+
+static func _weapon_is_ready_pose(weapon_visual: Node3D) -> bool:
+	var live: Vector3 = weapon_visual.rotation
+	var ready: Array[Vector3] = [tool_idle_pose(2)["weapon"]]
+	for face in ["chest", "left", "right", "high", "low"]:
+		ready.append(tool_shaft_guard_pose(StringName(face))["weapon"])
+	for euler in ready:
+		if live.distance_to(euler) < deg_to_rad(14.0):
+			return true
+	return false
+
+
+static func _flinch_needs_face_clear(weapon_visual: Node3D, goad: Node3D, head: Node3D) -> bool:
+	# The hold and the blend are not a guard or the idle. The ends of the
+	# blend stay on those ready poses and keep their own seat.
+	if not _weapon_is_ready_pose(weapon_visual):
+		return true
+	var origin: Vector3 = weapon_visual.global_position
+	var axis: Vector3 = weapon_visual.global_transform.basis.y.normalized()
+	var span := _shaft_span(-goad.position.y)
+	for i in 24:
+		var t := lerpf(span.x, span.y, float(i) / 23.0)
+		var hl: Vector3 = head.to_local(origin + axis * t)
+		if hl.length() < 0.19:
+			return true
+		if absf(hl.y) < 0.28 and absf(hl.x) < 0.22 and (hl.z > 0.07 or hl.z < -0.09):
+			return true
+	return false
+
+
+static func _seat_flinch_below_chin(loco: Object, weapon_visual: Node3D, goad: Node3D, left_arm: Node3D, left_fore: Node3D, right_arm: Node3D, right_fore: Node3D, torso: Node3D, head: Node3D) -> void:
+	# Below the chin, in front of the chest, clear of the eyes and the mouth.
+	# Not beside the left ear — that seat belongs to the left guard.
+	var right_pt: Vector3 = head.to_global(Vector3(0.16, -0.50, 0.42))
+	var left_pt: Vector3 = head.to_global(Vector3(-0.12, -0.52, 0.44))
+	var basis := torso.global_transform.basis
+	var r_shoulder: Vector3 = right_arm.global_position
+	var r_pole: Vector3 = r_shoulder + basis.x * 0.28 + basis.y * -0.35 + basis.z * 0.22
+	_ik_right(loco, right_arm, right_fore, r_shoulder, r_pole, right_pt)
+	var l_shoulder: Vector3 = left_arm.global_position
+	var l_pole: Vector3 = l_shoulder - basis.x * 0.28 + basis.y * -0.35 + basis.z * 0.22
+	_ik_left(loco, left_arm, left_fore, l_shoulder, l_pole, left_pt)
+	var r_palm: Vector3 = right_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	var l_palm: Vector3 = left_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	var axis: Vector3 = l_palm - r_palm
+	if axis.length() < 0.05:
+		axis = basis.x
 	else:
 		axis = axis.normalized()
 	weapon_visual.global_position = r_palm
