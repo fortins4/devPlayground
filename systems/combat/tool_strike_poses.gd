@@ -637,6 +637,9 @@ static func seat_goad_off_hand(loco: Object, weapon_visual: Node3D) -> void:
 	if right_arm_early != null and right_fore_early != null and _is_authored_left_guard(loco, weapon_visual):
 		_seat_left_guard_beside(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
 		return
+	if right_arm_early != null and right_fore_early != null and _is_authored_high_guard(loco, weapon_visual):
+		_seat_high_guard_overhead(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
+		return
 	if right_arm_early != null and right_fore_early != null and _host_flinching(loco) and _flinch_needs_face_clear(weapon_visual, goad, head):
 		_seat_flinch_below_chin(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
 		return
@@ -762,6 +765,47 @@ static func _seat_left_guard_beside(loco: Object, weapon_visual: Node3D, goad: N
 	var t_off := (l_palm - r_palm).dot(weapon_visual.global_transform.basis.y.normalized())
 	goad.position.y = -_slide_for(-goad.position.y, 0.0, t_off)
 
+
+
+
+## High guard only. Look-up. The shaft is held over the head so it covers a
+## strike from above. Off the face, off the neck, out of the body.
+## Does not touch the left-guard seat or the flinch seat.
+static func _is_authored_high_guard(loco: Object, weapon_visual: Node3D) -> bool:
+	var pose := tool_shaft_guard_pose(&"high")
+	var arm: Vector3 = loco.get_combat_additive("right_arm")
+	var fore: Vector3 = loco.get_combat_additive("right_forearm")
+	if arm.distance_to(pose["right_arm"]) > deg_to_rad(6.0):
+		return false
+	if fore.distance_to(pose["right_forearm"]) > deg_to_rad(8.0):
+		return false
+	if weapon_visual.rotation.distance_to(pose["weapon"]) > deg_to_rad(12.0):
+		return false
+	return true
+
+
+static func _seat_high_guard_overhead(loco: Object, weapon_visual: Node3D, goad: Node3D, left_arm: Node3D, left_fore: Node3D, right_arm: Node3D, right_fore: Node3D, torso: Node3D, head: Node3D) -> void:
+	# Bar over the skull, not beside the ear and not across the eyes.
+	var right_pt: Vector3 = head.to_global(Vector3(0.18, 0.30, 0.04))
+	var left_pt: Vector3 = head.to_global(Vector3(-0.16, 0.28, 0.06))
+	var basis := torso.global_transform.basis
+	var r_shoulder: Vector3 = right_arm.global_position
+	var r_pole: Vector3 = r_shoulder + basis.x * 0.36 + basis.y * 0.22 + basis.z * 0.08
+	_ik_right(loco, right_arm, right_fore, r_shoulder, r_pole, right_pt)
+	var l_shoulder: Vector3 = left_arm.global_position
+	var l_pole: Vector3 = l_shoulder - basis.x * 0.36 + basis.y * 0.22 + basis.z * 0.08
+	_ik_left(loco, left_arm, left_fore, l_shoulder, l_pole, left_pt)
+	var r_palm: Vector3 = right_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	var l_palm: Vector3 = left_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	var axis: Vector3 = (l_palm - r_palm)
+	if axis.length() < 0.05:
+		axis = basis.x
+	else:
+		axis = axis.normalized()
+	weapon_visual.global_position = r_palm
+	_aim_weapon_y(weapon_visual, axis)
+	var t_off := (l_palm - r_palm).dot(weapon_visual.global_transform.basis.y.normalized())
+	goad.position.y = -_slide_for(-goad.position.y, 0.0, t_off)
 
 
 ## Flinch only. The generic seat aims a clipping shaft across the chest, which
