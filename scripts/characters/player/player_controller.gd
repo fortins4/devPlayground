@@ -1332,10 +1332,42 @@ func _apply_back_goad_carry(u: float) -> void:
 	if combat and combat.current_weapon == CombatSystem.Weapon.UNARMED and weapon_visual:
 		var s := _goad_draw_smooth()
 		back.global_transform = seat_xf.interpolate_with(weapon_visual.global_transform, s)
-		# Same path as the draw. One hand stays on the shaft until it seats.
+		# The straight reverse climbs through the face. Bow it out to his
+		# right, and only as far as the shaft still meets the skull. Zero
+		# when the seat and the hands are already clear.
+		_bow_stow_off_the_head(back)
 		_guide_stow_hand(back, s)
 	else:
 		back.global_transform = seat_xf.interpolate_with(_goad_stow_from, clampf(u, 0.0, 1.0))
+
+
+func _bow_stow_off_the_head(back: Node3D) -> void:
+	if locomotion == null:
+		return
+	var head := locomotion.get_joint("head") as Node3D
+	var torso := locomotion.get_joint("torso") as Node3D
+	if head == null or torso == null:
+		return
+	var side := torso.global_transform.basis.x
+	if side.length_squared() < 0.001:
+		return
+	side = side.normalized()
+	var push := 0.0
+	for i in 16:
+		var along := lerpf(-0.255, 1.07, float(i) / 15.0)
+		var p: Vector3 = back.to_global(Vector3(0.0, along, 0.0))
+		var lp: Vector3 = head.to_local(p)
+		# Gray head is the tip. The wood is thinner.
+		var limit := 0.27 if along > 0.95 else 0.22
+		var radial := lp.y * lp.y + lp.z * lp.z
+		if lp.length() >= limit or radial >= limit * limit:
+			continue
+		var need := -lp.x + sqrt(limit * limit - radial)
+		if need > push:
+			push = need
+	if push <= 0.001:
+		return
+	back.global_position += side * push
 
 
 func _guide_stow_hand(back: Node3D, s: float) -> void:
