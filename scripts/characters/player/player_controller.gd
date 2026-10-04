@@ -196,7 +196,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			combat.cancel_charge()
 		combat.cycle_weapon(1)
 	elif event.is_action_pressed("weapon_hatchet"):
-		combat.set_weapon(CombatSystem.Weapon.HATCHET)
+		# Key 1 stows. The hatchet is not in this kit.
+		combat.set_weapon(CombatSystem.Weapon.UNARMED)
 	elif event.is_action_pressed("weapon_knife"):
 		combat.set_weapon(CombatSystem.Weapon.KNIFE)
 	elif event.is_action_pressed("weapon_goad"):
@@ -688,7 +689,8 @@ func _on_weapon_changed(weapon: StringName) -> void:
 		return
 	var belt_knife := visual_node.find_child("BeltKnife", true, false) as Node3D
 	if belt_knife:
-		belt_knife.visible = weapon != &"knife"
+		# Sheath only while the hatchet is out. The live kit shows one weapon, or none.
+		belt_knife.visible = weapon == &"hatchet"
 
 
 func _sync_back_goad_visibility() -> void:
@@ -697,7 +699,8 @@ func _sync_back_goad_visibility() -> void:
 		return
 	var back_goad := visual_node.find_child("BackGoad", true, false) as Node3D
 	if back_goad:
-		back_goad.visible = combat.current_weapon != CombatSystem.Weapon.GOAD
+		# On the back only for the hatchet. Unarmed and the knife leave no goad mesh.
+		back_goad.visible = combat.current_weapon == CombatSystem.Weapon.HATCHET
 
 
 func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName) -> void:
@@ -831,6 +834,11 @@ func _apply_weapon_idle_pose() -> void:
 		return
 	if combat.current_weapon == CombatSystem.Weapon.HATCHET:
 		_apply_idle_hatchet_hold()
+		_sync_weapon_to_hand()
+		return
+	if combat.current_weapon == CombatSystem.Weapon.UNARMED:
+		# Empty hands. No goad seat and no knife pose.
+		_tool_pose_active = false
 		_sync_weapon_to_hand()
 		return
 	_tool_pose_active = false

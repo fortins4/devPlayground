@@ -29,7 +29,7 @@ signal charge_updated(ratio: float, direction: StringName)
 signal charge_cancelled(weapon: StringName)
 signal charge_released(ratio: float, direction: StringName, kind: StringName)
 
-enum Weapon { HATCHET, KNIFE, GOAD }
+enum Weapon { HATCHET, KNIFE, GOAD, UNARMED }
 enum StrikeDirection { TOP, LEFT, RIGHT, BOTTOM }
 
 const DIRECTION_NAMES := {
@@ -43,6 +43,7 @@ const WEAPON_NAMES := {
 	Weapon.HATCHET: &"hatchet",
 	Weapon.KNIFE: &"knife",
 	Weapon.GOAD: &"goad",
+	Weapon.UNARMED: &"unarmed",
 }
 
 @export var max_health: float = 100.0
@@ -284,8 +285,8 @@ func set_weapon(weapon: Weapon) -> void:
 
 
 func cycle_weapon(direction: int = 1) -> void:
-	# Goad is the default feel. Q steps goad → knife → hatchet (hatchet still in the cycle).
-	var values: Array = [Weapon.GOAD, Weapon.KNIFE, Weapon.HATCHET]
+	# Live kit is goad → knife → unarmed. Hatchet combat remains, but Q does not equip it.
+	var values: Array = [Weapon.GOAD, Weapon.KNIFE, Weapon.UNARMED]
 	var idx := values.find(current_weapon)
 	idx = (idx + direction) % values.size()
 	if idx < 0:
@@ -453,6 +454,9 @@ func try_attack(
 	power: float = -1.0
 ) -> bool:
 	if is_dead or is_attacking:
+		return false
+	# Empty hands. Not a new attack, and not a hatchet retune.
+	if current_weapon == Weapon.UNARMED:
 		return false
 	if is_charging:
 		cancel_charge()
@@ -1051,6 +1055,8 @@ func _apply_weapon_visual() -> void:
 	for child in _weapon_visual.get_children():
 		if child is Node3D:
 			(child as Node3D).visible = false
+	if current_weapon == Weapon.UNARMED:
+		return
 	var wname := String(WEAPON_NAMES[current_weapon]).capitalize()
 	# Expect Hatchet / Knife / Goad mesh children
 	var mesh := _weapon_visual.get_node_or_null(wname)

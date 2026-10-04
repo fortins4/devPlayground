@@ -3,6 +3,7 @@ extends SceneTree
 ## look is the guard (no F), not a parry window;
 ## look-down click and RMB are the same uncharged jab; R is not bound;
 ## knife has no stab and no charge; hatchet hold-charge (top/left/right) remains.
+## The live kit is unarmed, goad, and knife. Q does not equip the hatchet.
 
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 
@@ -181,6 +182,39 @@ func _run() -> void:
 	combat.cycle_weapon(1)
 	if combat.current_weapon != CombatSystem.Weapon.KNIFE:
 		push_error("SMOKE_FAIL Q from goad should land on knife")
+		quit(1)
+		return
+	if bool(player.get_node("WeaponVisual/Goad").visible) or bool(player.get_node("WeaponVisual/Hatchet").visible):
+		push_error("SMOKE_FAIL knife equip still shows another weapon")
+		quit(1)
+		return
+	if not bool(player.get_node("WeaponVisual/Knife").visible):
+		push_error("SMOKE_FAIL knife mesh hidden")
+		quit(1)
+		return
+	combat.cycle_weapon(1)
+	if combat.current_weapon != CombatSystem.Weapon.UNARMED:
+		push_error("SMOKE_FAIL Q from knife should stow, got %s" % combat.weapon_name())
+		quit(1)
+		return
+	if combat.try_attack(&"light") or combat.begin_charge() or combat.set_shaft_block(true):
+		push_error("SMOKE_FAIL unarmed gained an attack, a charge, or a guard")
+		quit(1)
+		return
+	for mesh_name in ["Goad", "Knife", "Hatchet"]:
+		if bool(player.get_node("WeaponVisual/" + mesh_name).visible):
+			push_error("SMOKE_FAIL unarmed still shows " + mesh_name)
+			quit(1)
+			return
+	combat.cycle_weapon(1)
+	if combat.current_weapon != CombatSystem.Weapon.GOAD:
+		push_error("SMOKE_FAIL Q from unarmed should land on goad")
+		quit(1)
+		return
+	# Key 1 stows. It must not equip the hatchet.
+	combat.set_weapon(CombatSystem.Weapon.UNARMED)
+	if combat.current_weapon != CombatSystem.Weapon.UNARMED:
+		push_error("SMOKE_FAIL stow did not leave him unarmed")
 		quit(1)
 		return
 
