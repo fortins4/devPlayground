@@ -919,7 +919,7 @@ func _play_goad_release(kind: StringName, windup: float, active: float, from_cha
 	if float(phases["contact_hold"]) > 0.0:
 		_arm_tween.tween_interval(float(phases["contact_hold"]))
 	_arm_tween.tween_method(_lerp_tool_pose.bind(pose_contact, pose_follow), 0.0, 1.0, phases["follow"]).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_arm_tween.tween_method(_slerp_tool_pose.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_method(_slerp_goad_settle.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_arm_tween.tween_callback(_finish_goad_return)
 
 
@@ -940,6 +940,13 @@ func _lerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> vo
 
 func _slerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
 	_apply_blended_pose(from_pose, to_pose, t, true)
+
+
+func _slerp_goad_settle(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
+	## Same 0.22s ease. The path stays off the back of the head. Not the hurt flinch.
+	_apply_tool_pose(ToolStrikePoses.tool_goad_settle_pose(from_pose, to_pose, t))
+
+
 
 
 func _apply_blended_pose(from_pose: Dictionary, to_pose: Dictionary, t: float, use_slerp: bool) -> void:

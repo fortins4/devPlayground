@@ -131,6 +131,38 @@ static func tool_aim_phase_pose(weapon: int, aim_x: float, aim_y: float, phase: 
 
 
 
+## Ease from a goad follow-through back to idle.
+## The short quaternion arc swings the shaft across the back of the head.
+## A mid-blend bulge holds the grip out to the swing side and forward.
+## Weight is zero at both ends, so the follow pose and the idle pose stay put.
+## t is 0 at follow, 1 at idle. The 0.22s duration is the caller's.
+static func tool_goad_settle_pose(from_pose: Dictionary, to_pose: Dictionary, t: float) -> Dictionary:
+	var pose := {}
+	for k in to_pose.keys():
+		if String(k) == "root_drop":
+			pose[k] = lerpf(float(from_pose.get(k, 0.0)), float(to_pose[k]), t)
+			continue
+		var a: Vector3 = from_pose.get(k, Vector3.ZERO)
+		var b: Vector3 = to_pose[k]
+		pose[k] = Quaternion.from_euler(a).slerp(Quaternion.from_euler(b), t).get_euler()
+	var gate := sin(clampf(t, 0.0, 1.0) * PI)
+	if gate < 0.001 or not pose.has("right_arm") or not pose.has("weapon"):
+		return pose
+	var side := 0.0
+	if from_pose.has("hips"):
+		side = signf((from_pose["hips"] as Vector3).y)
+	pose["right_arm"] = (pose["right_arm"] as Vector3) + Vector3(0.0, side * deg_to_rad(80.0) * gate, 0.0)
+	var weapon: Vector3 = pose["weapon"]
+	weapon.y += -side * deg_to_rad(40.0) * gate
+	weapon.z += deg_to_rad(-30.0) * gate
+	# Overhead and the stab have no hip yaw. Pitch the shaft forward so it
+	# climbs in front of the neck instead of over the back of the head.
+	if absf(side) < 0.5:
+		weapon.x += deg_to_rad(-36.0) * gate
+	pose["weapon"] = weapon
+	return pose
+
+
 static func _charge_lane(aimed: Dictionary, aim_x: float) -> Dictionary:
 	## Side chambers: one extra turn on weapon/arm X. Same orientation at full
 	## charge, but partial holds no longer drag the shaft through the head.
