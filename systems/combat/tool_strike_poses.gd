@@ -175,29 +175,30 @@ static func tool_shaft_block_pose() -> Dictionary:
 
 ## face: chest | left | right | high | low.
 ## chest is the existing diagonal shaft across the body.
-## left/right stand the shaft on that flank. high raises it overhead.
+## left/right hold the shaft out beside that side of the head, not in front of the face. high raises it overhead.
 ## low drops it across the thighs so a front stab meets the stick, not a lunge.
 static func tool_shaft_guard_pose(face: StringName) -> Dictionary:
 	match face:
 		&"left":
-			# Both hands on a shaft that stands on the left, in front. Not a swing.
+			# Shaft stands on the player's left, beside the head, not down the nose.
+			# The right hand crosses out to that side. Not a swing.
 			return _deg_pose(_pack(
-				Vector3(0, 8, -2), Vector3(0, 6, -4), Vector3(2, 6, -2),
-				Vector3(168, 30, 42), Vector3(-75, 0, 0),
-				Vector3(84, 58, 12), Vector3(-36, 8, 4),
-				Vector3(8, 4, -4), Vector3(10, 0, 0),
-				Vector3(6, -2, 4), Vector3(10, 0, 0),
-				Vector3(-20, 48, 0)
+				Vector3(0, 10, -4), Vector3(0, 8, -2), Vector3(2, 8, 0),
+				Vector3(40, -16, 86), Vector3(-36, 0, 0),
+				Vector3(30, -30, -90), Vector3(-18, 0, 0),
+				Vector3(6, 2, -4), Vector3(8, 0, 0),
+				Vector3(4, -2, 4), Vector3(8, 0, 0),
+				Vector3(0, 0, 14)
 			))
 		&"right":
-			# Shaft stands on the right shoulder, in front. Off hand meets it.
+			# Mirror: shaft on the player's right, clear of the face.
 			return _deg_pose(_pack(
-				Vector3(0, -8, 3), Vector3(0, -6, 4), Vector3(2, -6, 2),
-				Vector3(90, -30, 12), Vector3(16, 0, 0),
-				Vector3(88, -30, -20), Vector3(-70, 0, 0),
-				Vector3(6, 2, -4), Vector3(10, 0, 0),
-				Vector3(10, -4, 6), Vector3(12, 0, 0),
-				Vector3(-12, 20, 16)
+				Vector3(0, -10, 4), Vector3(0, -8, 2), Vector3(2, -8, 0),
+				Vector3(36, 18, -20), Vector3(-28, 0, 0),
+				Vector3(0, 30, 110), Vector3(-16, 0, 0),
+				Vector3(4, 2, -4), Vector3(8, 0, 0),
+				Vector3(6, -2, 4), Vector3(8, 0, 0),
+				Vector3(0, 0, -14)
 			))
 		&"high":
 			# Shaft across the face, both hands up. Not the overhead chop.
