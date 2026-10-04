@@ -69,6 +69,66 @@ static func tool_aim_pose(weapon: int, aim_x: float, aim_y: float, ratio: float)
 		elif aim_x >= 0.35:
 			dir = 2
 		return tool_charge_pose(weapon, dir, ratio)
+	var aimed := tool_aim_phase_pose(weapon, aim_x, aim_y, &"charge")
+	# Full aim is unchanged as a pose. The extra turn is only so the blend
+	# from idle rides outside the skull instead of sweeping through it.
+	aimed = _charge_lane(aimed, aim_x)
+	var idle := tool_strike_pose(weapon, 0, &"idle", false)
+	var blend := _charge_blend(ratio)
+	var pose := {}
+	for k in aimed.keys():
+		var a: Vector3 = idle.get(k, Vector3.ZERO)
+		var b: Vector3 = aimed[k]
+		var blended: Vector3 = a.lerp(b, blend)
+		# Lane adds a full turn. Store the pose, not the extra turn, so a
+		# release lerp does not spin the shaft back through the head.
+		if String(k) == "weapon" or String(k) == "right_arm":
+			blended = Quaternion.from_euler(blended).get_euler()
+		pose[k] = blended
+	return pose
+
+
+
+## Contact / follow / charge for the aim he is already holding.
+## Same weights as the hold: top, left, right, and the look-down stab.
+## A diagonal is that blend, not a new thrust and not a snapped cardinal.
+static func tool_aim_phase_pose(weapon: int, aim_x: float, aim_y: float, phase: StringName) -> Dictionary:
+	if weapon != 2:
+		var dir := 0
+		if aim_x <= -0.35:
+			dir = 1
+		elif aim_x >= 0.35:
+			dir = 2
+		return tool_strike_pose(weapon, dir, phase, false)
+	var w := _goad_aim_weights(aim_x, aim_y)
+	var top := tool_strike_pose(weapon, 0, phase, false)
+	var left := tool_strike_pose(weapon, 1, phase, false)
+	var right := tool_strike_pose(weapon, 2, phase, false)
+	var bottom := tool_strike_pose(weapon, 3, phase, false)
+	var aimed := {}
+	for k in top.keys():
+		var v: Vector3 = (top[k] as Vector3) * w.x
+		v += (left[k] as Vector3) * w.y
+		v += (right[k] as Vector3) * w.z
+		v += (bottom[k] as Vector3) * w.w
+		aimed[k] = v
+	return aimed
+
+
+
+static func _charge_lane(aimed: Dictionary, aim_x: float) -> Dictionary:
+	## Side chambers: one extra turn on weapon/arm X. Same orientation at full
+	## charge, but partial holds no longer drag the shaft through the head.
+	if absf(aim_x) < 0.35 or not aimed.has("weapon") or not aimed.has("right_arm"):
+		return aimed
+	var out := aimed.duplicate(true)
+	out["weapon"] = (aimed["weapon"] as Vector3) + Vector3(-TAU, 0.0, 0.0)
+	out["right_arm"] = (aimed["right_arm"] as Vector3) + Vector3(TAU, 0.0, 0.0)
+	return out
+
+
+static func _goad_aim_weights(aim_x: float, aim_y: float) -> Vector4:
+	## x = top, y = player's left, z = player's right, w = look-down stab.
 	var ax := clampf(aim_x, -1.0, 1.0)
 	var ay := clampf(aim_y, -1.0, 1.0)
 	var w_left := clampf(-ax, 0.0, 1.0)
@@ -81,26 +141,7 @@ static func tool_aim_pose(weapon: int, aim_x: float, aim_y: float, ratio: float)
 		w_right *= s
 		w_down *= s
 		off = 1.0
-	var w_top := 1.0 - off
-	var top := tool_strike_pose(weapon, 0, &"charge", false)
-	var left := tool_strike_pose(weapon, 1, &"charge", false)
-	var right := tool_strike_pose(weapon, 2, &"charge", false)
-	var bottom := tool_strike_pose(weapon, 3, &"charge", false)
-	var idle := tool_strike_pose(weapon, 0, &"idle", false)
-	var aimed := {}
-	for k in top.keys():
-		var v: Vector3 = (top[k] as Vector3) * w_top
-		v += (left[k] as Vector3) * w_left
-		v += (right[k] as Vector3) * w_right
-		v += (bottom[k] as Vector3) * w_down
-		aimed[k] = v
-	var blend := _charge_blend(ratio)
-	var pose := {}
-	for k in aimed.keys():
-		var a: Vector3 = idle.get(k, Vector3.ZERO)
-		var b: Vector3 = aimed[k]
-		pose[k] = a.lerp(b, blend)
-	return pose
+	return Vector4(1.0 - off, w_left, w_right, w_down)
 
 
 ## Held goad guard. Not a swing, not a stab chamber, not idle.
@@ -291,20 +332,21 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 		&"charge":
 			# Full 0.75s hold. Deeper than swing windup so mid vs full stills differ.
 			match direction:
-				1: # player's right — mouse-right. Shaft hauled onto the right, feet loaded.
+				1: # player's right — mouse-right. Shaft outside the right shoulder.
+					# Arm/weapon X is wrapped +360/-360 so the charge blend does not sweep through the skull.
 					return _pack(Vector3(12, -52, -18), Vector3(-14, -36, -14), Vector3(8, 18, 0),
 						Vector3(-22, 40, 32), Vector3(22, 0, 0),
-						Vector3(-70, 74, -108), Vector3(-42, 0, 0),
+						Vector3(-120, 74, -188), Vector3(-55, 0, 0),
 						Vector3(-26, 0, 12), Vector3(40, 0, 0),
 						Vector3(34, 0, -16), Vector3(46, 0, 0),
-						Vector3(-56, 42, -124))
-				2: # player's left — mouse-left. Shaft hauled onto the left.
+						Vector3(-116, 72, -164))
+				2: # player's left — mouse-left. Mirror of the right chamber, shaft outside the skull.
 					return _pack(Vector3(12, 52, 18), Vector3(-14, 36, 14), Vector3(8, -18, 0),
 						Vector3(16, -28, -24), Vector3(18, 0, 0),
-						Vector3(-66, -76, 106), Vector3(-38, 0, 0),
+						Vector3(-116, -76, 186), Vector3(-50, 0, 0),
 						Vector3(32, 0, -14), Vector3(44, 0, 0),
 						Vector3(-24, 0, 14), Vector3(42, 0, 0),
-						Vector3(-52, -40, 122))
+						Vector3(-112, -70, 162))
 				3: # stab aim — weight back on a planted front foot, point leads forward.
 					# Keep the spine up. The old 36+28 layback read as a faceplant.
 					return _pack(Vector3(20, 0, 0), Vector3(8, 0, 0), Vector3(-4, 0, 0),
@@ -313,13 +355,13 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 						Vector3(50, 0, -6), Vector3(16, 0, 0),
 						Vector3(-10, 0, 4), Vector3(22, 0, 0),
 						Vector3(-72, 4, -6))
-				_: # top shaft — knees deep, chest back, shaft cocked overhead
+				_: # top shaft — knees deep, chest back, shaft cocked up and off the skull
 					return _pack(Vector3(28, -16, 0), Vector3(-40, -12, 0), Vector3(20, 8, 0),
 						Vector3(-44, 28, 26), Vector3(22, 0, 0),
-						Vector3(-158, -14, -36), Vector3(-52, 0, 0),
+						Vector3(-188, -14, -16), Vector3(-52, 0, 0),
 						Vector3(-24, 0, -10), Vector3(48, 0, 0),
 						Vector3(34, 0, 10), Vector3(54, 0, 0),
-						Vector3(70, 18, -32))
+						Vector3(30, 18, -22))
 		&"windup":
 			match direction:
 				1: # player's right — coil onto the right, shaft cocked on the right

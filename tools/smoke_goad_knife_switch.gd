@@ -316,11 +316,14 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 	var aim_right: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, 1.0, 0.0, 1.0)
 	var aim_low: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, 0.0, 1.0, 1.0)
 	var aim_mid: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, -1.0, 0.0, 0.5)
-	if (aim_left["weapon"] as Vector3).distance_to(shaft_full["weapon"] as Vector3) > 0.02:
+	if Quaternion.from_euler(aim_left["weapon"]).angle_to(Quaternion.from_euler(shaft_full["weapon"])) > 0.05:
 		push_error("SMOKE_FAIL full left aim is not the left charge pose")
 		return false
-	if (aim_right["weapon"] as Vector3).z >= 0.0:
-		push_error("SMOKE_FAIL right aim shaft is not on the player's right")
+	if Quaternion.from_euler(aim_right["weapon"]).angle_to(Quaternion.from_euler(right_full["weapon"])) > 0.05:
+		push_error("SMOKE_FAIL right aim shaft is not the right charge pose")
+		return false
+	if (right_full["weapon"] as Vector3).z >= 0.0:
+		push_error("SMOKE_FAIL right charge shaft is not on the player's right")
 		return false
 	if (aim_low["weapon"] as Vector3).distance_to(stab_full["weapon"] as Vector3) > 0.02:
 		push_error("SMOKE_FAIL look-down aim is not the stab chamber")
@@ -330,6 +333,36 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 		return false
 	if signf((aim_mid["hips"] as Vector3).y) != signf((aim_left["hips"] as Vector3).y):
 		push_error("SMOKE_FAIL mid aim flipped off the full aim")
+		return false
+	# High-left release is the same blend as the hold, not a cardinal or a stab.
+	var hl_hold: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, -0.72, -0.58, 1.0)
+	var hl_hit: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, -0.72, -0.58, &"contact")
+	var top_hit: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.TOP, &"contact", false)
+	var left_hit: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.LEFT, &"contact", false)
+	var right_hit: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.RIGHT, &"contact", false)
+	var stab_hit: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.BOTTOM, &"contact", false)
+	if (hl_hold["hips"] as Vector3).y <= deg_to_rad(8.0):
+		push_error("SMOKE_FAIL high-left hold is not on the player's left")
+		return false
+	# Contact may yaw through the swing. The weapon blend must still be the
+	# high-left mix, not the opposite side and not a stab.
+	var left_charge: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.LEFT, &"charge", false)
+	var right_charge: Dictionary = ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.RIGHT, &"charge", false)
+	if Quaternion.from_euler(hl_hold["weapon"]).angle_to(Quaternion.from_euler(left_charge["weapon"])) >= Quaternion.from_euler(hl_hold["weapon"]).angle_to(Quaternion.from_euler(right_charge["weapon"])):
+		push_error("SMOKE_FAIL high-left hold is closer to the right chamber")
+		return false
+	var hit_w: Vector3 = hl_hit["weapon"]
+	if hit_w.distance_to(top_hit["weapon"]) < deg_to_rad(12.0):
+		push_error("SMOKE_FAIL high-left release collapsed to a pure overhead")
+		return false
+	if hit_w.distance_to(left_hit["weapon"]) < deg_to_rad(12.0):
+		push_error("SMOKE_FAIL high-left release collapsed to a pure side cut")
+		return false
+	if hit_w.distance_to(right_hit["weapon"]) < hit_w.distance_to(left_hit["weapon"]):
+		push_error("SMOKE_FAIL high-left release swung to the right")
+		return false
+	if hit_w.distance_to(stab_hit["weapon"]) < hit_w.distance_to(top_hit["weapon"]):
+		push_error("SMOKE_FAIL high-left release became a forward stab")
 		return false
 	return true
 

@@ -77,6 +77,8 @@ const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
 ## Goad aim stick. Full left/right/stab by the time the strike cardinal locks,
 ## and it keeps tracking back toward center. Not used for guard faces.
 const GOAD_AIM_SPAN := 18.0
+## Follow-through eases back to the ready pose. Not a hard zero, not a victory hold.
+const GOAD_SETTLE_SEC := 0.22
 ## Light footwork step during charge (does NOT cancel charge). Sprint still cancels.
 const CHARGE_STEP_SPEED := 4.4
 const CHARGE_STEP_SECS := 0.13
@@ -813,6 +815,9 @@ func _play_tool_body_strike(kind: StringName, _weapon: StringName) -> void:
 	var direction := combat.last_strike_direction()
 	var weapon_id := combat.current_weapon
 	var from_charge := _tool_pose_active and weapon_id == CombatSystem.Weapon.GOAD
+	if weapon_id == CombatSystem.Weapon.GOAD:
+		_play_goad_release(kind, windup, active, from_charge)
+		return
 	var commit := 1.0
 	if weapon_id == CombatSystem.Weapon.GOAD and not from_charge:
 		var power := combat.last_attack_power
@@ -856,12 +861,61 @@ func _play_tool_body_strike(kind: StringName, _weapon: StringName) -> void:
 	_arm_tween.tween_callback(_clear_attack_additives)
 
 
+
+func _play_goad_release(kind: StringName, windup: float, active: float, from_charge: bool) -> void:
+	## Release continues the live aim. Contact and follow use the same blend
+	## as the hold, so a high-left chamber stays a high-left swing.
+	## No second windup, no cardinal snap, no 1.5x contact pop.
+	var aim := _goad_aim_axes()
+	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	var pose_contact: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"contact")
+	var pose_follow: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"follow")
+	var start_pose: Dictionary = _current_tool_pose(pose_idle) if from_charge else ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, 0.28)
+	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, GOAD_SETTLE_SEC)
+	var drive := float(phases["to_contact"]) + float(phases["windup_move"]) * (0.35 if kind == &"heavy" else 0.55)
+	drive = maxf(0.1, drive)
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+	_tool_pose_active = true
+	_arm_tween = create_tween()
+	_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_contact), 0.0, 1.0, drive).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if float(phases["contact_hold"]) > 0.0:
+		_arm_tween.tween_interval(float(phases["contact_hold"]))
+	_arm_tween.tween_method(_lerp_tool_pose.bind(pose_contact, pose_follow), 0.0, 1.0, phases["follow"]).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_slerp_tool_pose.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_callback(_finish_goad_return)
+
+
+func _finish_goad_return() -> void:
+	## Already eased to the ready pose. Do not snap additives to bind pose.
+	if combat and (combat.is_charging or combat.is_shaft_blocking):
+		return
+	if combat == null or locomotion == null:
+		_tool_pose_active = false
+		return
+	_apply_tool_pose(ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD))
+	_tool_pose_active = false
+
+
 func _lerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
+	_apply_blended_pose(from_pose, to_pose, t, false)
+
+
+func _slerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
+	_apply_blended_pose(from_pose, to_pose, t, true)
+
+
+func _apply_blended_pose(from_pose: Dictionary, to_pose: Dictionary, t: float, use_slerp: bool) -> void:
 	var blended := {}
 	for k in to_pose.keys():
 		var a: Vector3 = from_pose.get(k, Vector3.ZERO)
 		var b: Vector3 = to_pose[k]
-		blended[k] = a.lerp(b, t)
+		if use_slerp:
+			blended[k] = Quaternion.from_euler(a).slerp(Quaternion.from_euler(b), t).get_euler()
+		else:
+			blended[k] = a.lerp(b, t)
 	_apply_tool_pose(blended)
 
 
