@@ -306,14 +306,15 @@ static func tool_shaft_guard_pose(face: StringName) -> Dictionary:
 			high["grip_slide"] = 0.0
 			return high
 		&"low":
-			# Hips drop, knees fold, shaft flat across the thighs. Stops a stab.
+			# Hips drop, knees fold, shaft across the thighs. The pitch meets an
+			# incoming point so the sticks touch. Still the low guard, not a stab.
 			var low := _deg_pose(_pack(
 				Vector3(12, 0, 0), Vector3(16, 0, 0), Vector3(-6, 0, 0),
 				Vector3(0, -6, -42), Vector3(30, 0, 0),
 				Vector3(34.7, 0.1, 12.5), Vector3(8.6, -84.6, 32.4),
 				Vector3(42, 0, -38), Vector3(-70, 0, 0),
 				Vector3(42, 0, 38), Vector3(-70, 0, 0),
-				Vector3(36, 4, 88)
+				Vector3(24, 4, 102)
 			))
 			low["root_drop"] = 0.28
 			low["grip_slide"] = 0.114
