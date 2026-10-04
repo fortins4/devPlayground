@@ -134,17 +134,26 @@ static func tool_aim_phase_pose(weapon: int, aim_x: float, aim_y: float, phase: 
 ## Ease from a goad follow-through back to idle.
 ## The short quaternion arc swings the shaft across the back of the head.
 ## A mid-blend bulge holds the grip out to the swing side and forward.
+## The spine and legs ease back ahead of that arc so the waist does not
+## jackknife and both soles are down at the halfway frame.
 ## Weight is zero at both ends, so the follow pose and the idle pose stay put.
 ## t is 0 at follow, 1 at idle. The 0.22s duration is the caller's.
 static func tool_goad_settle_pose(from_pose: Dictionary, to_pose: Dictionary, t: float) -> Dictionary:
 	var pose := {}
+	# Spine and legs return ahead of the arms. A straight slerp of the
+	# follow-through jackknifes the waist at the halfway frame and leaves
+	# a foot up. Ends stay the follow pose and the ready pose.
+	var body_t := pow(clampf(t, 0.0, 1.0), 0.42)
 	for k in to_pose.keys():
+		var u := t
+		if String(k) in ["root_drop", "hips", "torso", "head", "left_thigh", "left_shin", "right_thigh", "right_shin"]:
+			u = body_t
 		if String(k) == "root_drop":
-			pose[k] = lerpf(float(from_pose.get(k, 0.0)), float(to_pose[k]), t)
+			pose[k] = lerpf(float(from_pose.get(k, 0.0)), float(to_pose[k]), u)
 			continue
 		var a: Vector3 = from_pose.get(k, Vector3.ZERO)
 		var b: Vector3 = to_pose[k]
-		pose[k] = Quaternion.from_euler(a).slerp(Quaternion.from_euler(b), t).get_euler()
+		pose[k] = Quaternion.from_euler(a).slerp(Quaternion.from_euler(b), u).get_euler()
 	var gate := sin(clampf(t, 0.0, 1.0) * PI)
 	if gate < 0.001 or not pose.has("right_arm") or not pose.has("weapon"):
 		return pose
