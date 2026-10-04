@@ -632,6 +632,11 @@ static func seat_goad_off_hand(loco: Object, weapon_visual: Node3D) -> void:
 	var head := loco.get_joint("head") as Node3D
 	if goad == null or left_arm == null or left_fore == null or torso == null or head == null:
 		return
+	var right_arm_early := loco.get_joint("right_arm") as Node3D
+	var right_fore_early := loco.get_joint("right_forearm") as Node3D
+	if right_arm_early != null and right_fore_early != null and _is_authored_left_guard(loco, weapon_visual):
+		_seat_left_guard_beside(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
+		return
 	var shoulder: Vector3 = left_arm.global_position
 	var right_arm := loco.get_joint("right_arm") as Node3D
 	var right_fore := loco.get_joint("right_forearm") as Node3D
@@ -708,6 +713,51 @@ static func seat_goad_off_hand(loco: Object, weapon_visual: Node3D) -> void:
 	var pole: Vector3 = shoulder - torso.global_transform.basis.x * 0.45 + torso.global_transform.basis.y * -0.25
 	_ik_left(loco, left_arm, left_fore, shoulder, pole, palm_target)
 
+
+
+
+## Left guard only. The generic seat pulls this shaft forward of the chest.
+## Keep it beside the left ear, off the neck, and bend the near arm
+## so the shoulder, elbow, and hand are one limb. Other faces do not use this.
+static func _is_authored_left_guard(loco: Object, weapon_visual: Node3D) -> bool:
+	var pose := tool_shaft_guard_pose(&"left")
+	var arm: Vector3 = loco.get_combat_additive("right_arm")
+	var fore: Vector3 = loco.get_combat_additive("right_forearm")
+	if arm.distance_to(pose["right_arm"]) > deg_to_rad(6.0):
+		return false
+	if fore.distance_to(pose["right_forearm"]) > deg_to_rad(8.0):
+		return false
+	if weapon_visual.rotation.distance_to(pose["weapon"]) > deg_to_rad(12.0):
+		return false
+	return true
+
+
+static func _seat_left_guard_beside(loco: Object, weapon_visual: Node3D, goad: Node3D, left_arm: Node3D, left_fore: Node3D, right_arm: Node3D, right_fore: Node3D, torso: Node3D, head: Node3D) -> void:
+	# Just outside the left ear: off the neck, not across the face, not behind the skull.
+	var high: Vector3 = head.to_global(Vector3(-0.30, 0.02, 0.0))
+	# Near arm (player's left) holds the high grip. Elbow drops out so the
+	# upper arm leaves the shoulder pad and the forearm rises to the shaft.
+	var l_shoulder: Vector3 = left_arm.global_position
+	var l_pole: Vector3 = l_shoulder - torso.global_transform.basis.x * 0.48 + torso.global_transform.basis.y * -0.45 + torso.global_transform.basis.z * -0.22
+	_ik_left(loco, left_arm, left_fore, l_shoulder, l_pole, high)
+	var l_palm: Vector3 = left_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	# Far hand holds lower, in front of the chest, so that arm bends outside
+	# the torso instead of running through it. The stick still rises to the
+	# near hand beside the ear.
+	var low: Vector3 = torso.to_global(Vector3(-0.24, 0.44, -0.20))
+	var r_shoulder: Vector3 = right_arm.global_position
+	var r_pole: Vector3 = r_shoulder + torso.global_transform.basis.x * 0.05 + torso.global_transform.basis.y * -0.05 + torso.global_transform.basis.z * -0.8
+	_ik_right(loco, right_arm, right_fore, r_shoulder, r_pole, low)
+	var r_palm: Vector3 = right_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	var axis: Vector3 = (l_palm - r_palm)
+	if axis.length() < 0.05:
+		axis = torso.global_transform.basis.y.normalized()
+	else:
+		axis = axis.normalized()
+	weapon_visual.global_position = r_palm
+	_aim_weapon_y(weapon_visual, axis)
+	var t_off := (l_palm - r_palm).dot(weapon_visual.global_transform.basis.y.normalized())
+	goad.position.y = -_slide_for(-goad.position.y, 0.0, t_off)
 
 
 static func _extrude_right_hand(loco: Object, arm: Node3D, fore: Node3D, torso: Node3D, origin: Vector3) -> void:
