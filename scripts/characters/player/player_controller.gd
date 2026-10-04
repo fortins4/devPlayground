@@ -693,7 +693,10 @@ func _apply_idle_hatchet_hold() -> void:
 
 func _on_weapon_changed(weapon: StringName) -> void:
 	_tool_pose_active = false
-	if locomotion:
+	# Unarmed stow keeps the goad idle so the hands can carry it back.
+	# Clearing here would drop the arms for a frame before the ease.
+	var stow_unarmed := weapon == &"unarmed" and _goad_draw_u > 0.01
+	if locomotion and not stow_unarmed:
 		locomotion.clear_combat_additives()
 	_begin_goad_travel(weapon == &"goad")
 	_sync_back_goad_visibility()
@@ -857,20 +860,18 @@ func _apply_weapon_idle_pose() -> void:
 		_sync_weapon_to_hand()
 		return
 	if combat.current_weapon == CombatSystem.Weapon.UNARMED:
-		# Empty hands. No goad seat and no knife pose.
+		# Stow is the draw run backward: the same idle eases the hands back
+		# with the shaft. Empty hands only once it has seated.
+		if _goad_stowing:
+			_ease_goad_draw_body()
+			_sync_weapon_to_hand()
+			return
 		_tool_pose_active = false
 		_sync_weapon_to_hand()
 		return
 	# Draw eases the body from empty hands into the existing idle. The idle itself is unchanged.
 	if combat.current_weapon == CombatSystem.Weapon.GOAD and _goad_draw_u < 0.999:
-		var pose: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
-		var u := _goad_draw_smooth()
-		for k in pose.keys():
-			var key := String(k)
-			if key == "weapon" or key == "root_drop" or key == "grip_slide":
-				continue
-			locomotion.set_combat_additive(key, (pose[k] as Vector3) * u)
-		_tool_pose_active = false
+		_ease_goad_draw_body()
 		_sync_weapon_to_hand()
 		return
 	_tool_pose_active = false
@@ -1199,7 +1200,10 @@ func _sync_weapon_to_hand() -> void:
 		goad.position.y = -_goad_grip_slide
 
 	var rot := _idle_weapon_euler()
-	if _tool_pose_active and combat and combat.current_weapon != CombatSystem.Weapon.HATCHET:
+	# Stow keeps the goad's hand orientation so the reverse matches the draw.
+	if _goad_stowing and combat and combat.current_weapon == CombatSystem.Weapon.UNARMED:
+		rot = Vector3(deg_to_rad(6.0), deg_to_rad(-4.0), deg_to_rad(78.0))
+	elif _tool_pose_active and combat and combat.current_weapon != CombatSystem.Weapon.HATCHET:
 		rot = _tool_weapon_euler
 	elif combat and combat.is_charging:
 		var t := clampf(combat.charge_ratio, 0.0, 1.0)
@@ -1230,6 +1234,8 @@ func _sync_weapon_to_hand() -> void:
 		var hand_xf := weapon_visual.global_transform
 		var seat_xf := _back_seat_global()
 		weapon_visual.global_transform = seat_xf.interpolate_with(hand_xf, _goad_draw_smooth())
+	elif _goad_stowing:
+		_apply_back_goad_carry(_goad_draw_u)
 	elif combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
 		ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
 	# Keep combat idle rest in sync while not charging so recovery returns to grip.
@@ -1293,10 +1299,22 @@ func _begin_goad_travel(to_hands: bool) -> void:
 		_goad_draw_tween.tween_method(_set_goad_draw_u, _goad_draw_u if _goad_draw_u > 0.0 else 1.0, 0.0, GOAD_DRAW_SEC)
 
 
+func _ease_goad_draw_body() -> void:
+	# Shared by the draw and the stow. u=0 is empty hands, u=1 is the goad idle.
+	var pose: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	var u := _goad_draw_smooth()
+	for k in pose.keys():
+		var key := String(k)
+		if key == "weapon" or key == "root_drop" or key == "grip_slide":
+			continue
+		locomotion.set_combat_additive(key, (pose[k] as Vector3) * u)
+	_tool_pose_active = false
+
+
 func _set_goad_draw_u(u: float) -> void:
 	_goad_draw_u = u
 	if _goad_stowing:
-		_apply_back_goad_carry(u)
+		_apply_weapon_idle_pose()
 		if u <= 0.001:
 			_finish_goad_stow()
 	elif combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
@@ -1308,7 +1326,67 @@ func _apply_back_goad_carry(u: float) -> void:
 	if back == null:
 		return
 	var seat_xf := _back_seat_global()
-	back.global_transform = seat_xf.interpolate_with(_goad_stow_from, clampf(u, 0.0, 1.0))
+	back.visible = true
+	# Unarmed stow is the draw reversed: the eased hand owns the moving end.
+	# Leaving for the knife keeps the straight carry so the knife pose is left alone.
+	if combat and combat.current_weapon == CombatSystem.Weapon.UNARMED and weapon_visual:
+		var s := _goad_draw_smooth()
+		back.global_transform = seat_xf.interpolate_with(weapon_visual.global_transform, s)
+		# Same path as the draw. One hand stays on the shaft until it seats.
+		_guide_stow_hand(back, s)
+	else:
+		back.global_transform = seat_xf.interpolate_with(_goad_stow_from, clampf(u, 0.0, 1.0))
+
+
+func _guide_stow_hand(back: Node3D, s: float) -> void:
+	# Right hand stays on the nearest reachable point of the shaft, then lets go
+	# as it seats. The left hand keeps the eased draw pose. Not a one-hand draw.
+	if s < 0.22 or s > 0.92 or locomotion == null:
+		return
+	var arm := locomotion.get_joint("right_arm") as Node3D
+	var fore := locomotion.get_joint("right_forearm") as Node3D
+	if arm == null or fore == null:
+		return
+	var shoulder: Vector3 = arm.global_position
+	var best := Vector3.INF
+	var best_d := 99.0
+	for i in 13:
+		var y := lerpf(-0.15, 1.02, i / 12.0)
+		var p: Vector3 = back.to_global(Vector3(0.0, y, 0.0))
+		var d := shoulder.distance_to(p)
+		if d < best_d:
+			best_d = d
+			best = p
+	if best == Vector3.INF or best_d > 0.60:
+		return
+	var l1 := 0.30
+	var l2 := 0.30
+	var dir := (best - shoulder).normalized()
+	var d := clampf(best_d, 0.12, l1 + l2 - 0.015)
+	var pole := Vector3(0.2, -0.2, 0.6)
+	var bend := pole - dir * pole.dot(dir)
+	if bend.length_squared() < 0.0001:
+		bend = Vector3.DOWN
+	bend = bend.normalized()
+	var cos_a := clampf((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0)
+	var sin_a := sqrt(maxf(0.0, 1.0 - cos_a * cos_a))
+	var elbow: Vector3 = shoulder + dir * (l1 * cos_a) + bend * (l1 * sin_a)
+	_aim_bone_down(arm, shoulder, elbow)
+	_aim_bone_down(fore, arm.to_global(Vector3(0.0, -0.30, 0.0)), best)
+	locomotion.set_combat_additive("right_arm", arm.rotation - (locomotion._rest["right_arm"]["rot"] as Vector3))
+	locomotion.set_combat_additive("right_forearm", fore.rotation - (locomotion._rest["right_forearm"]["rot"] as Vector3))
+
+
+func _aim_bone_down(bone: Node3D, world_from: Vector3, world_to: Vector3) -> void:
+	var aim := world_to - world_from
+	if aim.length_squared() < 0.0001:
+		return
+	var y := -aim.normalized()
+	var x := y.cross(Vector3(0.0, 0.0, 1.0))
+	if x.length_squared() < 0.0001:
+		x = y.cross(Vector3(1.0, 0.0, 0.0))
+	x = x.normalized()
+	bone.global_basis = Basis(x, y, x.cross(y).normalized())
 
 
 func _finish_goad_stow() -> void:
