@@ -699,8 +699,8 @@ func _sync_back_goad_visibility() -> void:
 		return
 	var back_goad := visual_node.find_child("BackGoad", true, false) as Node3D
 	if back_goad:
-		# On the back only for the hatchet. Unarmed and the knife leave no goad mesh.
-		back_goad.visible = combat.current_weapon == CombatSystem.Weapon.HATCHET
+		# In the hands only while the goad is equipped. Otherwise it rests on the back.
+		back_goad.visible = combat.current_weapon != CombatSystem.Weapon.GOAD
 
 
 func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName) -> void:
@@ -1205,7 +1205,8 @@ func _idle_weapon_euler() -> Vector3:
 		return Vector3(deg_to_rad(-12.0), deg_to_rad(6.0), deg_to_rad(-14.0))
 	match combat.current_weapon:
 		CombatSystem.Weapon.GOAD:
-			return Vector3(deg_to_rad(-18.0), deg_to_rad(6.0), deg_to_rad(-6.0))
+			# Across the chest, out in front. Not a vertical pole up the face.
+			return Vector3(deg_to_rad(22.0), deg_to_rad(-10.0), deg_to_rad(58.0))
 		CombatSystem.Weapon.KNIFE:
 			# Matches tool idle: blade up beside the chest, not the strike thrust.
 			return Vector3(deg_to_rad(-28.0), deg_to_rad(16.0), deg_to_rad(-36.0))

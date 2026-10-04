@@ -271,14 +271,21 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 		# Goad stowed on back when not active (silhouette of cattle kit)
 		var back_goad := Node3D.new()
 		back_goad.name = "BackGoad"
-		back_goad.position = Vector3(-0.12, 0.35, 0.22)
-		back_goad.rotation_degrees = Vector3(8.0, 0.0, -18.0)
+		# Diagonal across the upper back. +Z is the cloak side. Not upright
+		# past the skull and not out in front of the face.
+		back_goad.position = Vector3(0.02, 0.30, 0.26)
+		back_goad.rotation_degrees = Vector3(16.0, -6.0, 70.0)
 		torso.add_child(back_goad)
 		var goad_mesh := BoxMesh.new()
-		goad_mesh.size = Vector3(0.03, 1.15, 0.03)
+		goad_mesh.size = Vector3(0.035, 1.05, 0.035)
 		var goad_mi := _mesh_inst(goad_mesh, wood, "Staff")
-		goad_mi.position = Vector3(0.0, 0.15, 0.0)
+		goad_mi.position = Vector3.ZERO
 		back_goad.add_child(goad_mi)
+		var tip_mesh := BoxMesh.new()
+		tip_mesh.size = Vector3(0.07, 0.08, 0.07)
+		var tip_mi := _mesh_inst(tip_mesh, iron, "Tip")
+		tip_mi.position = Vector3(0.0, 0.52, 0.0)
+		back_goad.add_child(tip_mi)
 
 	return {
 		"root": root,
