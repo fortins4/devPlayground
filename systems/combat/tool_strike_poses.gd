@@ -233,10 +233,10 @@ static func _goad_root_drop(direction: int, phase: StringName) -> float:
 	if phase == &"idle":
 		return 0.0
 	var table := {
-		"charge_0": 0.10, "charge_1": 0.22, "charge_2": 0.14, "charge_3": 0.30,
-		"windup_0": 0.18, "windup_1": 0.14, "windup_2": 0.10, "windup_3": 0.10,
-		"contact_0": 0.10, "contact_1": 0.14, "contact_2": 0.14, "contact_3": 0.10,
-		"follow_0": 0.10, "follow_1": 0.18, "follow_2": 0.12, "follow_3": 0.06,
+		"charge_0": 0.12, "charge_1": 0.12, "charge_2": 0.12, "charge_3": 0.20,
+		"windup_0": 0.10, "windup_1": 0.12, "windup_2": 0.12, "windup_3": 0.12,
+		"contact_0": 0.13, "contact_1": 0.12, "contact_2": 0.12, "contact_3": 0.11,
+		"follow_0": 0.16, "follow_1": 0.20, "follow_2": 0.20, "follow_3": 0.10,
 	}
 	return float(table.get("%s_%d" % [phase, direction], 0.0))
 
@@ -363,128 +363,130 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 				Vector3(2, 0, 3), Vector3(4, 0, 0),
 				Vector3(-18, 6, -6))
 		&"charge":
-			# Full 0.75s hold. Deeper than swing windup so mid vs full stills differ.
+			# Full 0.75s hold. Weight steps into the strike, not a flat squat.
+			# Lead hip drops, lead knee folds, trail leg stays long and planted.
+			# Arms and shaft are unchanged so the stick stays outside the body.
 			match direction:
 				1: # player's right — mouse-right. Shaft outside the right shoulder.
 					# Arm/weapon X is wrapped +360/-360 so the charge blend does not sweep through the skull.
-					return _pack(Vector3(12, -52, -18), Vector3(-14, -36, -14), Vector3(8, 18, 0),
+					return _pack(Vector3(-8, -52, -16), Vector3(-24, -46, -32), Vector3(2, 20, -12),
 						Vector3(-22, 40, 32), Vector3(22, 0, 0),
 						Vector3(-120, 74, -188), Vector3(-55, 0, 0),
-						Vector3(28, 0, 12), Vector3(-35, 0, 0),
-						Vector3(4, 0, -16), Vector3(-20, 0, 0),
+						Vector3(12, -2, -6), Vector3(-20, 0, 0),
+						Vector3(58, -4, 24), Vector3(-64, 0, 0),
 						Vector3(-116, 72, -164))
 				2: # player's left — mouse-left. Mirror of the right chamber, shaft outside the skull.
-					return _pack(Vector3(12, 52, 18), Vector3(-14, 36, 14), Vector3(8, -18, 0),
+					return _pack(Vector3(-8, 52, 16), Vector3(-24, 46, 32), Vector3(2, -20, 12),
 						Vector3(16, -28, -24), Vector3(18, 0, 0),
 						Vector3(-116, -76, 186), Vector3(-50, 0, 0),
-						Vector3(48, 0, -14), Vector3(-65, 0, 0),
-						Vector3(16, 0, 14), Vector3(-35, 0, 0),
+						Vector3(58, 4, -24), Vector3(-64, 0, 0),
+						Vector3(12, 2, 6), Vector3(-20, 0, 0),
 						Vector3(-112, -70, 162))
-				3: # stab aim — weight back on a planted front foot, point leads forward.
-					# Keep the spine up. The old 36+28 layback read as a faceplant.
-					return _pack(Vector3(20, 0, 0), Vector3(8, 0, 0), Vector3(-4, 0, 0),
+				3: # stab aim — rear foot planted, front foot out, point leads.
+					# Positive hip pitch is the load back. Contact is the lunge.
+					return _pack(Vector3(22, 0, 0), Vector3(6, 0, 0), Vector3(-4, 0, 0),
 						Vector3(-18, 16, 18), Vector3(16, 0, 0),
 						Vector3(-36, 6, -10), Vector3(-12, 0, 0),
-						Vector3(50, 0, -6), Vector3(-70, 0, 0),
-						Vector3(48, 0, 4), Vector3(-70, 0, 0),
+						Vector3(66, 0, -4), Vector3(-72, 0, 0),
+						Vector3(16, 0, 4), Vector3(-26, 0, 0),
 						Vector3(-72, 4, -6))
-				_: # top shaft — knees deep, chest back, shaft cocked up and off the skull
-					return _pack(Vector3(28, -16, 0), Vector3(-40, -12, 0), Vector3(20, 8, 0),
+				_: # overhead — chest and front foot under the shaft, not a two-knee squat
+					return _pack(Vector3(-26, 0, 0), Vector3(-22, 0, 0), Vector3(16, 2, 0),
 						Vector3(-44, 28, 26), Vector3(22, 0, 0),
 						Vector3(-188, -14, -16), Vector3(-52, 0, 0),
-						Vector3(8, 0, -10), Vector3(-35, 0, 0),
-						Vector3(4, 0, 10), Vector3(-35, 0, 0),
+						Vector3(62, 0, -4), Vector3(-68, 0, 0),
+						Vector3(10, 0, 4), Vector3(-34, 0, 0),
 						Vector3(30, 18, -22))
 		&"windup":
 			match direction:
-				1: # player's right — coil onto the right, shaft cocked on the right
-					return _pack(Vector3(6, -28, -10), Vector3(-6, -18, -6), Vector3(4, 10, 0),
+				1: # player's right — step onto the right, shaft cocked on the right
+					return _pack(Vector3(-6, -36, -22), Vector3(-4, -24, -16), Vector3(4, 10, 0),
 						Vector3(-10, 24, 18), Vector3(12, 0, 0),
 						Vector3(-36, 40, -62), Vector3(-18, 0, 0),
-						Vector3(28, 0, 6), Vector3(-35, 0, 0),
-						Vector3(28, 0, -8), Vector3(-35, 0, 0),
+						Vector3(8, 2, -6), Vector3(-16, 0, 0),
+						Vector3(46, -4, 24), Vector3(-52, 0, 0),
 						Vector3(-24, 18, -78))
-				2: # player's left — coil onto the left, shaft cocked on the left
-					return _pack(Vector3(6, 28, 10), Vector3(-6, 18, 6), Vector3(4, -10, 0),
+				2: # player's left — step onto the left, shaft cocked on the left
+					return _pack(Vector3(-6, 36, 22), Vector3(-4, 24, 16), Vector3(4, -10, 0),
 						Vector3(8, -16, -14), Vector3(10, 0, 0),
 						Vector3(-34, -42, 64), Vector3(-16, 0, 0),
-						Vector3(38, 0, -6), Vector3(-50, 0, 0),
-						Vector3(28, 0, 8), Vector3(-35, 0, 0),
+						Vector3(46, 4, -24), Vector3(-52, 0, 0),
+						Vector3(8, -2, 6), Vector3(-16, 0, 0),
 						Vector3(-22, -16, 76))
-				3: # stab chamber — weight back, point not yet committed
-					return _pack(Vector3(10, 0, 0), Vector3(6, 0, 0), Vector3(-4, 0, 0),
+				3: # stab chamber — front foot out, rear foot planted
+					return _pack(Vector3(12, 0, 0), Vector3(4, 0, 0), Vector3(-4, 0, 0),
 						Vector3(-6, 10, 16), Vector3(14, 0, 0),
 						Vector3(-28, 4, -10), Vector3(-6, 0, 0),
-						Vector3(28, 0, -2), Vector3(-35, 0, 0),
-						Vector3(28, 0, 2), Vector3(-35, 0, 0),
+						Vector3(42, 0, -2), Vector3(-48, 0, 0),
+						Vector3(12, 0, 2), Vector3(-18, 0, 0),
 						Vector3(-62, 2, -4))
-				_: # top shaft — knees soft, shaft cocked overhead, chest back
-					return _pack(Vector3(14, -8, 0), Vector3(-18, -6, 0), Vector3(10, 4, 0),
+				_: # overhead — front foot under the cock, not both knees
+					return _pack(Vector3(-8, 0, 0), Vector3(-6, 0, 0), Vector3(10, 4, 0),
 						Vector3(-24, 16, 14), Vector3(8, 0, 0),
 						Vector3(-108, -6, -18), Vector3(-22, 0, 0),
-						Vector3(38, 0, -4), Vector3(-50, 0, 0),
-						Vector3(40, 0, 4), Vector3(-50, 0, 0),
+						Vector3(44, 0, -6), Vector3(-50, 0, 0),
+						Vector3(10, 0, 4), Vector3(-16, 0, 0),
 						Vector3(28, 8, -12))
 		&"follow":
 			match direction:
 				1:
-					return _pack(Vector3(-4, 40, 16), Vector3(10, 22, 10), Vector3(-4, -8, 0),
+					return _pack(Vector3(-8, 44, 30), Vector3(12, 28, 20), Vector3(-4, -8, 4),
 						Vector3(22, -36, -30), Vector3(16, 0, 0),
 						Vector3(24, -18, 70), Vector3(18, 0, 0),
-						Vector3(48, 0, -22), Vector3(-35, 0, 0),
-						Vector3(16, 0, 8), Vector3(-20, 0, 0),
+						Vector3(14, 0, -10), Vector3(-22, 0, 0),
+						Vector3(58, -4, 28), Vector3(-62, 0, 0),
 						Vector3(-8, -12, 96))
 				2:
-					return _pack(Vector3(-4, -40, -16), Vector3(10, -22, -10), Vector3(-4, 8, 0),
+					return _pack(Vector3(-8, -44, -30), Vector3(12, -28, -20), Vector3(-4, 8, -4),
 						Vector3(18, 28, 24), Vector3(14, 0, 0),
 						Vector3(22, 16, -68), Vector3(16, 0, 0),
-						Vector3(48, 0, 8), Vector3(-35, 0, 0),
-						Vector3(28, 0, -20), Vector3(-35, 0, 0),
+						Vector3(58, 4, -28), Vector3(-62, 0, 0),
+						Vector3(14, 0, 10), Vector3(-22, 0, 0),
 						Vector3(-6, 14, -94))
 				3:
-					return _pack(Vector3(-16, 0, 0), Vector3(-20, 0, 0), Vector3(14, 0, 0),
+					return _pack(Vector3(-18, 0, 0), Vector3(-16, 0, 0), Vector3(10, 0, 0),
 						Vector3(6, -30, -28), Vector3(22, 0, 0),
 						Vector3(48, 0, -4), Vector3(-4, 0, 0),
-						Vector3(38, 0, -4), Vector3(-20, 0, 0),
-						Vector3(40, 0, 6), Vector3(-20, 0, 0),
+						Vector3(52, 0, -4), Vector3(-36, 0, 0),
+						Vector3(18, 0, 4), Vector3(-22, 0, 0),
 						Vector3(-98, 0, 2))
 				_:
-					return _pack(Vector3(-12, 4, 0), Vector3(20, 6, 0), Vector3(-6, 0, 0),
+					return _pack(Vector3(-8, 0, 0), Vector3(8, 4, 0), Vector3(-4, 0, 0),
 						Vector3(28, -18, -22), Vector3(12, 0, 0),
 						Vector3(64, 8, 24), Vector3(16, 0, 0),
-						Vector3(48, 0, -6), Vector3(-35, 0, 0),
-						Vector3(40, 0, 6), Vector3(-35, 0, 0),
+						Vector3(52, 0, -6), Vector3(-48, 0, 0),
+						Vector3(14, 0, 6), Vector3(-22, 0, 0),
 						Vector3(-108, 6, 16))
 		_:
 			# contact
 			match direction:
-				1: # player's right contact — swing that started on the right finishes through
-					return _pack(Vector3(-2, 32, 14), Vector3(8, 16, 8), Vector3(-2, -6, 0),
+				1: # player's right contact — weight has stepped through onto the right
+					return _pack(Vector3(-12, -46, -18), Vector3(-8, -36, -24), Vector3(-4, -12, 8),
 						Vector3(16, -28, -24), Vector3(14, 0, 0),
 						Vector3(12, -6, 58), Vector3(14, 0, 0),
-						Vector3(48, 0, -18), Vector3(-50, 0, 0),
-						Vector3(28, 0, 6), Vector3(-20, 0, 0),
+						Vector3(12, 0, -4), Vector3(-18, 0, 0),
+						Vector3(56, -4, 22), Vector3(-62, 0, 0),
 						Vector3(-12, -6, 82))
-				2: # player's left contact — swing that started on the left finishes through
-					return _pack(Vector3(-2, -32, -14), Vector3(8, -16, -8), Vector3(-2, 6, 0),
+				2: # player's left contact — weight has stepped through onto the left
+					return _pack(Vector3(-12, 46, 18), Vector3(-8, 36, 24), Vector3(-4, 12, -8),
 						Vector3(14, 24, 20), Vector3(12, 0, 0),
 						Vector3(14, 8, -56), Vector3(12, 0, 0),
-						Vector3(38, 0, 6), Vector3(-35, 0, 0),
-						Vector3(28, 0, -16), Vector3(-35, 0, 0),
+						Vector3(56, 4, -22), Vector3(-62, 0, 0),
+						Vector3(12, 0, 4), Vector3(-18, 0, 0),
 						Vector3(-10, 8, -80))
-				3: # bottom stab — chest and front foot drive forward, point leads
-					return _pack(Vector3(-14, 0, 0), Vector3(-18, 0, 0), Vector3(12, 0, 0),
+				3: # bottom stab — chest and front foot drive forward, rear foot stays down
+					return _pack(Vector3(-22, 0, 0), Vector3(-16, 0, 0), Vector3(10, 0, 0),
 						Vector3(4, -22, -22), Vector3(18, 0, 0),
 						Vector3(36, 2, -6), Vector3(-6, 0, 0),
-						Vector3(55, 0, -3), Vector3(-40, 0, 0),
-						Vector3(48, 0, 5), Vector3(-40, 0, 0),
+						Vector3(58, 0, -3), Vector3(-64, 0, 0),
+						Vector3(20, 0, 3), Vector3(-42, 0, 0),
 						Vector3(-92, 0, 2))
-				_: # top shaft coming down — hand still high, shaft diagonal, front foot loaded
-					return _pack(Vector3(-4, 0, 0), Vector3(-10, 3, 0), Vector3(6, 0, 0),
+				_: # overhead coming down — front foot under the shaft, rear foot braced
+					return _pack(Vector3(-24, 0, 0), Vector3(-16, 2, 0), Vector3(8, 0, 0),
 						Vector3(-8, -20, -18), Vector3(8, 0, 0),
 						Vector3(-28, 8, 16), Vector3(-8, 0, 0),
-						Vector3(38, 0, -6), Vector3(-35, 0, 0),
-						Vector3(40, 0, 6), Vector3(-35, 0, 0),
+						Vector3(58, 0, -4), Vector3(-64, 0, 0),
+						Vector3(12, 0, 4), Vector3(-34, 0, 0),
 						Vector3(-42, 6, 18))
 
 
