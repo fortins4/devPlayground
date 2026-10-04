@@ -270,11 +270,11 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 		belt_knife.add_child(bk_b)
 
 		# Same goad as the hands: full 1.75 shaft and gray head. Not scaled.
-		# Head just off the right shoulder. Butt pulled in so the shaft
-		# lies on the back plane, inside the hip, not leaned out past it.
+		# Head just off the right shoulder, under the skull. Butt on the back plane,
+		# lifted just enough that it clears the grass without standing over the skull.
 		var back_goad := Node3D.new()
 		back_goad.name = "BackGoad"
-		back_goad.position = Vector3(0.056, -1.035, -0.199)
+		back_goad.position = Vector3(0.056, -0.760, -0.199)
 		back_goad.rotation_degrees = Vector3(0.32, -0.05, -8.1)
 		torso.add_child(back_goad)
 		var goad_mesh := BoxMesh.new()
