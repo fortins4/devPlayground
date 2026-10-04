@@ -867,8 +867,10 @@ static func _apply_flinch_lean(loco: Object, kind: StringName) -> void:
 			torso = Vector3(deg_to_rad(6.0), deg_to_rad(14.0), deg_to_rad(28.0))
 			head = Vector3(deg_to_rad(0.0), deg_to_rad(8.0), deg_to_rad(14.0))
 		&"left":
-			torso = Vector3(deg_to_rad(6.0), deg_to_rad(-14.0), deg_to_rad(-28.0))
-			head = Vector3(deg_to_rad(0.0), deg_to_rad(-8.0), deg_to_rad(-14.0))
+			# Shared flinch hips already yaw left. Roll, not a spin, so the
+			# chest bends to the player's right and the face stays forward.
+			torso = Vector3(deg_to_rad(6.0), deg_to_rad(-6.0), deg_to_rad(-44.0))
+			head = Vector3(deg_to_rad(0.0), deg_to_rad(-4.0), deg_to_rad(-18.0))
 		&"low":
 			# Rising hit: fold the chest back (+X sends the head toward +Z).
 			torso = Vector3(deg_to_rad(24.0), 0.0, 0.0)
@@ -898,10 +900,10 @@ static func _seat_flinch_below_chin(loco: Object, weapon_visual: Node3D, goad: N
 			r_pole_local = Vector3(-0.1, -0.2, -0.45)
 			l_pole_local = Vector3(-0.5, -0.12, -0.4)
 		&"left":
-			right_local = Vector3(0.52, -0.30, -0.58)
-			left_local = Vector3(0.08, -0.42, -0.62)
-			r_pole_local = Vector3(0.5, -0.12, -0.4)
-			l_pole_local = Vector3(0.1, -0.2, -0.45)
+			right_local = Vector3(0.58, -0.28, -0.60)
+			left_local = Vector3(0.12, -0.40, -0.64)
+			r_pole_local = Vector3(0.55, -0.10, -0.42)
+			l_pole_local = Vector3(0.16, -0.18, -0.48)
 		&"low":
 			# Chest open, bar still in front and under the chin. Not over the skull.
 			right_local = Vector3(0.22, -0.82, -0.62)
