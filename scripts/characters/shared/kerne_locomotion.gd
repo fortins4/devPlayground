@@ -19,6 +19,7 @@ var _last_yaw: float = 0.0
 var _state: StringName = &"idle"
 var _attack_lock: float = 0.0
 var _combat_overrides: Dictionary = {} ## joint_name -> Vector3 euler additive
+var _root_drop: float = 0.0 ## metres; kept across tick so a planted stance is not popped back up
 
 # Cached owner body for yaw delta
 var _body: Node3D
@@ -89,13 +90,15 @@ func has_combat_additive(joint: String) -> bool:
 	return _combat_overrides.has(joint)
 
 
-## Drop the skeleton root for a crouched guard. 0 restores the authored rest.
+## Drop the skeleton root for a crouched guard or a planted goad stance.
+## 0 restores the authored rest. The value survives tick(); the walk bob stacks on top.
 func set_root_drop(drop: float) -> void:
+	_root_drop = maxf(drop, 0.0)
 	var n: Node3D = joints.get("root") as Node3D
 	if n == null or not _rest.has("root"):
 		return
 	var rest_pos: Vector3 = _rest["root"]["pos"]
-	n.position = rest_pos + Vector3(0.0, -drop, 0.0)
+	n.position = rest_pos + Vector3(0.0, -_root_drop, 0.0)
 
 
 func clear_combat_additives() -> void:
@@ -115,6 +118,7 @@ func reset_to_rest() -> void:
 	_turn_blend = 0.0
 	_attack_lock = 0.0
 	_combat_overrides.clear()
+	_root_drop = 0.0
 	_state = &"idle"
 	for key in joints:
 		var n: Node3D = joints[key] as Node3D
@@ -133,6 +137,7 @@ func tick_mounted(delta: float, horiz_speed: float, galloping: bool = false) -> 
 
 	_attack_lock = 0.0
 	_combat_overrides.clear()
+	_root_drop = 0.0
 	_breath += delta
 
 	var target_state: StringName = &"mounted_idle"
@@ -278,7 +283,7 @@ func tick(
 	var c := cos(_phase)
 	var breath := sin(_breath * 1.7) * 0.012
 
-	_apply_joint("root", Vector3(0.0, bob * absf(s) - crouch_sink, 0.0), Vector3.ZERO)
+	_apply_joint("root", Vector3(0.0, bob * absf(s) - crouch_sink - _root_drop, 0.0), Vector3.ZERO)
 
 	var hip_sway := Vector3(0.0, s * stride * 0.08, 0.0)
 	if _state == &"turn":

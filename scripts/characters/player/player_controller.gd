@@ -91,6 +91,7 @@ var _charge_step_dir: Vector3 = Vector3.ZERO
 var _tool_aim_delta: Vector2 = Vector2.ZERO
 ## Player-space weapon euler while a goad/knife body strike owns the mesh.
 var _tool_weapon_euler: Vector3 = Vector3.ZERO
+var _tool_root_drop: float = 0.0
 var _tool_pose_active: bool = false
 ## True while the goad shaft-block pose is applied (so sprint/release can drop it).
 var _shaft_pose_applied: bool = false
@@ -780,6 +781,7 @@ func _apply_torso_additive(v: Vector3) -> void:
 
 func _clear_attack_additives() -> void:
 	_tool_pose_active = false
+	_tool_root_drop = 0.0
 	if locomotion:
 		locomotion.clear_combat_additives()
 	if combat and not combat.is_charging and not combat.is_attacking:
@@ -910,6 +912,9 @@ func _slerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> v
 func _apply_blended_pose(from_pose: Dictionary, to_pose: Dictionary, t: float, use_slerp: bool) -> void:
 	var blended := {}
 	for k in to_pose.keys():
+		if String(k) == "root_drop":
+			blended[k] = lerpf(float(from_pose.get(k, 0.0)), float(to_pose[k]), t)
+			continue
 		var a: Vector3 = from_pose.get(k, Vector3.ZERO)
 		var b: Vector3 = to_pose[k]
 		if use_slerp:
@@ -924,6 +929,9 @@ func _scale_tool_pose(pose: Dictionary, scale: float) -> Dictionary:
 		return pose
 	var out := {}
 	for k in pose.keys():
+		if String(k) == "root_drop":
+			out[k] = float(pose[k])
+			continue
 		out[k] = (pose[k] as Vector3) * scale
 	return out
 
@@ -931,12 +939,15 @@ func _scale_tool_pose(pose: Dictionary, scale: float) -> Dictionary:
 func _current_tool_pose(fallback: Dictionary) -> Dictionary:
 	var pose := {}
 	for k in fallback.keys():
-		if String(k) == "weapon":
+		if String(k) == "root_drop":
+			pose[k] = _tool_root_drop
+		elif String(k) == "weapon":
 			pose[k] = _tool_weapon_euler
 		elif locomotion and locomotion.has_combat_additive(String(k)):
 			pose[k] = locomotion.get_combat_additive(String(k))
 		else:
 			pose[k] = fallback[k]
+	pose["root_drop"] = _tool_root_drop
 	return pose
 
 
@@ -947,6 +958,7 @@ func _apply_tool_pose(pose: Dictionary) -> void:
 	var drop := 0.0
 	if pose.has("root_drop"):
 		drop = float(pose["root_drop"])
+	_tool_root_drop = drop
 	locomotion.set_root_drop(drop)
 	for k in pose.keys():
 		if String(k) == "weapon":

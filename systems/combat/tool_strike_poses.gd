@@ -27,11 +27,17 @@ static func tool_strike_pose(weapon: int, direction: int, phase: StringName, hea
 	var spec: Dictionary = _knife_spec(direction, phase) if is_knife else _goad_spec(direction, phase)
 	var pose := {}
 	for k in spec.keys():
+		if String(k) == "root_drop":
+			continue
 		var d: Vector3 = spec[k]
 		var scale := 1.0
 		if heavy and phase != &"idle":
 			scale = 1.08 if String(k) == "weapon" else 1.16
 		pose[String(k)] = Vector3(deg_to_rad(d.x * scale), deg_to_rad(d.y * scale), deg_to_rad(d.z * scale))
+	# Goad strikes sink the hips so a bent knee still reaches the ground.
+	# Idle is 0. Knife poses do not carry this key.
+	if not is_knife:
+		pose["root_drop"] = _goad_root_drop(direction, phase)
 	return pose
 
 
@@ -50,6 +56,9 @@ static func tool_charge_pose(weapon: int, direction: int, ratio: float) -> Dicti
 		t *= 0.55
 	var pose := {}
 	for k in full.keys():
+		if String(k) == "root_drop":
+			pose[k] = lerpf(float(idle.get(k, 0.0)), float(full[k]), t)
+			continue
 		var a: Vector3 = idle.get(k, Vector3.ZERO)
 		var b: Vector3 = full[k]
 		pose[k] = a.lerp(b, t)
@@ -77,6 +86,9 @@ static func tool_aim_pose(weapon: int, aim_x: float, aim_y: float, ratio: float)
 	var blend := _charge_blend(ratio)
 	var pose := {}
 	for k in aimed.keys():
+		if String(k) == "root_drop":
+			pose[k] = lerpf(float(idle.get(k, 0.0)), float(aimed[k]), blend)
+			continue
 		var a: Vector3 = idle.get(k, Vector3.ZERO)
 		var b: Vector3 = aimed[k]
 		var blended: Vector3 = a.lerp(b, blend)
@@ -107,6 +119,9 @@ static func tool_aim_phase_pose(weapon: int, aim_x: float, aim_y: float, phase: 
 	var bottom := tool_strike_pose(weapon, 3, phase, false)
 	var aimed := {}
 	for k in top.keys():
+		if String(k) == "root_drop":
+			aimed[k] = float(top.get(k, 0.0)) * w.x + float(left.get(k, 0.0)) * w.y + float(right.get(k, 0.0)) * w.z + float(bottom.get(k, 0.0)) * w.w
+			continue
 		var v: Vector3 = (top[k] as Vector3) * w.x
 		v += (left[k] as Vector3) * w.y
 		v += (right[k] as Vector3) * w.z
@@ -210,6 +225,22 @@ static func tool_shaft_guard_pose(face: StringName) -> Dictionary:
 			return tool_shaft_block_pose()
 
 
+
+## Metres to sink the skeleton so the goad stance's bent knees still meet the ground.
+## Keyed by the caller's strike direction (before the left/right authoring swap).
+## 0 on idle. Not a glow and not a parry.
+static func _goad_root_drop(direction: int, phase: StringName) -> float:
+	if phase == &"idle":
+		return 0.0
+	var table := {
+		"charge_0": 0.10, "charge_1": 0.22, "charge_2": 0.14, "charge_3": 0.30,
+		"windup_0": 0.18, "windup_1": 0.14, "windup_2": 0.10, "windup_3": 0.10,
+		"contact_0": 0.10, "contact_1": 0.14, "contact_2": 0.14, "contact_3": 0.10,
+		"follow_0": 0.10, "follow_1": 0.18, "follow_2": 0.12, "follow_3": 0.06,
+	}
+	return float(table.get("%s_%d" % [phase, direction], 0.0))
+
+
 static func _deg_pose(spec: Dictionary) -> Dictionary:
 	var pose := {}
 	for k in spec.keys():
@@ -311,6 +342,8 @@ static func _knife_spec(direction: int, phase: StringName) -> Dictionary:
 
 static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 	# direction 3 = bottom stab. Others are shaft strikes that load the feet.
+	# Shin pitch is negative so the knee folds and the sole stays down. A positive shin kicks the foot up.
+	# root_drop (applied in tool_strike_pose) lowers the hips into that bend. Not a stiff A-pose.
 	# Blocks 1 and 2 were authored mirrored against look direction: block 1
 	# plants the shaft on the player's right, block 2 on the player's left.
 	# Mouse-left is StrikeDirection.LEFT and must swing FROM the player's left,
@@ -337,30 +370,30 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 					return _pack(Vector3(12, -52, -18), Vector3(-14, -36, -14), Vector3(8, 18, 0),
 						Vector3(-22, 40, 32), Vector3(22, 0, 0),
 						Vector3(-120, 74, -188), Vector3(-55, 0, 0),
-						Vector3(-26, 0, 12), Vector3(40, 0, 0),
-						Vector3(34, 0, -16), Vector3(46, 0, 0),
+						Vector3(28, 0, 12), Vector3(-35, 0, 0),
+						Vector3(4, 0, -16), Vector3(-20, 0, 0),
 						Vector3(-116, 72, -164))
 				2: # player's left — mouse-left. Mirror of the right chamber, shaft outside the skull.
 					return _pack(Vector3(12, 52, 18), Vector3(-14, 36, 14), Vector3(8, -18, 0),
 						Vector3(16, -28, -24), Vector3(18, 0, 0),
 						Vector3(-116, -76, 186), Vector3(-50, 0, 0),
-						Vector3(32, 0, -14), Vector3(44, 0, 0),
-						Vector3(-24, 0, 14), Vector3(42, 0, 0),
+						Vector3(48, 0, -14), Vector3(-65, 0, 0),
+						Vector3(16, 0, 14), Vector3(-35, 0, 0),
 						Vector3(-112, -70, 162))
 				3: # stab aim — weight back on a planted front foot, point leads forward.
 					# Keep the spine up. The old 36+28 layback read as a faceplant.
 					return _pack(Vector3(20, 0, 0), Vector3(8, 0, 0), Vector3(-4, 0, 0),
 						Vector3(-18, 16, 18), Vector3(16, 0, 0),
 						Vector3(-36, 6, -10), Vector3(-12, 0, 0),
-						Vector3(50, 0, -6), Vector3(16, 0, 0),
-						Vector3(-10, 0, 4), Vector3(22, 0, 0),
+						Vector3(50, 0, -6), Vector3(-70, 0, 0),
+						Vector3(48, 0, 4), Vector3(-70, 0, 0),
 						Vector3(-72, 4, -6))
 				_: # top shaft — knees deep, chest back, shaft cocked up and off the skull
 					return _pack(Vector3(28, -16, 0), Vector3(-40, -12, 0), Vector3(20, 8, 0),
 						Vector3(-44, 28, 26), Vector3(22, 0, 0),
 						Vector3(-188, -14, -16), Vector3(-52, 0, 0),
-						Vector3(-24, 0, -10), Vector3(48, 0, 0),
-						Vector3(34, 0, 10), Vector3(54, 0, 0),
+						Vector3(8, 0, -10), Vector3(-35, 0, 0),
+						Vector3(4, 0, 10), Vector3(-35, 0, 0),
 						Vector3(30, 18, -22))
 		&"windup":
 			match direction:
@@ -368,29 +401,29 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 					return _pack(Vector3(6, -28, -10), Vector3(-6, -18, -6), Vector3(4, 10, 0),
 						Vector3(-10, 24, 18), Vector3(12, 0, 0),
 						Vector3(-36, 40, -62), Vector3(-18, 0, 0),
-						Vector3(-12, 0, 6), Vector3(22, 0, 0),
-						Vector3(18, 0, -8), Vector3(16, 0, 0),
+						Vector3(28, 0, 6), Vector3(-35, 0, 0),
+						Vector3(28, 0, -8), Vector3(-35, 0, 0),
 						Vector3(-24, 18, -78))
 				2: # player's left — coil onto the left, shaft cocked on the left
 					return _pack(Vector3(6, 28, 10), Vector3(-6, 18, 6), Vector3(4, -10, 0),
 						Vector3(8, -16, -14), Vector3(10, 0, 0),
 						Vector3(-34, -42, 64), Vector3(-16, 0, 0),
-						Vector3(16, 0, -6), Vector3(14, 0, 0),
-						Vector3(-14, 0, 8), Vector3(24, 0, 0),
+						Vector3(38, 0, -6), Vector3(-50, 0, 0),
+						Vector3(28, 0, 8), Vector3(-35, 0, 0),
 						Vector3(-22, -16, 76))
 				3: # stab chamber — weight back, point not yet committed
 					return _pack(Vector3(10, 0, 0), Vector3(6, 0, 0), Vector3(-4, 0, 0),
 						Vector3(-6, 10, 16), Vector3(14, 0, 0),
 						Vector3(-28, 4, -10), Vector3(-6, 0, 0),
-						Vector3(-4, 0, -2), Vector3(10, 0, 0),
-						Vector3(8, 0, 2), Vector3(16, 0, 0),
+						Vector3(28, 0, -2), Vector3(-35, 0, 0),
+						Vector3(28, 0, 2), Vector3(-35, 0, 0),
 						Vector3(-62, 2, -4))
 				_: # top shaft — knees soft, shaft cocked overhead, chest back
 					return _pack(Vector3(14, -8, 0), Vector3(-18, -6, 0), Vector3(10, 4, 0),
 						Vector3(-24, 16, 14), Vector3(8, 0, 0),
 						Vector3(-108, -6, -18), Vector3(-22, 0, 0),
-						Vector3(-10, 0, -4), Vector3(20, 0, 0),
-						Vector3(16, 0, 4), Vector3(28, 0, 0),
+						Vector3(38, 0, -4), Vector3(-50, 0, 0),
+						Vector3(40, 0, 4), Vector3(-50, 0, 0),
 						Vector3(28, 8, -12))
 		&"follow":
 			match direction:
@@ -398,29 +431,29 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 					return _pack(Vector3(-4, 40, 16), Vector3(10, 22, 10), Vector3(-4, -8, 0),
 						Vector3(22, -36, -30), Vector3(16, 0, 0),
 						Vector3(24, -18, 70), Vector3(18, 0, 0),
-						Vector3(36, 0, -22), Vector3(6, 0, 0),
-						Vector3(-30, 0, 8), Vector3(46, 0, 0),
+						Vector3(48, 0, -22), Vector3(-35, 0, 0),
+						Vector3(16, 0, 8), Vector3(-20, 0, 0),
 						Vector3(-8, -12, 96))
 				2:
 					return _pack(Vector3(-4, -40, -16), Vector3(10, -22, -10), Vector3(-4, 8, 0),
 						Vector3(18, 28, 24), Vector3(14, 0, 0),
 						Vector3(22, 16, -68), Vector3(16, 0, 0),
-						Vector3(-28, 0, 8), Vector3(44, 0, 0),
-						Vector3(34, 0, -20), Vector3(8, 0, 0),
+						Vector3(48, 0, 8), Vector3(-35, 0, 0),
+						Vector3(28, 0, -20), Vector3(-35, 0, 0),
 						Vector3(-6, 14, -94))
 				3:
 					return _pack(Vector3(-16, 0, 0), Vector3(-20, 0, 0), Vector3(14, 0, 0),
 						Vector3(6, -30, -28), Vector3(22, 0, 0),
 						Vector3(48, 0, -4), Vector3(-4, 0, 0),
-						Vector3(68, 0, -4), Vector3(-6, 0, 0),
-						Vector3(-48, 0, 6), Vector3(62, 0, 0),
+						Vector3(38, 0, -4), Vector3(-20, 0, 0),
+						Vector3(40, 0, 6), Vector3(-20, 0, 0),
 						Vector3(-98, 0, 2))
 				_:
 					return _pack(Vector3(-12, 4, 0), Vector3(20, 6, 0), Vector3(-6, 0, 0),
 						Vector3(28, -18, -22), Vector3(12, 0, 0),
 						Vector3(64, 8, 24), Vector3(16, 0, 0),
-						Vector3(48, 0, -6), Vector3(4, 0, 0),
-						Vector3(-36, 0, 6), Vector3(50, 0, 0),
+						Vector3(48, 0, -6), Vector3(-35, 0, 0),
+						Vector3(40, 0, 6), Vector3(-35, 0, 0),
 						Vector3(-108, 6, 16))
 		_:
 			# contact
@@ -429,29 +462,29 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 					return _pack(Vector3(-2, 32, 14), Vector3(8, 16, 8), Vector3(-2, -6, 0),
 						Vector3(16, -28, -24), Vector3(14, 0, 0),
 						Vector3(12, -6, 58), Vector3(14, 0, 0),
-						Vector3(30, 0, -18), Vector3(4, 0, 0),
-						Vector3(-24, 0, 6), Vector3(38, 0, 0),
+						Vector3(48, 0, -18), Vector3(-50, 0, 0),
+						Vector3(28, 0, 6), Vector3(-20, 0, 0),
 						Vector3(-12, -6, 82))
 				2: # player's left contact — swing that started on the left finishes through
 					return _pack(Vector3(-2, -32, -14), Vector3(8, -16, -8), Vector3(-2, 6, 0),
 						Vector3(14, 24, 20), Vector3(12, 0, 0),
 						Vector3(14, 8, -56), Vector3(12, 0, 0),
-						Vector3(-22, 0, 6), Vector3(36, 0, 0),
-						Vector3(28, 0, -16), Vector3(6, 0, 0),
+						Vector3(38, 0, 6), Vector3(-35, 0, 0),
+						Vector3(28, 0, -16), Vector3(-35, 0, 0),
 						Vector3(-10, 8, -80))
 				3: # bottom stab — chest and front foot drive forward, point leads
 					return _pack(Vector3(-14, 0, 0), Vector3(-18, 0, 0), Vector3(12, 0, 0),
 						Vector3(4, -22, -22), Vector3(18, 0, 0),
 						Vector3(36, 2, -6), Vector3(-6, 0, 0),
-						Vector3(58, 0, -3), Vector3(-4, 0, 0),
-						Vector3(-42, 0, 5), Vector3(54, 0, 0),
+						Vector3(55, 0, -3), Vector3(-40, 0, 0),
+						Vector3(48, 0, 5), Vector3(-40, 0, 0),
 						Vector3(-92, 0, 2))
 				_: # top shaft coming down — hand still high, shaft diagonal, front foot loaded
 					return _pack(Vector3(-4, 0, 0), Vector3(-10, 3, 0), Vector3(6, 0, 0),
 						Vector3(-8, -20, -18), Vector3(8, 0, 0),
 						Vector3(-28, 8, 16), Vector3(-8, 0, 0),
-						Vector3(36, 0, -6), Vector3(4, 0, 0),
-						Vector3(-26, 0, 6), Vector3(40, 0, 0),
+						Vector3(38, 0, -6), Vector3(-35, 0, 0),
+						Vector3(40, 0, 6), Vector3(-35, 0, 0),
 						Vector3(-42, 6, 18))
 
 
