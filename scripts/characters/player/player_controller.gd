@@ -99,6 +99,9 @@ var _tool_aim_delta: Vector2 = Vector2.ZERO
 ## Player-space weapon euler while a goad/knife body strike owns the mesh.
 var _tool_weapon_euler: Vector3 = Vector3.ZERO
 var _tool_root_drop: float = 0.0
+## Metres the goad grip slides along the shaft during a bent-elbow guard.
+## The mesh shifts back by the same amount, so the shaft stays where it was.
+var _goad_grip_slide: float = 0.0
 var _tool_pose_active: bool = false
 ## True while the goad shaft-block pose is applied (so sprint/release can drop it).
 var _shaft_pose_applied: bool = false
@@ -812,6 +815,7 @@ func _apply_torso_additive(v: Vector3) -> void:
 func _clear_attack_additives() -> void:
 	_tool_pose_active = false
 	_tool_root_drop = 0.0
+	_goad_grip_slide = 0.0
 	if locomotion:
 		locomotion.clear_combat_additives()
 	if combat and not combat.is_charging and not combat.is_attacking:
@@ -1000,11 +1004,12 @@ func _apply_tool_pose(pose: Dictionary) -> void:
 		drop = float(pose["root_drop"])
 	_tool_root_drop = drop
 	locomotion.set_root_drop(drop)
+	_goad_grip_slide = float(pose.get("grip_slide", 0.0))
 	for k in pose.keys():
 		if String(k) == "weapon":
 			_tool_weapon_euler = pose[k]
 			continue
-		if String(k) == "root_drop":
+		if String(k) == "root_drop" or String(k) == "grip_slide":
 			continue
 		locomotion.set_combat_additive(String(k), pose[k])
 	_sync_weapon_to_hand()
@@ -1110,6 +1115,11 @@ func _sync_weapon_to_hand() -> void:
 	# Tip of forearm in player local space
 	var tip_global := forearm.to_global(Vector3(0.0, -0.28, 0.05))
 	weapon_visual.global_position = tip_global
+	# Bent-elbow guards slide the hand along the stick and shift the mesh back,
+	# so the shaft line does not follow the elbow.
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	if goad:
+		goad.position.y = -_goad_grip_slide
 
 	var rot := _idle_weapon_euler()
 	if _tool_pose_active and combat and combat.current_weapon != CombatSystem.Weapon.HATCHET:

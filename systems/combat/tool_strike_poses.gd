@@ -195,14 +195,17 @@ static func _goad_aim_weights(aim_x: float, aim_y: float) -> Vector4:
 ## Degrees are authored so both forearm tips meet the shaft across the chest.
 ## This is the neutral / chest face. Look faces live in tool_shaft_guard_pose.
 static func tool_shaft_block_pose() -> Dictionary:
-	return _deg_pose(_pack(
+	# Right elbow sits out in front of the chest. grip_slide keeps that hand on the shaft.
+	var pose := _deg_pose(_pack(
 		Vector3(2, -8, 2), Vector3(-2, 6, -3), Vector3(2, 2, 0),
 		Vector3(95, 35, 45), Vector3(-60, 10, 8),
-		Vector3(70, -6, 22), Vector3(-42, 12, -6),
+		Vector3(72.7, 22.1, 40.2), Vector3(4.7, -81.0, 62.4),
 		Vector3(22, 6, -10), Vector3(20, 0, 0),
 		Vector3(-8, -2, 10), Vector3(22, 0, 0),
 		Vector3(18, -8, 72)
 	))
+	pose["grip_slide"] = 0.058
+	return pose
 
 
 ## Short hit flinch. Torso, head, and both arms recoil. The stick stays in
@@ -234,46 +237,53 @@ static func tool_shaft_guard_pose(face: StringName) -> Dictionary:
 	match face:
 		&"left":
 			# Shaft stands on the player's left, beside the head, not down the nose.
-			# The right hand crosses out to that side. Not a swing.
-			return _deg_pose(_pack(
-				Vector3(0, 10, -4), Vector3(0, 8, -2), Vector3(2, 8, 0),
+			# Right elbow bends forward. The hand slides along the shaft so the stick stays.
+			var left := _deg_pose(_pack(
+				Vector3(0, 10, -4), Vector3(-8, 8, 16), Vector3(2, 8, 0),
 				Vector3(40, -16, 86), Vector3(-36, 0, 0),
-				Vector3(30, -30, -90), Vector3(-18, 0, 0),
+				Vector3(-3.1, -52.7, -88.1), Vector3(-29.6, -79.6, 86.8),
 				Vector3(6, 2, -4), Vector3(8, 0, 0),
 				Vector3(4, -2, 4), Vector3(8, 0, 0),
 				Vector3(0, 0, 14)
 			))
+			left["grip_slide"] = -0.04
+			return left
 		&"right":
-			# Mirror: shaft on the player's right, clear of the face.
-			return _deg_pose(_pack(
+			# Mirror: shaft on the player's right, clear of the face. Elbow bent.
+			var right := _deg_pose(_pack(
 				Vector3(0, -10, 4), Vector3(0, -8, 2), Vector3(2, -8, 0),
 				Vector3(36, 18, -20), Vector3(-28, 0, 0),
-				Vector3(0, 30, 110), Vector3(-16, 0, 0),
+				Vector3(50.0, 54.1, 130.5), Vector3(6.5, -82.2, 50.4),
 				Vector3(4, 2, -4), Vector3(8, 0, 0),
 				Vector3(6, -2, 4), Vector3(8, 0, 0),
 				Vector3(0, 0, -14)
 			))
+			right["grip_slide"] = -0.102
+			return right
 		&"high":
-			# Shaft across the face, both hands up. Not the overhead chop.
-			return _deg_pose(_pack(
+			# Shaft across the face, both hands up. Left elbow folds. Not the overhead chop.
+			var high := _deg_pose(_pack(
 				Vector3(-6, 0, 0), Vector3(-12, 0, 0), Vector3(-8, 0, 0),
-				Vector3(156, 54, 42), Vector3(30, 0, 0),
+				Vector3(-31.0, 66.0, 108.5), Vector3(7.0, -82.7, 46.4),
 				Vector3(150, -28, 6), Vector3(-62, 4, 6),
 				Vector3(4, 0, -3), Vector3(6, 0, 0),
 				Vector3(4, 0, 3), Vector3(6, 0, 0),
 				Vector3(30, -15, 75)
 			))
+			high["grip_slide"] = 0.0
+			return high
 		&"low":
 			# Hips drop, knees fold, shaft flat across the thighs. Stops a stab.
 			var low := _deg_pose(_pack(
 				Vector3(12, 0, 0), Vector3(16, 0, 0), Vector3(-6, 0, 0),
 				Vector3(0, -6, -42), Vector3(30, 0, 0),
-				Vector3(22, -8, 18), Vector3(8, 0, 6),
+				Vector3(34.7, 0.1, 12.5), Vector3(8.6, -84.6, 32.4),
 				Vector3(42, 0, -38), Vector3(-70, 0, 0),
 				Vector3(42, 0, 38), Vector3(-70, 0, 0),
 				Vector3(36, 4, 88)
 			))
 			low["root_drop"] = 0.28
+			low["grip_slide"] = 0.114
 			return low
 		_:
 			return tool_shaft_block_pose()
