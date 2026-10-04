@@ -269,22 +269,22 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 		bk_b.position = Vector3(0.0, -0.12, 0.0)
 		belt_knife.add_child(bk_b)
 
-		# Flat on the back. Face is +Z, so -Z is behind the torso.
-		# Short enough to stay inside the tunic from the front and the side.
+		# Same goad as the hands: full shaft, gray head. Face is +Z, so -Z is the back.
+		# Long axis is local Y, up the spine, inside the torso's width.
 		var back_goad := Node3D.new()
 		back_goad.name = "BackGoad"
-		back_goad.position = Vector3(0.0, 0.40, -0.162)
-		back_goad.rotation_degrees = Vector3(0.0, 0.0, 90.0)
+		back_goad.position = Vector3(0.0, -0.55, -0.158)
+		back_goad.rotation_degrees = Vector3.ZERO
 		torso.add_child(back_goad)
 		var goad_mesh := BoxMesh.new()
-		goad_mesh.size = Vector3(0.036, 0.26, 0.036)
+		goad_mesh.size = Vector3(0.045, 1.75, 0.045)
 		var goad_mi := _mesh_inst(goad_mesh, wood, "Staff")
-		goad_mi.position = Vector3.ZERO
+		goad_mi.position = Vector3(0.0, 0.62, 0.0)
 		back_goad.add_child(goad_mi)
 		var tip_mesh := BoxMesh.new()
-		tip_mesh.size = Vector3(0.05, 0.04, 0.05)
+		tip_mesh.size = Vector3(0.08, 0.12, 0.08)
 		var tip_mi := _mesh_inst(tip_mesh, iron, "Tip")
-		tip_mi.position = Vector3(0.0, 0.12, 0.0)
+		tip_mi.position = Vector3(0.0, 1.52, 0.0)
 		back_goad.add_child(tip_mi)
 
 	return {
