@@ -538,11 +538,13 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 						Vector3(58, -4, 28), Vector3(-62, 0, 0),
 						Vector3(-8, -12, 96))
 				2:
+					# Left follow: both soles stay down. The left foot may step.
+					# Arms and shaft are unchanged.
 					return _pack(Vector3(-8, -44, -30), Vector3(12, -28, -20), Vector3(-4, 8, -4),
 						Vector3(18, 28, 24), Vector3(14, 0, 0),
 						Vector3(22, 16, -68), Vector3(16, 0, 0),
-						Vector3(58, 4, -28), Vector3(-62, 0, 0),
-						Vector3(14, 0, 10), Vector3(-22, 0, 0),
+						Vector3(35, 45, 25), Vector3(-45, 0, 0),
+						Vector3(83, -9, 27), Vector3(-59, 0, 0),
 						Vector3(-6, 14, -94))
 				3:
 					return _pack(Vector3(-18, 0, 0), Vector3(-16, 0, 0), Vector3(10, 0, 0),
