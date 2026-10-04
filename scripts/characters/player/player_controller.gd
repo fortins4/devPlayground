@@ -81,6 +81,8 @@ const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
 const GOAD_AIM_SPAN := 18.0
 ## Follow-through eases back to the ready pose. Not a hard zero, not a victory hold.
 const GOAD_SETTLE_SEC := 0.22
+## Back seat to the two-hand idle, and the same path home. Not a pop.
+const GOAD_DRAW_SEC := 0.36
 ## Hit flinch: snap in, short hold, ease back to the ready pose. Not a knockdown.
 const HURT_FLINCH_IN_SEC := 0.10
 const HURT_FLINCH_HOLD_SEC := 0.12
@@ -102,6 +104,13 @@ var _tool_root_drop: float = 0.0
 ## Metres the goad grip slides along the shaft during a bent-elbow guard.
 ## The mesh shifts back by the same amount, so the shaft stays where it was.
 var _goad_grip_slide: float = 0.0
+## 0 = full goad on the back seat, 1 = landed in the hands.
+var _goad_draw_u: float = 1.0
+var _goad_draw_tween: Tween
+var _goad_stowing: bool = false
+var _back_goad_seat: Transform3D = Transform3D.IDENTITY
+var _goad_stow_from: Transform3D = Transform3D.IDENTITY
+var _goad_seat_ready: bool = false
 var _tool_pose_active: bool = false
 ## True while the goad shaft-block pose is applied (so sprint/release can drop it).
 var _shaft_pose_applied: bool = false
@@ -140,6 +149,13 @@ func _bind_locomotion_joints() -> void:
 	right_arm = locomotion.get_right_arm()
 	if right_arm:
 		_arm_base_rotation = right_arm.rotation
+	var back_goad := get_node_or_null("Visual")
+	if back_goad:
+		var seat := (back_goad as Node).find_child("BackGoad", true, false) as Node3D
+		if seat:
+			_back_goad_seat = seat.transform
+			_goad_seat_ready = true
+	_goad_draw_u = 0.0 if combat == null or combat.current_weapon != CombatSystem.Weapon.GOAD else 1.0
 	_sync_back_goad_visibility()
 	_apply_weapon_idle_pose()
 
@@ -676,10 +692,12 @@ func _apply_idle_hatchet_hold() -> void:
 
 
 func _on_weapon_changed(weapon: StringName) -> void:
-	_sync_back_goad_visibility()
 	_tool_pose_active = false
 	if locomotion:
 		locomotion.clear_combat_additives()
+	_begin_goad_travel(weapon == &"goad")
+	_sync_back_goad_visibility()
+	if locomotion:
 		_apply_weapon_idle_pose()
 	# Hide belt knife mesh when knife is drawn as active weapon.
 	if locomotion == null:
@@ -699,8 +717,10 @@ func _sync_back_goad_visibility() -> void:
 		return
 	var back_goad := visual_node.find_child("BackGoad", true, false) as Node3D
 	if back_goad:
-		# In the hands only while the goad is equipped. Otherwise it rests on the back.
-		back_goad.visible = combat.current_weapon != CombatSystem.Weapon.GOAD
+		# One mesh. The back copy is hidden for the whole draw, including the first step off the seat.
+		back_goad.visible = combat.current_weapon != CombatSystem.Weapon.GOAD and not _goad_draw_tween_running_to_hands()
+		if combat.current_weapon != CombatSystem.Weapon.GOAD and _goad_stowing:
+			back_goad.visible = true
 
 
 func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName) -> void:
@@ -838,6 +858,18 @@ func _apply_weapon_idle_pose() -> void:
 		return
 	if combat.current_weapon == CombatSystem.Weapon.UNARMED:
 		# Empty hands. No goad seat and no knife pose.
+		_tool_pose_active = false
+		_sync_weapon_to_hand()
+		return
+	# Draw eases the body from empty hands into the existing idle. The idle itself is unchanged.
+	if combat.current_weapon == CombatSystem.Weapon.GOAD and _goad_draw_u < 0.999:
+		var pose: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+		var u := _goad_draw_smooth()
+		for k in pose.keys():
+			var key := String(k)
+			if key == "weapon" or key == "root_drop" or key == "grip_slide":
+				continue
+			locomotion.set_combat_additive(key, (pose[k] as Vector3) * u)
 		_tool_pose_active = false
 		_sync_weapon_to_hand()
 		return
@@ -1193,11 +1225,123 @@ func _sync_weapon_to_hand() -> void:
 				)
 	weapon_visual.rotation = rot
 	_weapon_base_y = weapon_visual.position.y
-	if combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
+	var drawing := combat and combat.current_weapon == CombatSystem.Weapon.GOAD and _goad_draw_u < 0.999 and not combat.is_attacking and not combat.is_charging and not combat.is_shaft_blocking
+	if drawing:
+		var hand_xf := weapon_visual.global_transform
+		var seat_xf := _back_seat_global()
+		weapon_visual.global_transform = seat_xf.interpolate_with(hand_xf, _goad_draw_smooth())
+	elif combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
 		ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
 	# Keep combat idle rest in sync while not charging so recovery returns to grip.
-	if combat and not combat.is_charging and not combat.is_attacking:
+	# Not the in-between draw pose — recovery must come back to the landed hold.
+	if combat and not combat.is_charging and not combat.is_attacking and not drawing:
 		combat.set_weapon_rest_transform(weapon_visual.transform)
+
+
+
+func _goad_draw_smooth() -> float:
+	var u := clampf(_goad_draw_u, 0.0, 1.0)
+	return u * u * (3.0 - 2.0 * u)
+
+
+func _goad_draw_tween_running_to_hands() -> bool:
+	return false
+
+
+func _back_goad_node() -> Node3D:
+	var visual_node := get_node_or_null("Visual") as Node3D
+	if visual_node == null:
+		return null
+	return visual_node.find_child("BackGoad", true, false) as Node3D
+
+
+func _back_seat_global() -> Transform3D:
+	var back := _back_goad_node()
+	if back == null or back.get_parent() == null:
+		return weapon_visual.global_transform if weapon_visual else Transform3D.IDENTITY
+	return (back.get_parent() as Node3D).global_transform * _back_goad_seat
+
+
+func _begin_goad_travel(to_hands: bool) -> void:
+	if not _goad_seat_ready:
+		_goad_draw_u = 1.0 if to_hands else 0.0
+		return
+	if to_hands and _goad_draw_u >= 0.999 and not _goad_stowing:
+		return
+	if not to_hands and _goad_draw_u <= 0.001 and not _goad_stowing:
+		return
+	if _goad_draw_tween and _goad_draw_tween.is_valid():
+		_goad_draw_tween.kill()
+	if to_hands:
+		_goad_stowing = false
+		var back := _back_goad_node()
+		if back:
+			back.visible = false
+			back.transform = _back_goad_seat
+		_goad_draw_u = 0.0
+		_goad_draw_tween = create_tween()
+		_goad_draw_tween.tween_method(_set_goad_draw_u, 0.0, 1.0, GOAD_DRAW_SEC)
+	else:
+		if weapon_visual:
+			_goad_stow_from = weapon_visual.global_transform
+		_goad_stowing = true
+		var back := _back_goad_node()
+		if back:
+			back.visible = true
+			_apply_back_goad_carry(1.0)
+		_goad_draw_tween = create_tween()
+		_goad_draw_tween.tween_method(_set_goad_draw_u, _goad_draw_u if _goad_draw_u > 0.0 else 1.0, 0.0, GOAD_DRAW_SEC)
+
+
+func _set_goad_draw_u(u: float) -> void:
+	_goad_draw_u = u
+	if _goad_stowing:
+		_apply_back_goad_carry(u)
+		if u <= 0.001:
+			_finish_goad_stow()
+	elif combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
+		_sync_weapon_to_hand()
+
+
+func _apply_back_goad_carry(u: float) -> void:
+	var back := _back_goad_node()
+	if back == null:
+		return
+	var seat_xf := _back_seat_global()
+	back.global_transform = seat_xf.interpolate_with(_goad_stow_from, clampf(u, 0.0, 1.0))
+
+
+func _finish_goad_stow() -> void:
+	_goad_stowing = false
+	_goad_draw_u = 0.0
+	var back := _back_goad_node()
+	if back:
+		back.transform = _back_goad_seat
+		back.visible = combat == null or combat.current_weapon != CombatSystem.Weapon.GOAD
+
+
+## Capture hook. u=0 is the back seat, u=1 is the landed two-hand idle.
+func sample_goad_draw(u: float) -> void:
+	if _goad_draw_tween and _goad_draw_tween.is_valid():
+		_goad_draw_tween.kill()
+	_goad_stowing = false
+	_goad_draw_u = clampf(u, 0.0, 1.0)
+	var back := _back_goad_node()
+	if combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
+		if back:
+			back.visible = false
+			back.transform = _back_goad_seat
+		if locomotion:
+			locomotion.clear_combat_additives()
+		_apply_weapon_idle_pose()
+	else:
+		_goad_draw_u = 0.0
+		if back:
+			back.visible = true
+			back.transform = _back_goad_seat
+		if locomotion:
+			locomotion.clear_combat_additives()
+		_apply_weapon_idle_pose()
 
 
 func _idle_weapon_euler() -> Vector3:
