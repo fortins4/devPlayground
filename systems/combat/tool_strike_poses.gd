@@ -729,15 +729,15 @@ static func seat_goad_off_hand(loco: Object, weapon_visual: Node3D) -> void:
 ## so the shoulder, elbow, and hand are one limb. Other faces do not use this.
 static func _is_authored_left_guard(loco: Object, weapon_visual: Node3D) -> bool:
 	var pose := tool_shaft_guard_pose(&"left")
-	var arm: Vector3 = loco.get_combat_additive("right_arm")
-	var fore: Vector3 = loco.get_combat_additive("right_forearm")
-	if arm.distance_to(pose["right_arm"]) > deg_to_rad(6.0):
-		return false
-	if fore.distance_to(pose["right_forearm"]) > deg_to_rad(8.0):
-		return false
-	if weapon_visual.rotation.distance_to(pose["weapon"]) > deg_to_rad(12.0):
-		return false
-	return true
+	# Look-left. Hips, chest, and head stay on this face. The beside-head
+	# seat rewrites both arms and the weapon euler, and the frame syncs
+	# again — those three must not be what identifies it, or the second
+	# sync drops the shaft back in front of the face. Other faces are not this look.
+	for joint in ["hips", "torso", "head"]:
+		var have: Vector3 = loco.get_combat_additive(joint)
+		if have.distance_to(pose[joint]) > deg_to_rad(5.0):
+			return false
+	return weapon_visual != null
 
 
 static func _seat_left_guard_beside(loco: Object, weapon_visual: Node3D, goad: Node3D, left_arm: Node3D, left_fore: Node3D, right_arm: Node3D, right_fore: Node3D, torso: Node3D, head: Node3D) -> void:
