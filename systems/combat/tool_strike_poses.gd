@@ -173,6 +173,27 @@ static func tool_shaft_block_pose() -> Dictionary:
 	))
 
 
+## Short hit flinch. Torso, head, and both arms recoil. The stick stays in
+## the right hand. Knees soften and the soles stay down. Not a knockdown.
+static func tool_hurt_flinch_pose(weapon: int) -> Dictionary:
+	var pose := _deg_pose(_pack(
+		Vector3(2, -14, 4), Vector3(14, -24, 16), Vector3(10, -26, 12),
+		Vector3(78, 24, 36), Vector3(-46, 0, 0),
+		Vector3(58, -12, 16), Vector3(-54, 0, 0),
+		Vector3(4, 0, -2), Vector3(-8, 0, 0),
+		Vector3(5, 0, 2), Vector3(-10, 0, 0),
+		Vector3(8, -24, 48)
+	))
+	if weapon == 2:
+		pose["root_drop"] = 0.04
+	elif weapon == 1:
+		var idle_w: Vector3 = tool_idle_pose(1)["weapon"]
+		pose["weapon"] = idle_w + Vector3(deg_to_rad(-14.0), deg_to_rad(12.0), deg_to_rad(10.0))
+	else:
+		pose.erase("weapon")
+	return pose
+
+
 ## face: chest | left | right | high | low.
 ## chest is the existing diagonal shaft across the body.
 ## left/right hold the shaft out beside that side of the head, not in front of the face. high raises it overhead.

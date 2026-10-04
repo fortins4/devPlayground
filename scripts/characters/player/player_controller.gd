@@ -81,6 +81,11 @@ const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
 const GOAD_AIM_SPAN := 18.0
 ## Follow-through eases back to the ready pose. Not a hard zero, not a victory hold.
 const GOAD_SETTLE_SEC := 0.22
+## Hit flinch: snap in, short hold, ease back to the ready pose. Not a knockdown.
+const HURT_FLINCH_IN_SEC := 0.10
+const HURT_FLINCH_HOLD_SEC := 0.12
+const HURT_FLINCH_OUT_SEC := 0.16
+var _hurt_reacting: bool = false
 ## Light footwork step during charge (does NOT cancel charge). Sprint still cancels.
 const CHARGE_STEP_SPEED := 4.4
 const CHARGE_STEP_SECS := 0.13
@@ -297,6 +302,7 @@ func _physics_process(delta: float) -> void:
 	_update_noise(horiz.length(), sprinting)
 	_update_drag_stamina(delta)
 	if not is_mounted:
+		_expire_hurt_react_if_tween_died()
 		_tick_locomotion(delta, horiz.length(), sprinting, locked)
 		_tick_shaft_block()
 		_sync_weapon_to_hand()
@@ -314,7 +320,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 	if locomotion == null:
 		return
 	# Charge locks walk-arm swing so aim cock reads cleanly; swing uses same path.
-	var attacking := combat != null and (combat.is_attacking or combat.is_charging or combat.is_shaft_blocking)
+	var attacking := combat != null and (combat.is_attacking or combat.is_charging or combat.is_shaft_blocking or _hurt_reacting)
 	var local_dir := Vector3.ZERO
 	var input_dir := _move_vector()
 	if not locked:
@@ -326,6 +332,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		and not combat.is_charging
 		and not combat.is_attacking
 		and not combat.is_shaft_blocking
+		and not _hurt_reacting
 		and horiz_speed < 0.25
 		and not is_mounted
 	):
@@ -335,6 +342,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		and not combat.is_attacking
 		and not combat.is_charging
 		and not combat.is_shaft_blocking
+		and not _hurt_reacting
 		and combat.current_weapon != CombatSystem.Weapon.HATCHET
 		and horiz_speed >= 0.25
 	):
@@ -348,6 +356,13 @@ func _tick_shaft_block() -> void:
 	## Goad out: look is the guard. No held button. Sprint and attacks drop it.
 	## Not a parry — the face stays up for as long as he is still looking.
 	if combat == null:
+		return
+	if _hurt_reacting:
+		# The flinch owns the body. Remember the look, but do not raise the shaft.
+		var face := _resolve_shaft_guard_face()
+		if combat.is_shaft_blocking:
+			combat.set_shaft_block(false)
+		combat.set_shaft_guard_face(face)
 		return
 	var want := (
 		combat.current_weapon == CombatSystem.Weapon.GOAD
@@ -1004,6 +1019,57 @@ func _on_damage_taken(amount: float, _from: Node) -> void:
 		combat.cancel_charge()
 		_hatchet_charge_armed = false
 	_screen_punch(0.07 if amount >= 12.0 else 0.045)
+	if amount > 0.0:
+		_play_hurt_flinch()
+
+
+func _expire_hurt_react_if_tween_died() -> void:
+	if not _hurt_reacting:
+		return
+	if _arm_tween and _arm_tween.is_valid():
+		return
+	_hurt_reacting = false
+
+
+func _play_hurt_flinch() -> void:
+	## A landed hit. Charge is already dropped. A swing in progress yields
+	## the same way: the pose becomes the flinch, then the ready pose.
+	## Does not change attack rules beyond that. Not a knockdown.
+	if combat == null or locomotion == null or combat.is_dead:
+		return
+	if is_mounted:
+		return
+	var weapon_id := int(combat.current_weapon)
+	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(weapon_id)
+	var pose_hurt: Dictionary = ToolStrikePoses.tool_hurt_flinch_pose(weapon_id)
+	var start_pose: Dictionary = _current_tool_pose(pose_idle)
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
+	_hurt_reacting = true
+	_tool_pose_active = true
+	_arm_tween = create_tween()
+	_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_hurt), 0.0, 1.0, HURT_FLINCH_IN_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_interval(HURT_FLINCH_HOLD_SEC)
+	_arm_tween.tween_method(_slerp_tool_pose.bind(pose_hurt, pose_idle), 0.0, 1.0, HURT_FLINCH_OUT_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_callback(_finish_hurt_flinch)
+
+
+func _finish_hurt_flinch() -> void:
+	_hurt_reacting = false
+	if combat == null or locomotion == null:
+		_tool_pose_active = false
+		return
+	if combat.is_charging or combat.is_dead:
+		return
+	if combat.is_attacking:
+		# The swing already yielded. Leave the ready pose the tween landed on.
+		_apply_tool_pose(ToolStrikePoses.tool_idle_pose(int(combat.current_weapon)))
+		_tool_pose_active = false
+		return
+	_apply_tool_pose(ToolStrikePoses.tool_idle_pose(int(combat.current_weapon)))
+	_tool_pose_active = false
 
 
 func _screen_punch(amount: float) -> void:
