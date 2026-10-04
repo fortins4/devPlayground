@@ -16,6 +16,10 @@ const TELEGRAPH_TIME := 0.48
 const COUNTER_TELEGRAPH_TIME := 0.38
 const STAGGER_TIME := 0.35
 const GUARD_SWITCH_SECS := 2.75
+## Same short flinch as Cian. Not a knockdown, not a second reaction.
+const HURT_FLINCH_IN_SEC := 0.10
+const HURT_FLINCH_HOLD_SEC := 0.12
+const HURT_FLINCH_OUT_SEC := 0.16
 
 enum State { IDLE, CHASE, TELEGRAPH, RECOVER, STAGGER }
 
@@ -47,6 +51,9 @@ var _guard_idx: int = 0
 ## Goad jab pose. Contact while the swing is live, windup during the telegraph.
 var _jab_phase: StringName = &""
 var _jab_weapon_euler: Vector3 = Vector3.ZERO
+var _pose_root_drop: float = 0.0
+var _hurt_reacting: bool = false
+var _flinch_tween: Tween
 
 
 func _ready() -> void:
@@ -180,8 +187,17 @@ func _physics_process(delta: float) -> void:
 	_tick_locomotion(delta)
 
 
+func is_hurt_flinching() -> bool:
+	return _hurt_reacting
+
+
 func _tick_locomotion(delta: float) -> void:
 	if locomotion == null:
+		return
+	if _hurt_reacting:
+		# Hold the flinch. A jab restage or a walk cycle would wipe it.
+		locomotion.tick(delta, 0.0, false, false, true, Vector3.ZERO)
+		_sync_goad_to_hand()
 		return
 	var jab_live := _jab_live()
 	if jab_live:
@@ -198,6 +214,8 @@ func _tick_locomotion(delta: float) -> void:
 
 
 func _begin_telegraph(kind: StringName, is_counter: bool) -> void:
+	if _hurt_reacting:
+		return
 	if combat == null or combat.is_dead or combat.is_attacking:
 		return
 	if _state == State.TELEGRAPH or _state == State.STAGGER:
@@ -242,10 +260,17 @@ func _release_attack() -> void:
 	_is_counter = false
 
 
-func _on_damage_taken(_amount: float, from: Node) -> void:
+func _on_damage_taken(amount: float, from: Node) -> void:
 	# Hit during telegraph cancels the swing — player can interrupt by pressing.
-	if _state == State.TELEGRAPH:
+	var interrupted := _state == State.TELEGRAPH
+	if interrupted:
 		_cancel_telegraph_stagger()
+	# A hit that gets through plays Cian's short flinch. Damage 0 never arrives here.
+	# A killing blow keeps the existing fall. The flinch is the reaction, not a counter.
+	if amount > 0.0 and combat != null and combat.health > 0.0:
+		if _play_hurt_flinch():
+			return
+	if interrupted:
 		return
 	# Reactive weak counter if close enough and off cooldown.
 	if _counter_cd > 0.0 or combat == null or combat.is_dead:
@@ -390,6 +415,74 @@ func _set_guard_face(direction: CombatSystem.StrikeDirection) -> void:
 			name = "TOP"
 	if _guard_hint:
 		_guard_hint.text = "GUARD %s — other faces open (face-guard)" % name
+
+
+func _play_hurt_flinch() -> bool:
+	## Landed hit. Same pose, blend, and 0.10 / 0.12 / 0.16 timing as Cian.
+	## Whole body, feet stay under him, goad stays in the hand, shaft off the face.
+	if combat == null or locomotion == null or combat.is_dead:
+		return false
+	if combat.current_weapon != CombatSystem.Weapon.GOAD:
+		return false
+	_jab_phase = &""
+	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	var pose_hurt: Dictionary = ToolStrikePoses.tool_hurt_flinch_pose(CombatSystem.Weapon.GOAD)
+	var start_pose: Dictionary = _current_goad_pose(pose_idle)
+	if _flinch_tween and _flinch_tween.is_valid():
+		_flinch_tween.kill()
+	_hurt_reacting = true
+	_flinch_tween = create_tween()
+	_flinch_tween.tween_method(_blend_hurt_flinch.bind(start_pose, pose_hurt, false), 0.0, 1.0, HURT_FLINCH_IN_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_flinch_tween.tween_interval(HURT_FLINCH_HOLD_SEC)
+	_flinch_tween.tween_method(_blend_hurt_flinch.bind(pose_hurt, pose_idle, true), 0.0, 1.0, HURT_FLINCH_OUT_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_flinch_tween.tween_callback(_finish_hurt_flinch)
+	return true
+
+
+func _blend_hurt_flinch(t: float, from_pose: Dictionary, to_pose: Dictionary, use_slerp: bool) -> void:
+	_apply_goad_pose(ToolStrikePoses.tool_goad_flinch_blend(from_pose, to_pose, t, use_slerp))
+
+
+func _finish_hurt_flinch() -> void:
+	_hurt_reacting = false
+	if combat == null or locomotion == null or combat.is_dead:
+		return
+	_apply_goad_pose(ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD))
+
+
+func _current_goad_pose(fallback: Dictionary) -> Dictionary:
+	var pose := {}
+	for k in fallback.keys():
+		var key := String(k)
+		if key == "root_drop":
+			pose[k] = _pose_root_drop
+		elif key == "weapon":
+			pose[k] = _jab_weapon_euler
+		elif locomotion and locomotion.has_combat_additive(key):
+			pose[k] = locomotion.get_combat_additive(key)
+		else:
+			pose[k] = fallback[k]
+	pose["root_drop"] = _pose_root_drop
+	return pose
+
+
+func _apply_goad_pose(pose: Dictionary) -> void:
+	if locomotion == null:
+		return
+	var drop := 0.0
+	if pose.has("root_drop"):
+		drop = float(pose["root_drop"])
+	_pose_root_drop = drop
+	locomotion.set_root_drop(drop)
+	for k in pose.keys():
+		var key := String(k)
+		if key == "weapon":
+			_jab_weapon_euler = pose[k]
+			continue
+		if key == "root_drop" or key == "grip_slide":
+			continue
+		locomotion.set_combat_additive(key, pose[k])
+	_sync_goad_to_hand()
 
 
 func pose_goad_jab(phase: StringName) -> void:

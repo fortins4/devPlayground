@@ -130,6 +130,12 @@ func _check_goad_jab() -> bool:
 	if stopped > 0.01 or pc.health < pc.max_health - 0.01:
 		push_error("SMOKE_FAIL low guard did not stop the foe jab")
 		return false
+	if player._hurt_reacting:
+		push_error("SMOKE_FAIL stopped jab flinched Cian")
+		return false
+	if foe.is_hurt_flinching():
+		push_error("SMOKE_FAIL stopped jab flinched the foe")
+		return false
 	pc.health = pc.max_health
 	pc.stamina = pc.max_stamina
 	if not pc.set_shaft_block(true):
@@ -140,5 +146,22 @@ func _check_goad_jab() -> bool:
 	if leaked < 14.0:
 		push_error("SMOKE_FAIL high guard stopped the jab")
 		return false
+	var zero := fc.apply_damage(0.0, player, true, CombatSystem.StrikeDirection.LEFT)
+	if zero > 0.01 or foe.is_hurt_flinching():
+		push_error("SMOKE_FAIL zero damage flinched the foe")
+		return false
+	fc.set_face_guard(&"open")
+	fc.health = fc.max_health
+	var landed := fc.apply_damage(12.0, player, true, CombatSystem.StrikeDirection.LEFT)
+	if landed <= 0.01 or not foe.is_hurt_flinching():
+		push_error("SMOKE_FAIL landed hit did not flinch the foe dealt=%.1f" % landed)
+		return false
+	var dur := float(foe.HURT_FLINCH_IN_SEC) + float(foe.HURT_FLINCH_HOLD_SEC) + float(foe.HURT_FLINCH_OUT_SEC)
+	if absf(dur - 0.38) > 0.001:
+		push_error("SMOKE_FAIL foe flinch timing is not 0.38s (%.3f)" % dur)
+		return false
+	if foe._flinch_tween and foe._flinch_tween.is_valid():
+		foe._flinch_tween.kill()
 	print("SMOKE goad_jab uncharged low-stops high-open")
+	print("SMOKE goad_jab stopped dealt 0 no-flinch")
 	return true
