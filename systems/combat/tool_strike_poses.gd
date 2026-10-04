@@ -142,8 +142,9 @@ static func tool_goad_settle_pose(from_pose: Dictionary, to_pose: Dictionary, t:
 	var pose := {}
 	# Spine and legs return ahead of the arms. A straight slerp of the
 	# follow-through jackknifes the waist at the halfway frame and leaves
-	# a foot up. Ends stay the follow pose and the ready pose.
-	var body_t := pow(clampf(t, 0.0, 1.0), 0.42)
+	# a foot up. The body exponent is steep so halfway is a small lean,
+	# not a fold. Ends stay the follow pose and the ready pose.
+	var body_t := pow(clampf(t, 0.0, 1.0), 0.15)
 	for k in to_pose.keys():
 		var u := t
 		if String(k) in ["root_drop", "hips", "torso", "head", "left_thigh", "left_shin", "right_thigh", "right_shin"]:
