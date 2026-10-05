@@ -141,6 +141,16 @@ var _swing_to_slide: float = 0.0
 ## Body sample only. The shaft arc is solved after the spine has turned.
 var _swing_pose_only: bool = false
 var _swing_arc_interior: bool = false
+## Stable player frame for one continuous goad swing. Not the jab.
+var _swing_frame: Transform3D = Transform3D.IDENTITY
+var _swing_keys_butt: PackedVector3Array = PackedVector3Array()
+var _swing_keys_tip: PackedVector3Array = PackedVector3Array()
+var _swing_key_u: PackedFloat32Array = PackedFloat32Array()
+var _swing_start_pose: Dictionary = {}
+var _swing_follow_pose: Dictionary = {}
+var _swing_strike_u: float = 0.5
+## After a shaft swing the follow-through stays. Idle must not stand the stick up.
+var _goad_swing_held: bool = false
 ## While the goad guard is up, look offset is not decayed so a face stays put.
 const TOOL_AIM_SIDE := 10.0
 const TOOL_AIM_VERT := 8.0
@@ -392,6 +402,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		and not _hurt_reacting
 		and horiz_speed < 0.25
 		and not is_mounted
+		and not _goad_swing_held
 	):
 		_apply_weapon_idle_pose()
 	elif (
@@ -405,6 +416,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 	):
 		# Drop full-body tool additives so the walk cycle can move the legs.
 		_tool_pose_active = false
+		_goad_swing_held = false
 		if locomotion.has_combat_additive("left_thigh") or locomotion.has_combat_additive("hips"):
 			locomotion.clear_combat_additives()
 
@@ -447,6 +459,7 @@ func _tick_shaft_block() -> void:
 func _apply_shaft_block_pose() -> void:
 	if locomotion == null:
 		return
+	_goad_swing_held = false
 	var stepping := _guard_wants_steps(Vector2(velocity.x, velocity.z).length())
 	if stepping:
 		locomotion.release_attack_lock()
@@ -1251,23 +1264,303 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	_tool_pose_active = true
-	# Same phase lengths. The hold used to freeze a pose while the next
-	# sample of the stick had already jumped. Travel uses that time instead.
-	# Sine, not a cubic ease-in, so the middle of the window is on the arc.
+	# Same phase lengths. The jab still visits its own poses.
+	# Left, top, and right are one arc, not three poses plus a settle snap.
 	var windup_move := float(phases["windup_move"]) + float(phases["windup_hold"])
 	var to_contact := float(phases["to_contact"]) + float(phases["contact_hold"])
 	var follow_move := float(phases["follow"])
+	if jab:
+		_goad_swing_held = false
+		_arm_tween = create_tween()
+		_arm_tween.tween_method(_lerp_goad_shaft.bind(start_pose, pose_windup, start_xf, windup_xf), 0.0, 1.0, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_windup, pose_contact, windup_xf, contact_xf), 0.0, 1.0, to_contact).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_contact, pose_follow, contact_xf, follow_xf), 0.0, 1.0, follow_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_arm_tween.tween_method(_slerp_goad_settle.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_arm_tween.tween_callback(_finish_goad_return)
+		return
+	_arm_continuous_goad_swing(start_pose, pose_follow, windup_move, to_contact, follow_move)
+
+
+
+func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary, windup_move: float, to_contact: float, follow_move: float) -> void:
+	## One curve for the whole release. Phase time is unchanged. The settle
+	## is the tail of that curve, not a new pose standing up in the face.
+	var total := windup_move + to_contact + follow_move + GOAD_SETTLE_SEC
+	if total < 0.05:
+		total = 0.05
+	_swing_strike_u = (windup_move + to_contact) / total
+	var follow_u := (windup_move + to_contact + follow_move) / total
+	var early_u := maxf(0.08, windup_move / total * 0.75)
+	if early_u >= _swing_strike_u:
+		early_u = _swing_strike_u * 0.45
+	_swing_frame = global_transform
+	_swing_start_pose = start_pose
+	_swing_follow_pose = follow_pose
+	_goad_swing_held = true
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D if weapon_visual else null
+	var live_butt := Vector3(0.0, 1.1, -0.4)
+	var live_tip := Vector3(0.2, 1.6, -0.7)
+	if goad:
+		live_butt = _swing_frame.affine_inverse() * goad.to_global(Vector3(0.0, -0.255, 0.0))
+		live_tip = _swing_frame.affine_inverse() * goad.to_global(Vector3(0.0, 1.045, 0.0))
+	_swing_keys_butt = PackedVector3Array()
+	_swing_keys_tip = PackedVector3Array()
+	_swing_key_u = PackedFloat32Array()
+	_swing_keys_butt.append(live_butt)
+	_swing_keys_tip.append(live_tip)
+	_swing_key_u.append(0.0)
+	var keys: Array = _continuous_swing_keys(_swing_arc_aim)
+	var marks: Array = [early_u, _swing_strike_u, follow_u, 1.0]
+	for i in keys.size():
+		var pair: Array = keys[i]
+		_swing_keys_butt.append(pair[0])
+		_swing_keys_tip.append(pair[1])
+		_swing_key_u.append(float(marks[i]))
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
 	_arm_tween = create_tween()
-	_arm_tween.tween_method(_lerp_goad_shaft.bind(start_pose, pose_windup, start_xf, windup_xf), 0.0, 1.0, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_windup, pose_contact, windup_xf, contact_xf), 0.0, 1.0, to_contact).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_contact, pose_follow, contact_xf, follow_xf), 0.0, 1.0, follow_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	_arm_tween.tween_method(_slerp_goad_settle.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_method(_sample_continuous_goad_swing, 0.0, 1.0, total)
 	_arm_tween.tween_callback(_finish_goad_return)
 
 
+func _continuous_swing_keys(aim: Vector2) -> Array:
+	## Later samples of one face-side arc. The live guard is the first sample.
+	## Left sweeps to the player's right, right sweeps to the player's left,
+	## top comes down in front. A diagonal is the blend, not a second swing.
+	var w_left := clampf(-aim.x, 0.0, 1.0)
+	var w_right := clampf(aim.x, 0.0, 1.0)
+	var w_top := clampf(-aim.y, 0.0, 1.0)
+	var sum := w_left + w_right + w_top
+	if sum < 0.001:
+		w_top = 1.0
+		sum = 1.0
+	w_left /= sum
+	w_right /= sum
+	w_top /= sum
+	var left: Array = [
+		_swing_line(Vector3(-0.12, 1.28, -0.55), Vector3(-0.72, 0.45, -0.48)),
+		_swing_line(Vector3(-0.02, 1.18, -0.58), Vector3(0.70, 0.02, -0.68)),
+		_swing_line(Vector3(0.06, 1.14, -0.52), Vector3(0.58, -0.42, -0.58)),
+		_swing_line(Vector3(0.08, 1.16, -0.48), Vector3(0.48, -0.50, -0.55)),
+	]
+	var right: Array = [
+		_swing_line(Vector3(0.18, 1.32, -0.55), Vector3(0.62, 0.48, -0.52)),
+		_swing_line(Vector3(0.04, 1.18, -0.58), Vector3(-0.68, 0.02, -0.70)),
+		_swing_line(Vector3(-0.02, 1.14, -0.52), Vector3(-0.55, -0.42, -0.60)),
+		_swing_line(Vector3(0.00, 1.16, -0.48), Vector3(-0.45, -0.52, -0.58)),
+	]
+	var top: Array = [
+		_swing_line(Vector3(-0.08, 1.28, -0.62), Vector3(-0.42, 0.22, -0.86)),
+		_swing_line(Vector3(0.00, 1.18, -0.66), Vector3(0.02, -0.22, -0.96)),
+		_swing_line(Vector3(0.02, 1.14, -0.58), Vector3(0.04, -0.55, -0.78)),
+		_swing_line(Vector3(0.02, 1.16, -0.54), Vector3(0.02, -0.62, -0.70)),
+	]
+	var out: Array = []
+	for i in 4:
+		var butt: Vector3 = (left[i][0] as Vector3) * w_left + (right[i][0] as Vector3) * w_right + (top[i][0] as Vector3) * w_top
+		var tip: Vector3 = (left[i][1] as Vector3) * w_left + (right[i][1] as Vector3) * w_right + (top[i][1] as Vector3) * w_top
+		var axis := tip - butt
+		if axis.length_squared() < 0.0001:
+			axis = Vector3(0.0, 0.2, -1.0)
+		tip = butt + axis.normalized() * 1.30
+		out.append([butt, tip])
+	return out
+
+
+func _swing_line(butt: Vector3, direction: Vector3) -> Array:
+	var axis := direction
+	if axis.length_squared() < 0.0001:
+		axis = Vector3(0.0, 0.0, -1.0)
+	return [butt, butt + axis.normalized() * 1.30]
+
+
+func _sample_continuous_goad_swing(u: float) -> void:
+	var line: Array = _continuous_line_at(clampf(u, 0.0, 1.0))
+	var butt_l: Vector3 = line[0]
+	var tip_l: Vector3 = line[1]
+	# The chest turns with the swing. The wood turns with the chest, or the
+	# hands finish a step away from a shaft that stayed in the start frame.
+	var yaw := _swing_yaw(u)
+	var pivot := Vector3(0.0, 0.92, 0.0)
+	var spin := Basis(Vector3.UP, yaw)
+	butt_l = pivot + spin * (butt_l - pivot)
+	tip_l = pivot + spin * (tip_l - pivot)
+	var butt_w: Vector3 = _swing_frame * butt_l
+	var tip_w: Vector3 = _swing_frame * tip_l
+	_swing_pose_only = true
+	_apply_tool_pose(_swing_body_at(u))
+	_swing_pose_only = false
+	if u > 0.02:
+		var held: Array = _bring_shaft_to_both_hands(butt_w, tip_w)
+		butt_w = held[0]
+		tip_w = held[1]
+	var goad := _place_continuous_shaft(butt_w, tip_w)
+	if goad:
+		_grip_shaft_with(goad, "right_arm", "right_forearm", 0.30)
+		_grip_shaft_with(goad, "left_arm", "left_forearm", 0.24)
+
+
+func _continuous_line_at(u: float) -> Array:
+	var i := 0
+	var last := _swing_key_u.size() - 2
+	while i < last and u > _swing_key_u[i + 1]:
+		i += 1
+	var span := maxf(_swing_key_u[i + 1] - _swing_key_u[i], 0.0001)
+	var t := clampf((u - _swing_key_u[i]) / span, 0.0, 1.0)
+	var butt := _face_quad(_swing_keys_butt[i], _swing_keys_butt[i + 1], t)
+	var tip := _face_quad(_swing_keys_tip[i], _swing_keys_tip[i + 1], t)
+	var axis := tip - butt
+	if axis.length_squared() > 0.0001:
+		tip = butt + axis.normalized() * 1.30
+	return [butt, tip]
+
+
+func _face_quad(a: Vector3, b: Vector3, t: float) -> Vector3:
+	## The chord from a guard behind the shoulder would cross the skull.
+	## The control sits on the face side. Ends of the segment stay put.
+	var mid := a.lerp(b, 0.5)
+	if mid.z > -0.36:
+		mid.z = -0.55
+	# Do not crest the skull. Overhead stays in front; a side swing stays wide.
+	if mid.y > 1.42 and absf(mid.x) < 0.34:
+		mid.z = minf(mid.z, -0.64)
+		if _swing_arc_aim.x < -0.25:
+			mid.x = minf(mid.x, -0.28)
+		elif _swing_arc_aim.x > 0.25:
+			mid.x = maxf(mid.x, 0.28)
+		else:
+			mid.y = minf(mid.y, 1.50)
+	return _quad_bez(a, mid, b, t)
+
+
+
+func _swing_yaw(u: float) -> float:
+	## How far the chest has turned from the pose the swing left.
+	## The shaft uses the same angle, so the wood stays in the hands.
+	var a := 0.0
+	var b := 0.0
+	if _swing_start_pose.has("hips"):
+		a = (_swing_start_pose["hips"] as Vector3).y
+	if _swing_follow_pose.has("hips"):
+		b = (_swing_follow_pose["hips"] as Vector3).y
+	return (b - a) * 0.55 * clampf(u, 0.0, 1.0)
+
+
+func _swing_body_at(u: float) -> Dictionary:
+	## Hips, spine, and the step share the shaft's parameter. Arms are
+	## overwritten by the two-hand grip. Shin pitch stays negative.
+	var pose := {}
+	var step_u := clampf(u / maxf(_swing_strike_u, 0.05), 0.0, 1.0)
+	var turn := clampf(u, 0.0, 1.0)
+	var lean := sin(turn * PI)
+	for k in _swing_start_pose.keys():
+		var key := String(k)
+		if key == "root_drop" or key == "grip_slide":
+			var dest := float(_swing_follow_pose.get(k, _swing_start_pose[k]))
+			if key == "grip_slide":
+				dest = 0.0
+			pose[k] = lerpf(float(_swing_start_pose[k]), dest, step_u)
+			continue
+		var a: Vector3 = _swing_start_pose[k]
+		var b: Vector3 = _swing_follow_pose.get(k, a)
+		if key in ["left_thigh", "left_shin", "right_thigh", "right_shin"]:
+			pose[k] = a.lerp(b, step_u)
+		elif key == "hips" or key == "torso" or key == "head":
+			var v := a
+			v.y = a.y + _swing_yaw(turn)
+			if key != "head":
+				v.x = lerpf(a.x, b.x, 0.35 * turn) + -0.16 * lean
+				v.z = lerpf(a.z, b.z, 0.25 * turn)
+			pose[k] = v
+		else:
+			pose[k] = a
+	for leg in ["left_shin", "right_shin"]:
+		if not pose.has(leg):
+			continue
+		var sv: Vector3 = pose[leg]
+		if sv.x > deg_to_rad(-10.0):
+			sv.x = deg_to_rad(-26.0)
+		pose[leg] = sv
+	return pose
+
+
+
+func _bring_shaft_to_both_hands(butt_w: Vector3, tip_w: Vector3) -> Array:
+	## Translate the whole line toward the shoulders when a palm would slip off.
+	## Never along the shaft, and never back into the cloak.
+	if locomotion == null:
+		return [butt_w, tip_w]
+	var torso := locomotion.get_joint("torso") as Node3D
+	var face := Vector3(0.0, 0.0, -1.0)
+	if torso:
+		face = -torso.global_transform.basis.z
+		if face.length_squared() > 0.0001:
+			face = face.normalized()
+	for _pass in 5:
+		var push := Vector3.ZERO
+		var n := 0
+		for side in ["right_arm", "left_arm"]:
+			var arm := locomotion.get_joint(side) as Node3D
+			if arm == null:
+				continue
+			var shoulder: Vector3 = arm.global_position
+			var best := butt_w
+			var best_d := 99.0
+			for i in 12:
+				var p: Vector3 = butt_w.lerp(tip_w, float(i) / 11.0)
+				var d := shoulder.distance_to(p)
+				if d < best_d:
+					best_d = d
+					best = p
+			if best_d <= 0.42:
+				continue
+			var step := (shoulder - best).normalized() * minf(best_d - 0.40, 0.14)
+			# A step into the cloak is not a grip. Keep the line on the face side.
+			var into := -step.dot(face)
+			if into > 0.0:
+				step += face * into
+			if step.length_squared() < 0.0001:
+				continue
+			push += step
+			n += 1
+		if n == 0:
+			break
+		butt_w += push / float(n)
+		tip_w += push / float(n)
+	var axis := tip_w - butt_w
+	if axis.length_squared() > 0.0001:
+		tip_w = butt_w + axis.normalized() * 1.30
+	return [butt_w, tip_w]
+
+
+func _place_continuous_shaft(butt_w: Vector3, tip_w: Vector3) -> Node3D:
+	if weapon_visual == null:
+		return null
+	var axis := tip_w - butt_w
+	if axis.length_squared() < 0.0001:
+		return weapon_visual.get_node_or_null("Goad") as Node3D
+	axis = axis.normalized()
+	var origin := butt_w - axis * (-0.255)
+	var prefer := _swing_frame.basis.x
+	var x := prefer - axis * prefer.dot(axis)
+	if x.length_squared() < 0.0004:
+		x = _swing_frame.basis.z.cross(axis)
+	x = x.normalized()
+	var z := x.cross(axis).normalized()
+	weapon_visual.global_transform = Transform3D(Basis(x, axis, z), origin)
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	if goad:
+		goad.position = Vector3.ZERO
+		goad.rotation = Vector3.ZERO
+	return goad
+
+
 func _finish_goad_return() -> void:
-	## Already eased to the ready pose. Do not snap additives to bind pose.
+	## Jab eases to the ready pose. A shaft swing stays on the arc it arrived on.
+	## Standing the stick up in front of the face is the snap this replaced.
 	_swing_arc_live = false
+	if _goad_swing_held:
+		return
 	if combat and (combat.is_charging or combat.is_shaft_blocking):
 		return
 	if combat == null or locomotion == null:
