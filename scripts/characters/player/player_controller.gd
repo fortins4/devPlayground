@@ -1807,10 +1807,10 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 	var mid_sh: Vector3 = (r_sh + l_sh) * 0.5
 	var swing_mid_y := (butt_w.y + tip_w.y) * 0.5
 	# Hold the wood just ahead of the chest — close enough for both palms.
-	var grip_mid: Vector3 = mid_sh + face * 0.34
+	var grip_mid: Vector3 = mid_sh + face * 0.38
 	grip_mid.y = clampf(swing_mid_y, mid_sh.y - 0.10, mid_sh.y + 0.40)
-	# ~38cm of shaft between palms (readable two-hand swing).
-	var spacing := 0.38
+	# ~42cm of shaft between palms (readable two-hand swing).
+	var spacing := 0.42
 	var right_pt: Vector3 = grip_mid - axis * (spacing * 0.5)
 	# right station is goad Y 0.14 ⇒ world = butt + axis * (0.255 + 0.14)
 	butt_w = right_pt - axis * (0.255 + 0.14)
@@ -1818,15 +1818,29 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 	# Nudge so the forward (left) station stays inside left-arm reach.
 	var left_pt: Vector3 = butt_w + axis * (0.255 + 0.52)
 	var left_d := l_sh.distance_to(left_pt)
-	if left_d > 0.48:
+	if left_d > 0.50:
 		var step := l_sh - left_pt
 		var into := -step.dot(face)
 		if into > 0.0:
 			step += face * into
 		if step.length_squared() > 0.0001:
-			step = step.normalized() * minf(left_d - 0.45, 0.32)
+			step = step.normalized() * minf(left_d - 0.48, 0.28)
 			butt_w += step
 			tip_w += step
+	# Micro face clear only — full slide after seat killed reach.
+	var torso := locomotion.get_joint("torso") as Node3D
+	if torso:
+		var need := 0.0
+		for i in 14:
+			var p: Vector3 = butt_w.lerp(tip_w, float(i) / 13.0)
+			var rel: Vector3 = p - torso.global_position
+			var ahead := rel.dot(face)
+			var side := rel - face * ahead
+			if absf(side.x) + absf(side.z) < 0.55 and absf(rel.y) < 0.55 and ahead < 0.30:
+				need = maxf(need, 0.30 - ahead)
+		if need > 0.001:
+			butt_w += face * minf(need, 0.22)
+			tip_w += face * minf(need, 0.22)
 	return [butt_w, tip_w]
 
 
