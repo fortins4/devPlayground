@@ -1467,14 +1467,14 @@ func _continuous_swing_keys(aim: Vector2) -> Array:
 		_swing_line(Vector3(0.06, 1.14, -0.72), Vector3(-0.60, -0.30, -0.88)),
 		_swing_line(Vector3(-0.02, 1.14, -0.58), Vector3(-0.50, -0.48, -0.68)),
 	]
-	# Overhead chop. Key 0 is the live bar over the head. These keep the
-	# hands high and drop the tip straight down the face side — not the
-	# chest-height forward shove the side swings use.
+	# Overhead chop. Key 0 stays a high bar (matches the charge hold). Mid/end
+	# leave the sagittal centerline — past the face/right of the skull — so
+	# the tip does not drop through the head and torso.
 	var top: Array = [
-		_swing_line(Vector3(0.00, 1.70, -0.18), Vector3(0.06, 0.10, -0.70)),
-		_swing_line(Vector3(0.00, 1.55, -0.32), Vector3(0.02, -0.35, -0.92)),
-		_swing_line(Vector3(0.00, 1.38, -0.40), Vector3(0.02, -0.78, -0.62)),
-		_swing_line(Vector3(0.00, 1.26, -0.38), Vector3(0.02, -0.96, -0.38)),
+		_swing_line(Vector3(0.22, 1.70, -0.28), Vector3(0.55, 0.04, -0.55)),
+		_swing_line(Vector3(0.30, 1.52, -0.55), Vector3(0.14, -0.52, -0.90)),
+		_swing_line(Vector3(0.26, 1.36, -0.62), Vector3(0.10, -0.85, -0.68)),
+		_swing_line(Vector3(0.18, 1.26, -0.52), Vector3(0.06, -0.98, -0.40)),
 	]
 	var out: Array = []
 	for i in 4:
@@ -1531,19 +1531,31 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	var cleared: Array = _slide_line_off_body(butt_w, tip_w)
 	butt_w = cleared[0]
 	tip_w = cleared[1]
-	# Seat so spaced palms reach. Overhead restores its high end after seat.
-	var high_keep := maxf(butt_w.y, tip_w.y)
-	var seated: Array = _seat_charged_shaft_at_shoulders(butt_w, tip_w)
-	butt_w = seated[0]
-	tip_w = seated[1]
+	# Side: seat at shoulders. Top: high seat LAST along the clear-key axis —
+	# a follow-up body slide shoved stations back out of reach.
 	if overhead:
-		var drop := high_keep - maxf(butt_w.y, tip_w.y)
-		if drop > 0.0:
-			butt_w.y += drop
-			tip_w.y += drop
-		cleared = _slide_line_off_body(butt_w, tip_w)
-		butt_w = cleared[0]
-		tip_w = cleared[1]
+		var seated_top: Array = _seat_overhead_shaft_at_shoulders(butt_w, tip_w)
+		butt_w = seated_top[0]
+		tip_w = seated_top[1]
+		var head := locomotion.get_joint("head") as Node3D if locomotion else null
+		if head:
+			var face_h := -_swing_frame.basis.z
+			face_h.y = 0.0
+			if face_h.length_squared() > 0.0001:
+				face_h = face_h.normalized()
+			var need := 0.0
+			for i in 12:
+				var p: Vector3 = butt_w.lerp(tip_w, float(i) / 11.0)
+				var hd := p.distance_to(head.global_position)
+				if hd < 0.38:
+					need = maxf(need, 0.38 - hd)
+			if need > 0.001:
+				butt_w += face_h * minf(need, 0.08)
+				tip_w += face_h * minf(need, 0.08)
+	else:
+		var seated: Array = _seat_charged_shaft_at_shoulders(butt_w, tip_w)
+		butt_w = seated[0]
+		tip_w = seated[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
 		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.14)
@@ -1557,14 +1569,14 @@ func _continuous_line_at(u: float) -> Array:
 		i += 1
 	var span := maxf(_swing_key_u[i + 1] - _swing_key_u[i], 0.0001)
 	var t := clampf((u - _swing_key_u[i]) / span, 0.0, 1.0)
-	# A pure top chop is a straight drop from the overhead bar. The face-side
-	# quadratic pulls a high tip forward of the hands and leaves the wood.
+	# Top: bow past the face of the skull (not a centerline drop). Sides keep
+	# the existing face-quad. L/R keys are untouched.
 	var overhead := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
 	var butt: Vector3
 	var tip: Vector3
 	if overhead:
-		butt = _swing_keys_butt[i].lerp(_swing_keys_butt[i + 1], t)
-		tip = _swing_keys_tip[i].lerp(_swing_keys_tip[i + 1], t)
+		butt = _overhead_clear_quad(_swing_keys_butt[i], _swing_keys_butt[i + 1], t)
+		tip = _overhead_clear_quad(_swing_keys_tip[i], _swing_keys_tip[i + 1], t)
 	else:
 		butt = _face_quad(_swing_keys_butt[i], _swing_keys_butt[i + 1], t)
 		tip = _face_quad(_swing_keys_tip[i], _swing_keys_tip[i + 1], t)
@@ -1572,6 +1584,18 @@ func _continuous_line_at(u: float) -> Array:
 	if axis.length_squared() > 0.0001:
 		tip = butt + axis.normalized() * 1.30
 	return [butt, tip]
+
+
+func _overhead_clear_quad(a: Vector3, b: Vector3, t: float) -> Vector3:
+	## Charged top only. Ends stay on the authored keys; the mid control sits
+	## past the face and off the sagittal plane so the chop misses the skull.
+	var mid := a.lerp(b, 0.5)
+	mid.z = minf(mid.z, -0.58)
+	if absf(mid.x) < 0.30:
+		mid.x = 0.30 if mid.x >= 0.0 else -0.30
+	if mid.y > 1.55:
+		mid.y = 1.55
+	return _quad_bez(a, mid, b, t)
 
 
 func _face_quad(a: Vector3, b: Vector3, t: float) -> Vector3:
@@ -1791,6 +1815,44 @@ func _bring_shaft_to_both_hands(butt_w: Vector3, tip_w: Vector3) -> Array:
 		tip_w = butt_w + axis.normalized() * 1.30
 	return [butt_w, tip_w]
 
+
+
+
+func _seat_overhead_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
+	## Charged top only. Keep the clear-key axis; plant a high grip mid in
+	## front of both shoulders so spaced palms reach past the skull.
+	if locomotion == null:
+		return [butt_w, tip_w]
+	var right_arm := locomotion.get_joint("right_arm") as Node3D
+	var left_arm := locomotion.get_joint("left_arm") as Node3D
+	if right_arm == null or left_arm == null:
+		return [butt_w, tip_w]
+	var axis := tip_w - butt_w
+	if axis.length_squared() < 0.0001:
+		return [butt_w, tip_w]
+	axis = axis.normalized()
+	var face := -_swing_frame.basis.z
+	face.y = 0.0
+	if face.length_squared() < 0.0001:
+		face = Vector3(0.0, 0.0, -1.0)
+	else:
+		face = face.normalized()
+	var r_sh: Vector3 = right_arm.global_position
+	var l_sh: Vector3 = left_arm.global_position
+	var mid_sh: Vector3 = (r_sh + l_sh) * 0.5
+	# High hold in front of the shoulders, biased with the clear-key lateral.
+	var lateral := axis
+	lateral.y = 0.0
+	if lateral.length_squared() > 0.0001:
+		lateral = lateral.normalized()
+	else:
+		lateral = _swing_frame.basis.x
+	var grip_mid: Vector3 = mid_sh + face * 0.34 + Vector3.UP * 0.40 + lateral * 0.16
+	var spacing := 0.34
+	var right_pt: Vector3 = grip_mid - axis * (spacing * 0.5)
+	butt_w = right_pt - axis * (0.255 + 0.14)
+	tip_w = butt_w + axis * 1.30
+	return [butt_w, tip_w]
 
 
 func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
@@ -2647,7 +2709,7 @@ func _grip_shaft_at_y(shaft: Node3D, arm_name: String, fore_name: String, shaft_
 	var shoulder: Vector3 = arm.global_position
 	var best: Vector3 = shaft.to_global(Vector3(0.0, shaft_y, 0.0))
 	var best_d := shoulder.distance_to(best)
-	if best_d > 0.72:
+	if best_d > 0.90:
 		return
 	var l1 := 0.32
 	var palm := 0.22
