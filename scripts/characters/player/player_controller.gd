@@ -124,6 +124,8 @@ var _shaft_pose_applied: bool = false
 ## Face whose seated pose is already on screen. Empty while a blend or a swing owns the body.
 var _guard_face_held: StringName = &""
 var _guard_blend_active: bool = false
+## True while a goad jab/swing tween (incl. settle) owns the body.
+var _goad_release_live: bool = false
 var _guard_blend_u: float = 0.0
 var _guard_from_pose: Dictionary = {}
 var _guard_to_pose: Dictionary = {}
@@ -389,6 +391,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 	var attacking := combat != null and (
 		combat.is_attacking
 		or combat.is_charging
+		or _goad_release_live
 		or _hurt_reacting
 		or (combat.is_shaft_blocking and not guard_step)
 	)
@@ -443,6 +446,7 @@ func _tick_shaft_block() -> void:
 		and not Input.is_action_pressed("sprint")
 		and not combat.is_attacking
 		and not combat.is_charging
+		and not _goad_release_live
 		and not combat.is_dead
 		and not is_mounted
 		and not is_dragging()
@@ -536,7 +540,7 @@ func _guard_wants_steps(horiz_speed: float) -> bool:
 	## Walking in a guard steps. A charge, a swing, and standing still do not.
 	if combat == null or locomotion == null or not combat.is_shaft_blocking:
 		return false
-	if combat.is_attacking or combat.is_charging or _hurt_reacting or _sprinting:
+	if combat.is_attacking or combat.is_charging or _goad_release_live or _hurt_reacting or _sprinting:
 		return false
 	return horiz_speed > 0.22
 
@@ -1340,6 +1344,7 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	_guard_blend_active = false
 	_guard_face_held = &""
 	_charge_from_ready = false
+	_goad_release_live = true
 	# Same equal look face as the guard (high → pure overhead axes / top keys).
 	var face := _resolve_look_face_from(_charge_aim_delta)
 	var aim := _aim_axes_for_look_face(face)
@@ -1918,6 +1923,7 @@ func _finish_goad_return() -> void:
 	_goad_swing_held = false
 	_swing_arc_interior = false
 	_shaft_xf_blend = false
+	_goad_release_live = false
 	_tool_root_drop = 0.0
 	_goad_grip_slide = 0.0
 	if locomotion:

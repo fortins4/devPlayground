@@ -309,18 +309,18 @@ static func tool_shaft_guard_pose(face: StringName) -> Dictionary:
 			high["grip_slide"] = 0.0
 			return high
 		&"low":
-			# Hips drop, knees fold, shaft across the thighs. The pitch meets an
-			# incoming point so the sticks touch. Still the low guard, not a stab.
+			# Hips drop, knees fold, shaft across the front of the thighs (not
+			# through them). The pitch still meets an incoming point. Guard, not a stab.
 			var low := _deg_pose(_pack(
 				Vector3(12, 0, 0), Vector3(16, 0, 0), Vector3(-6, 0, 0),
-				Vector3(0, -6, -42), Vector3(30, 0, 0),
-				Vector3(34.7, 0.1, 12.5), Vector3(8.6, -84.6, 32.4),
+				Vector3(8, -4, -38), Vector3(28, 0, 0),
+				Vector3(28.0, 6.0, 18.0), Vector3(6.0, -70.0, 28.0),
 				Vector3(42, 0, -38), Vector3(-70, 0, 0),
 				Vector3(42, 0, 38), Vector3(-70, 0, 0),
-				Vector3(24, 4, 102)
+				Vector3(18, 8, 98)
 			))
 			low["root_drop"] = 0.28
-			low["grip_slide"] = 0.114
+			low["grip_slide"] = 0.08
 			return low
 		_:
 			return tool_shaft_block_pose()
@@ -646,6 +646,9 @@ static func seat_goad_off_hand(loco: Object, weapon_visual: Node3D) -> void:
 	if right_arm_early != null and right_fore_early != null and _is_authored_high_guard(loco, weapon_visual):
 		_seat_high_guard_overhead(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
 		return
+	if right_arm_early != null and right_fore_early != null and _is_authored_low_guard(loco, weapon_visual):
+		_seat_low_guard_in_front(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
+		return
 	if right_arm_early != null and right_fore_early != null and _host_flinching(loco) and _flinch_needs_face_clear(weapon_visual, goad, head):
 		_seat_flinch_below_chin(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
 		return
@@ -879,6 +882,77 @@ static func _seat_high_guard_overhead(loco: Object, weapon_visual: Node3D, goad:
 	_aim_weapon_y(weapon_visual, axis)
 	var t_off := (l_palm - r_palm).dot(weapon_visual.global_transform.basis.y.normalized())
 	goad.position.y = -_slide_for(-goad.position.y, 0.0, t_off)
+
+
+## Low guard only. Generic seat leaves the across-thighs shaft through both
+## legs. Keep a near-horizontal bar in front of the thighs/knees so wood meets
+## an incoming point without clipping. Left/right/high seats do not use this.
+static func _is_authored_low_guard(loco: Object, weapon_visual: Node3D) -> bool:
+	var pose := tool_shaft_guard_pose(&"low")
+	# Crouch body owns identity. Seat rewrites arms + weapon every sync the
+	# same way left/right keep hips/torso/head as the face key.
+	# Do not key off thighs: walk-guard forgets leg additives each frame.
+	for joint in ["hips", "torso", "head"]:
+		var have: Vector3 = loco.get_combat_additive(joint)
+		if have.distance_to(pose[joint]) > deg_to_rad(6.0):
+			return false
+	return weapon_visual != null
+
+
+static func _seat_low_guard_in_front(loco: Object, weapon_visual: Node3D, goad: Node3D, left_arm: Node3D, left_fore: Node3D, right_arm: Node3D, right_fore: Node3D, torso: Node3D, head: Node3D) -> void:
+	var left_thigh := loco.get_joint("left_thigh") as Node3D
+	var right_thigh := loco.get_joint("right_thigh") as Node3D
+	if left_thigh == null or right_thigh == null:
+		return
+	var mid: Vector3 = (left_thigh.global_position + right_thigh.global_position) * 0.5
+	var face: Vector3 = -torso.global_transform.basis.z
+	face.y = 0.0
+	if face.length() < 0.001:
+		face = -torso.global_transform.basis.z
+	face = face.normalized()
+	var side: Vector3 = torso.global_transform.basis.x
+	side.y = 0.0
+	if side.length() < 0.001:
+		side = torso.global_transform.basis.x
+	side = side.normalized()
+	var up := Vector3.UP
+	# Fixed clear bar first. Hands IK onto it — do not let palm drift retarget the wood into a thigh.
+	var center: Vector3 = mid + face * 0.22 + up * 0.36
+	var axis := side
+	var origin: Vector3 = center - axis * 0.16
+	weapon_visual.global_position = origin
+	_aim_weapon_y(weapon_visual, axis)
+	goad.position = Vector3.ZERO
+	goad.rotation = Vector3.ZERO
+	var r_shoulder: Vector3 = right_arm.global_position
+	var l_shoulder: Vector3 = left_arm.global_position
+	var r_grip := _low_guard_grip_on_shaft(origin, axis, r_shoulder)
+	var l_grip := _low_guard_grip_on_shaft(origin, axis, l_shoulder)
+	var r_pole: Vector3 = r_shoulder + side * 0.18 + up * -0.38 + face * 0.14
+	var l_pole: Vector3 = l_shoulder - side * 0.18 + up * -0.38 + face * 0.14
+	_ik_right(loco, right_arm, right_fore, r_shoulder, r_pole, r_grip)
+	_ik_left(loco, left_arm, left_fore, l_shoulder, l_pole, l_grip)
+	# Keep the clear bar. Slide only so both grip stations sit on the mesh.
+	var t_off := (l_grip - origin).dot(axis)
+	goad.position.y = -_slide_for(0.0, 0.0, t_off)
+
+
+## Nearest point on the low-guard shaft a shoulder can still reach.
+static func _low_guard_grip_on_shaft(origin: Vector3, axis: Vector3, shoulder: Vector3) -> Vector3:
+	var best := origin
+	var best_cost := 999.0
+	for i in 17:
+		var t := lerpf(-0.05, 0.55, float(i) / 16.0)
+		var p: Vector3 = origin + axis * t
+		var d := shoulder.distance_to(p)
+		if d < 0.14 or d > 0.55:
+			continue
+		var cost := absf(d - 0.42) + absf(t - 0.22) * 0.15
+		if cost < best_cost:
+			best_cost = cost
+			best = p
+	return best
+
 
 
 ## Flinch only. The generic seat aims a clipping shaft across the chest, which
