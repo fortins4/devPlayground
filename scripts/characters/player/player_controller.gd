@@ -1448,17 +1448,19 @@ func _continuous_swing_keys(aim: Vector2) -> Array:
 	w_left /= sum
 	w_right /= sum
 	w_top /= sum
+	# Side arcs stay in front of the torso (−Z). Mid keys used to park the
+	# butt on the centerline so the tip chord cut through the chest.
 	var left: Array = [
-		_swing_line(Vector3(-0.12, 1.28, -0.55), Vector3(-0.72, 0.45, -0.48)),
-		_swing_line(Vector3(-0.02, 1.18, -0.58), Vector3(0.70, 0.02, -0.68)),
-		_swing_line(Vector3(0.06, 1.14, -0.52), Vector3(0.58, -0.42, -0.58)),
-		_swing_line(Vector3(0.08, 1.16, -0.48), Vector3(0.48, -0.50, -0.55)),
+		_swing_line(Vector3(-0.24, 1.32, -0.52), Vector3(-0.70, 0.52, -0.58)),
+		_swing_line(Vector3(-0.16, 1.22, -0.78), Vector3(0.55, 0.18, -0.98)),
+		_swing_line(Vector3(-0.06, 1.14, -0.72), Vector3(0.60, -0.30, -0.88)),
+		_swing_line(Vector3(0.02, 1.14, -0.58), Vector3(0.50, -0.48, -0.68)),
 	]
 	var right: Array = [
-		_swing_line(Vector3(0.18, 1.32, -0.55), Vector3(0.62, 0.48, -0.52)),
-		_swing_line(Vector3(0.04, 1.18, -0.58), Vector3(-0.68, 0.02, -0.70)),
-		_swing_line(Vector3(-0.02, 1.14, -0.52), Vector3(-0.55, -0.42, -0.60)),
-		_swing_line(Vector3(0.00, 1.16, -0.48), Vector3(-0.45, -0.52, -0.58)),
+		_swing_line(Vector3(0.24, 1.32, -0.52), Vector3(0.70, 0.52, -0.58)),
+		_swing_line(Vector3(0.16, 1.22, -0.78), Vector3(-0.55, 0.18, -0.98)),
+		_swing_line(Vector3(0.06, 1.14, -0.72), Vector3(-0.60, -0.30, -0.88)),
+		_swing_line(Vector3(-0.02, 1.14, -0.58), Vector3(-0.50, -0.48, -0.68)),
 	]
 	# Overhead chop. Key 0 is the live bar over the head. These keep the
 	# hands high and drop the tip straight down the face side — not the
@@ -1560,6 +1562,9 @@ func _face_quad(a: Vector3, b: Vector3, t: float) -> Vector3:
 	var mid := a.lerp(b, 0.5)
 	if mid.z > -0.36:
 		mid.z = -0.55
+	# Side mid-arc: keep the bezier in front of the chest, not through it.
+	if absf(_swing_arc_aim.x) > 0.35 and mid.y > 0.75 and mid.y < 1.48:
+		mid.z = minf(mid.z, -0.78)
 	# Do not crest the skull. Overhead stays in front; a side swing stays wide.
 	if mid.y > 1.42 and absf(mid.x) < 0.34:
 		mid.z = minf(mid.z, -0.64)
@@ -1701,14 +1706,16 @@ func _slide_line_off_body(butt_w: Vector3, tip_w: Vector3) -> Array:
 		if hp.y < 0.14 and hp.y > -0.52 and hp.z > -0.16 and Vector2(hp.x, hp.z).length() < 0.30:
 			push = maxf(push, (hp.z + 0.30) / along)
 		var tp: Vector3 = torso.to_local(p)
-		if absf(tp.x) < 0.36 and tp.y > -0.08 and tp.y < 0.62 and tp.z > -0.10:
+		# Wider / deeper torso sample so a side chord cannot sit in the chest.
+		if absf(tp.x) < 0.44 and tp.y > -0.14 and tp.y < 0.72 and tp.z > -0.30:
 			var chest_face := -torso.global_transform.basis.z
 			var along_c := 0.35
 			if chest_face.length_squared() > 0.0001:
 				along_c = maxf(dir.dot(chest_face.normalized()), 0.35)
-			push = maxf(push, (tp.z + 0.22) / along_c)
+			push = maxf(push, (tp.z + 0.40) / along_c)
 	if push > 0.001:
-		var delta := dir * minf(push, 0.55)
+		var push_cap := 0.78 if absf(_swing_arc_aim.x) > 0.35 else 0.55
+		var delta := dir * minf(push, push_cap)
 		butt_w += delta
 		tip_w += delta
 		var kept := tip_w - butt_w
