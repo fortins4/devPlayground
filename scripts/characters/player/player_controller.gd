@@ -1526,15 +1526,12 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	var cleared: Array = _slide_line_off_body(butt_w, tip_w)
 	butt_w = cleared[0]
 	tip_w = cleared[1]
-	# Clearance used to shove the mid chord out of left-hand reach — both
-	# palms then sat on the butt. Pull into dual-station reach, then a light
-	# re-slide so the chest stays clear without losing the left grip.
+	# Clearance can shove the mid chord out of left-hand reach — both palms
+	# then sat on the butt. Pull into dual-station reach AFTER the slide so
+	# a second push cannot undo the left grip.
 	var reached: Array = _pull_shaft_into_spaced_reach(butt_w, tip_w)
 	butt_w = reached[0]
 	tip_w = reached[1]
-	cleared = _slide_line_off_body(butt_w, tip_w)
-	butt_w = cleared[0]
-	tip_w = cleared[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
 		# Fixed stations along the wood — nearest-to-shoulder piled both hands on the butt.
@@ -1813,7 +1810,7 @@ func _pull_shaft_into_spaced_reach(butt_w: Vector3, tip_w: Vector3) -> Array:
 		var d := shoulder.distance_to(target)
 		if d <= lim:
 			continue
-		var step := (shoulder - target).normalized() * minf(d - lim, 0.38)
+		var step := (shoulder - target).normalized() * minf(d - lim, 0.72)
 		# Never yank the wood back through the cloak.
 		var into := -step.dot(face)
 		if into > 0.0:
@@ -2634,7 +2631,7 @@ func _grip_shaft_at_y(shaft: Node3D, arm_name: String, fore_name: String, shaft_
 	var shoulder: Vector3 = arm.global_position
 	var best: Vector3 = shaft.to_global(Vector3(0.0, shaft_y, 0.0))
 	var best_d := shoulder.distance_to(best)
-	if best_d > 1.15:
+	if best_d > 1.35:
 		return
 	var l1 := 0.30
 	var palm := 0.22
