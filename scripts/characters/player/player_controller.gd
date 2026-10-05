@@ -81,6 +81,8 @@ const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
 const GOAD_AIM_SPAN := 18.0
 ## Follow-through eases back to the ready pose. Not a hard zero, not a victory hold.
 const GOAD_SETTLE_SEC := 0.22
+## Guard face changes travel. Short enough to read as a motion, not a lag.
+const GUARD_BLEND_SEC := 0.12
 ## Back seat to the two-hand idle, and the same path home. Not a pop.
 const GOAD_DRAW_SEC := 0.36
 ## Hit flinch: snap in, short hold, ease back to the ready pose. Not a knockdown.
@@ -114,6 +116,23 @@ var _goad_seat_ready: bool = false
 var _tool_pose_active: bool = false
 ## True while the goad shaft-block pose is applied (so sprint/release can drop it).
 var _shaft_pose_applied: bool = false
+## Face whose seated pose is already on screen. Empty while a blend or a swing owns the body.
+var _guard_face_held: StringName = &""
+var _guard_blend_active: bool = false
+var _guard_blend_u: float = 0.0
+var _guard_from_pose: Dictionary = {}
+var _guard_to_pose: Dictionary = {}
+var _guard_from_xf: Transform3D = Transform3D.IDENTITY
+var _guard_to_xf: Transform3D = Transform3D.IDENTITY
+## Pose on screen when a goad charge started. Ratio 0 stays here instead of popping to idle.
+var _charge_from_pose: Dictionary = {}
+var _charge_from_xf: Transform3D = Transform3D.IDENTITY
+var _charge_from_ready: bool = false
+## Strike and charge plant the shaft between two captured holds. Not a seat search.
+var _shaft_xf_blend: bool = false
+var _shaft_from_xf: Transform3D = Transform3D.IDENTITY
+var _shaft_to_xf: Transform3D = Transform3D.IDENTITY
+var _shaft_xf_u: float = 0.0
 ## While the goad guard is up, look offset is not decayed so a face stays put.
 const TOOL_AIM_SIDE := 10.0
 const TOOL_AIM_VERT := 8.0
@@ -401,21 +420,131 @@ func _tick_shaft_block() -> void:
 	elif _shaft_pose_applied:
 		_shaft_pose_applied = false
 		if not combat.is_attacking and not combat.is_charging:
-			_clear_attack_additives()
+			if combat.current_weapon == CombatSystem.Weapon.GOAD:
+				_release_guard_to_idle()
+			else:
+				_clear_attack_additives()
 
 
 func _apply_shaft_block_pose() -> void:
 	if locomotion == null:
 		return
+	locomotion.lock_attack(0.12)
+	var face: StringName = &"chest"
+	if combat:
+		face = combat.shaft_guard_face
+	# The draw owns the body until the shaft is in the hands.
+	if _goad_draw_u < 0.999:
+		if _arm_tween and _arm_tween.is_valid():
+			_arm_tween.kill()
+		_guard_blend_active = false
+		_apply_tool_pose(ToolStrikePoses.tool_shaft_guard_pose(face))
+		return
+	if _guard_blend_active and face == _guard_face_held:
+		return
+	if not _guard_blend_active and face == _guard_face_held:
+		_apply_tool_pose(ToolStrikePoses.tool_shaft_guard_pose(face))
+		return
+	var target: Dictionary = ToolStrikePoses.tool_shaft_guard_pose(face)
+	var start: Dictionary = _current_tool_pose(target)
+	_guard_face_held = face
+	_begin_guard_blend(start, target)
+
+
+func _release_guard_to_idle() -> void:
+	## Dropping the guard travels back to the ready pose. Not a bind-pose snap.
+	if combat == null or locomotion == null:
+		_clear_attack_additives()
+		return
+	var idle: Dictionary = ToolStrikePoses.tool_idle_pose(combat.current_weapon)
+	var start: Dictionary = _current_tool_pose(idle)
+	_guard_face_held = &""
+	_begin_guard_blend(start, idle)
+
+
+func _begin_guard_blend(start_pose: Dictionary, target_pose: Dictionary) -> void:
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
-	var face: StringName = &"chest"
-	if combat:
-		face = combat.shaft_guard_face
-	_apply_tool_pose(ToolStrikePoses.tool_shaft_guard_pose(face))
-	locomotion.lock_attack(0.12)
+	_guard_blend_active = false
+	_shaft_xf_blend = false
+	_guard_from_pose = start_pose
+	_guard_to_pose = target_pose
+	# The stick that is already showing, not a reseat of the start pose.
+	_guard_from_xf = weapon_visual.global_transform if weapon_visual else Transform3D.IDENTITY
+	_guard_to_xf = _peek_shaft_xf(target_pose)
+	_guard_blend_u = 0.0
+	_guard_blend_active = true
+	_apply_blended_pose(start_pose, target_pose, 0.0, true)
+	_arm_tween = create_tween()
+	_arm_tween.tween_method(_step_guard_blend, 0.0, 1.0, GUARD_BLEND_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_callback(_finish_guard_blend)
+
+
+func _step_guard_blend(t: float) -> void:
+	_guard_blend_u = clampf(t, 0.0, 1.0)
+	_apply_blended_pose(_guard_from_pose, _guard_to_pose, _guard_blend_u, true)
+
+
+func _finish_guard_blend() -> void:
+	_guard_blend_active = false
+	_guard_blend_u = 1.0
+
+
+func _peek_shaft_xf(pose: Dictionary) -> Transform3D:
+	## Where this pose seats the stick, without leaving that pose on screen.
+	if weapon_visual == null or locomotion == null:
+		return Transform3D.IDENTITY
+	var saved_xf := weapon_visual.global_transform
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	var saved_goad_pos := goad.position if goad else Vector3.ZERO
+	var saved_goad_rot := goad.rotation if goad else Vector3.ZERO
+	var saved_drop := _tool_root_drop
+	var saved_euler := _tool_weapon_euler
+	var saved_slide := _goad_grip_slide
+	var saved_pose := _current_tool_pose(pose)
+	var was_guard := _guard_blend_active
+	var was_shaft := _shaft_xf_blend
+	_guard_blend_active = false
+	_shaft_xf_blend = false
+	_apply_tool_pose(pose)
+	var xf := weapon_visual.global_transform
+	_guard_blend_active = was_guard
+	_shaft_xf_blend = was_shaft
+	_tool_root_drop = saved_drop
+	locomotion.set_root_drop(saved_drop)
+	_tool_weapon_euler = saved_euler
+	_goad_grip_slide = saved_slide
+	for k in saved_pose.keys():
+		var key := String(k)
+		if key == "weapon" or key == "root_drop" or key == "grip_slide":
+			continue
+		locomotion.set_combat_additive(key, saved_pose[k])
+	weapon_visual.global_transform = saved_xf
+	if goad:
+		goad.position = saved_goad_pos
+		goad.rotation = saved_goad_rot
+	return xf
+
+
+func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) -> void:
+	## Shaft rides between two holds. Hands stay on it. A sample that would
+	## meet the skull bows out, the same way the stow does. End poses are the
+	## captured seats, not a new one.
+	if weapon_visual == null:
+		return
+	weapon_visual.global_transform = from_xf.interpolate_with(to_xf, clampf(u, 0.0, 1.0))
+	var shaft: Node3D = weapon_visual
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	if goad:
+		# Bow writes a global nudge. Reset it so the next frame does not stack.
+		goad.position = Vector3(0.0, -_goad_grip_slide, 0.0)
+		goad.rotation = Vector3.ZERO
+		shaft = goad
+	_bow_stow_off_the_head(shaft)
+	_grip_shaft_with(shaft, "right_arm", "right_forearm", 0.30)
+	_grip_shaft_with(shaft, "left_arm", "left_forearm", 0.24)
 
 
 ## Look picks the guard face. No button. Horizontal look wins over vertical.
@@ -639,11 +768,23 @@ func _apply_goad_charge_pose(ratio: float, _direction: StringName) -> void:
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
+	_guard_blend_active = false
 	# Cardinal direction still picks the strike on release. The body tracks
 	# the mouse continuously so the weapon is already on that side.
 	var aim := _shaft_aim_axes()
-	var pose: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, ratio)
-	_apply_tool_pose(pose)
+	var full: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, 1.0)
+	if not _charge_from_ready:
+		_charge_from_pose = _current_tool_pose(full)
+		_charge_from_xf = weapon_visual.global_transform if weapon_visual else Transform3D.IDENTITY
+		_charge_from_ready = true
+		_guard_face_held = &""
+	var blend := ToolStrikePoses._charge_blend(ratio)
+	_shaft_from_xf = _charge_from_xf
+	_shaft_to_xf = _peek_shaft_xf(full)
+	_shaft_xf_u = blend
+	_shaft_xf_blend = true
+	_apply_blended_pose(_charge_from_pose, full, blend, false)
+	_shaft_xf_blend = false
 	if locomotion:
 		locomotion.lock_attack(0.08)
 
@@ -671,7 +812,13 @@ func _goad_aim_axes() -> Vector2:
 
 
 func _on_charge_cancelled(_weapon: StringName) -> void:
+	_charge_from_ready = false
 	if combat and combat.is_attacking:
+		return
+	# The live pose is still the charge. The guard tick blends back from it.
+	if combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
+		_guard_face_held = &""
+		_guard_blend_active = false
 		return
 	_clear_attack_additives()
 	# Snap back toward idle ready if hatchet still drawn.
@@ -940,31 +1087,40 @@ func _play_tool_body_strike(kind: StringName, _weapon: StringName) -> void:
 
 
 
-func _play_goad_release(kind: StringName, windup: float, active: float, from_charge: bool) -> void:
-	## Release continues the live aim. Contact and follow use the same blend
-	## as the hold, so a high-left chamber stays a high-left swing.
-	## No second windup, no cardinal snap, no 1.5x contact pop.
+func _play_goad_release(kind: StringName, windup: float, active: float, _from_charge: bool) -> void:
+	## The swing leaves the pose that is already on screen. Windup, contact,
+	## and the return connect. The windup is not a pop onto a stored cock.
+	## Settle back to the ready pose is still GOAD_SETTLE_SEC.
+	_guard_blend_active = false
+	_guard_face_held = &""
+	_charge_from_ready = false
 	var aim := _shaft_aim_axes()
 	# The jab is the point, at any look. It is not the shaft swing he was aiming.
 	if combat.last_strike_direction() == CombatSystem.StrikeDirection.BOTTOM:
 		aim = Vector2(0.0, 1.0)
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	var pose_windup: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"windup")
 	var pose_contact: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"contact")
 	var pose_follow: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"follow")
-	var start_pose: Dictionary = _current_tool_pose(pose_idle) if from_charge else ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, 0.28)
+	var start_pose: Dictionary = _current_tool_pose(pose_windup)
+	var start_xf := weapon_visual.global_transform if weapon_visual else Transform3D.IDENTITY
+	var windup_xf := _peek_shaft_xf(pose_windup)
+	var contact_xf := _peek_shaft_xf(pose_contact)
+	var follow_xf := _peek_shaft_xf(pose_follow)
 	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, GOAD_SETTLE_SEC)
-	var drive := float(phases["to_contact"]) + float(phases["windup_move"]) * (0.35 if kind == &"heavy" else 0.55)
-	drive = maxf(0.1, drive)
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	_tool_pose_active = true
 	_arm_tween = create_tween()
-	_arm_tween.tween_method(_lerp_tool_pose.bind(start_pose, pose_contact), 0.0, 1.0, drive).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_arm_tween.tween_method(_lerp_goad_shaft.bind(start_pose, pose_windup, start_xf, windup_xf), 0.0, 1.0, phases["windup_move"]).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if float(phases["windup_hold"]) > 0.0:
+		_arm_tween.tween_interval(float(phases["windup_hold"]))
+	_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_windup, pose_contact, windup_xf, contact_xf), 0.0, 1.0, phases["to_contact"]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	if float(phases["contact_hold"]) > 0.0:
 		_arm_tween.tween_interval(float(phases["contact_hold"]))
-	_arm_tween.tween_method(_lerp_tool_pose.bind(pose_contact, pose_follow), 0.0, 1.0, phases["follow"]).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_contact, pose_follow, contact_xf, follow_xf), 0.0, 1.0, phases["follow"]).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_arm_tween.tween_method(_slerp_goad_settle.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_arm_tween.tween_callback(_finish_goad_return)
 
@@ -984,6 +1140,15 @@ func _lerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> vo
 	_apply_blended_pose(from_pose, to_pose, t, false)
 
 
+func _lerp_goad_shaft(t: float, from_pose: Dictionary, to_pose: Dictionary, from_xf: Transform3D, to_xf: Transform3D) -> void:
+	_shaft_from_xf = from_xf
+	_shaft_to_xf = to_xf
+	_shaft_xf_u = clampf(t, 0.0, 1.0)
+	_shaft_xf_blend = true
+	_apply_blended_pose(from_pose, to_pose, t, false)
+	_shaft_xf_blend = false
+
+
 func _slerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
 	_apply_blended_pose(from_pose, to_pose, t, true)
 
@@ -998,7 +1163,7 @@ func _slerp_goad_settle(t: float, from_pose: Dictionary, to_pose: Dictionary) ->
 func _apply_blended_pose(from_pose: Dictionary, to_pose: Dictionary, t: float, use_slerp: bool) -> void:
 	var blended := {}
 	for k in to_pose.keys():
-		if String(k) == "root_drop":
+		if String(k) == "root_drop" or String(k) == "grip_slide":
 			blended[k] = lerpf(float(from_pose.get(k, 0.0)), float(to_pose[k]), t)
 			continue
 		var a: Vector3 = from_pose.get(k, Vector3.ZERO)
@@ -1029,6 +1194,8 @@ func _current_tool_pose(fallback: Dictionary) -> Dictionary:
 			pose[k] = _tool_root_drop
 		elif String(k) == "weapon":
 			pose[k] = _tool_weapon_euler
+		elif String(k) == "grip_slide":
+			pose[k] = _goad_grip_slide
 		elif locomotion and locomotion.has_combat_additive(String(k)):
 			pose[k] = locomotion.get_combat_additive(String(k))
 		else:
@@ -1129,6 +1296,8 @@ func _play_hurt_flinch() -> void:
 		_torso_tween.kill()
 	_hurt_reacting = true
 	_tool_pose_active = true
+	_guard_blend_active = false
+	_shaft_xf_blend = false
 	_arm_tween = create_tween()
 	_arm_tween.tween_method(_blend_hurt_flinch.bind(start_pose, pose_hurt, false), 0.0, 1.0, HURT_FLINCH_IN_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_arm_tween.tween_interval(HURT_FLINCH_HOLD_SEC)
@@ -1247,7 +1416,12 @@ func _sync_weapon_to_hand() -> void:
 	elif _goad_stowing:
 		_apply_back_goad_carry(_goad_draw_u)
 	elif combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
-		ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
+		if _guard_blend_active:
+			_plant_shaft_between(_guard_from_xf, _guard_to_xf, _guard_blend_u)
+		elif _shaft_xf_blend:
+			_plant_shaft_between(_shaft_from_xf, _shaft_to_xf, _shaft_xf_u)
+		else:
+			ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
 	# Keep combat idle rest in sync while not charging so recovery returns to grip.
 	# Not the in-between draw pose — recovery must come back to the landed hold.
 	if combat and not combat.is_charging and not combat.is_attacking and not drawing:
