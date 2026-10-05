@@ -297,13 +297,14 @@ func cycle_weapon(direction: int = 1) -> void:
 func try_sprint_drain(delta: float) -> bool:
 	if is_dead or is_attacking:
 		return false
-	if is_charging:
-		cancel_charge()
-	# Sprint drops a held shaft guard the same way it drops a charge.
-	is_shaft_blocking = false
+	# Stamina gate first: a failed sprint must do nothing (no clear-then-re-raise).
 	var cost := sprint_stamina_per_sec * delta
 	if stamina < cost * 0.5:
 		return false
+	if is_charging:
+		cancel_charge()
+	# Successful sprint drops a held shaft guard the same way it drops a charge.
+	is_shaft_blocking = false
 	_spend_stamina(cost)
 	return stamina > 0.0
 

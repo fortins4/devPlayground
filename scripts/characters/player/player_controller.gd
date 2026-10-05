@@ -314,11 +314,11 @@ func _physics_process(delta: float) -> void:
 	)
 	var sprinting := false
 	if want_sprint and combat:
-		if combat.is_charging:
-			combat.cancel_charge()
-			_hatchet_charge_armed = false
-		# try_sprint_drain also drops a held goad shaft block.
+		# Drain only succeeds with stamina; failed sprint cancels nothing.
+		# Successful drain cancels charge and drops shaft block inside combat.
 		sprinting = combat.try_sprint_drain(delta)
+		if sprinting:
+			_hatchet_charge_armed = false
 	elif want_sprint and combat == null:
 		sprinting = true
 	_sprinting = sprinting
@@ -422,7 +422,7 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 
 
 func _tick_shaft_block() -> void:
-	## Goad out: look is the guard. No held button. Sprint and attacks drop it.
+	## Goad out: look is the guard. No held button. Sprint held and attacks drop it.
 	## Not a parry — the face stays up for as long as he is still looking.
 	if combat == null:
 		return
@@ -436,6 +436,7 @@ func _tick_shaft_block() -> void:
 	var want := (
 		combat.current_weapon == CombatSystem.Weapon.GOAD
 		and not _sprinting
+		and not Input.is_action_pressed("sprint")
 		and not combat.is_attacking
 		and not combat.is_charging
 		and not combat.is_dead
@@ -784,6 +785,8 @@ func _move_vector() -> Vector2:
 func _begin_hatchet_or_light() -> void:
 	if combat == null:
 		return
+	if _sprinting:
+		return
 	var hatchet := combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet
 	var goad := combat.current_weapon == CombatSystem.Weapon.GOAD
 	# Already looking down: one uncharged jab. Do not start a shaft charge.
@@ -819,6 +822,8 @@ func _release_hatchet_or_ignore() -> void:
 func _heavy_or_ignore_hatchet() -> void:
 	if combat == null:
 		return
+	if _sprinting:
+		return
 	# Hatchet: hold-release only — RMB does not instant full-power.
 	if combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet:
 		return
@@ -838,6 +843,8 @@ func _fire_goad_jab() -> void:
 	## held button does not charge or repeat. Look is left alone so the low
 	## guard can return after the jab.
 	if combat == null or combat.current_weapon != CombatSystem.Weapon.GOAD:
+		return
+	if _sprinting:
 		return
 	if combat.is_charging:
 		combat.cancel_charge()
@@ -1750,12 +1757,12 @@ func _place_continuous_shaft(butt_w: Vector3, tip_w: Vector3) -> Node3D:
 
 
 func _finish_goad_return() -> void:
-	## Jab eases to the ready pose. A shaft swing stays on the arc it arrived on.
-	## Standing the stick up in front of the face is the snap this replaced.
+	## Jab and continuous shaft swings settle to the ready pose.
+	## Clearing held/tool_pose_active stops post-tween seat_goad_off_hand desync.
 	_swing_arc_live = false
-	if _goad_swing_held:
-		return
+	_goad_swing_held = false
 	if combat and (combat.is_charging or combat.is_shaft_blocking):
+		_tool_pose_active = false
 		return
 	if combat == null or locomotion == null:
 		_tool_pose_active = false
