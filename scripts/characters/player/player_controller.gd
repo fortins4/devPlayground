@@ -1395,7 +1395,7 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 func _continuous_swing_keys(aim: Vector2) -> Array:
 	## Later samples of one face-side arc. The live guard is the first sample.
 	## Left sweeps to the player's right, right sweeps to the player's left,
-	## top comes down in front. A diagonal is the blend, not a second swing.
+	## top chops straight down from the overhead bar. A diagonal is the blend.
 	var w_left := clampf(-aim.x, 0.0, 1.0)
 	var w_right := clampf(aim.x, 0.0, 1.0)
 	var w_top := clampf(-aim.y, 0.0, 1.0)
@@ -1418,11 +1418,14 @@ func _continuous_swing_keys(aim: Vector2) -> Array:
 		_swing_line(Vector3(-0.02, 1.14, -0.52), Vector3(-0.55, -0.42, -0.60)),
 		_swing_line(Vector3(0.00, 1.16, -0.48), Vector3(-0.45, -0.52, -0.58)),
 	]
+	# Overhead chop. Key 0 is the live bar over the head. These keep the
+	# hands high and drop the tip straight down the face side — not the
+	# chest-height forward shove the side swings use.
 	var top: Array = [
-		_swing_line(Vector3(-0.08, 1.28, -0.62), Vector3(-0.42, 0.22, -0.86)),
-		_swing_line(Vector3(0.00, 1.18, -0.66), Vector3(0.02, -0.22, -0.96)),
-		_swing_line(Vector3(0.02, 1.14, -0.58), Vector3(0.04, -0.55, -0.78)),
-		_swing_line(Vector3(0.02, 1.16, -0.54), Vector3(0.02, -0.62, -0.70)),
+		_swing_line(Vector3(0.00, 1.70, -0.18), Vector3(0.06, 0.10, -0.70)),
+		_swing_line(Vector3(0.00, 1.55, -0.32), Vector3(0.02, -0.35, -0.92)),
+		_swing_line(Vector3(0.00, 1.38, -0.40), Vector3(0.02, -0.78, -0.62)),
+		_swing_line(Vector3(0.00, 1.26, -0.38), Vector3(0.02, -0.96, -0.38)),
 	]
 	var out: Array = []
 	for i in 4:
@@ -1459,7 +1462,9 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	_swing_pose_only = true
 	_apply_tool_pose(_swing_body_at(u))
 	_swing_pose_only = false
-	if u > 0.02:
+	# Top chop starts on the overhead bar. Pull the wood into both palms from
+	# the first sample so the tip does not leave the hands on the way down.
+	if u > 0.02 or (absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05):
 		var held: Array = _bring_shaft_to_both_hands(butt_w, tip_w)
 		butt_w = held[0]
 		tip_w = held[1]
@@ -1479,8 +1484,17 @@ func _continuous_line_at(u: float) -> Array:
 		i += 1
 	var span := maxf(_swing_key_u[i + 1] - _swing_key_u[i], 0.0001)
 	var t := clampf((u - _swing_key_u[i]) / span, 0.0, 1.0)
-	var butt := _face_quad(_swing_keys_butt[i], _swing_keys_butt[i + 1], t)
-	var tip := _face_quad(_swing_keys_tip[i], _swing_keys_tip[i + 1], t)
+	# A pure top chop is a straight drop from the overhead bar. The face-side
+	# quadratic pulls a high tip forward of the hands and leaves the wood.
+	var overhead := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05
+	var butt: Vector3
+	var tip: Vector3
+	if overhead:
+		butt = _swing_keys_butt[i].lerp(_swing_keys_butt[i + 1], t)
+		tip = _swing_keys_tip[i].lerp(_swing_keys_tip[i + 1], t)
+	else:
+		butt = _face_quad(_swing_keys_butt[i], _swing_keys_butt[i + 1], t)
+		tip = _face_quad(_swing_keys_tip[i], _swing_keys_tip[i + 1], t)
 	var axis := tip - butt
 	if axis.length_squared() > 0.0001:
 		tip = butt + axis.normalized() * 1.30
@@ -1521,10 +1535,16 @@ func _swing_yaw(u: float) -> float:
 func _swing_body_at(u: float) -> Dictionary:
 	## Hips, spine, and the step share the shaft's parameter. Arms are
 	## overwritten by the two-hand grip. Shin pitch stays negative.
+	## A pure top chop keeps the feet down and the chest near upright —
+	## the side swings still take the lean and the step.
 	var pose := {}
 	var step_u := clampf(u / maxf(_swing_strike_u, 0.05), 0.0, 1.0)
 	var turn := clampf(u, 0.0, 1.0)
 	var lean := sin(turn * PI)
+	var overhead := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05
+	if overhead:
+		step_u *= 0.18
+		lean *= 0.20
 	for k in _swing_start_pose.keys():
 		var key := String(k)
 		if key == "root_drop" or key == "grip_slide":
@@ -1541,7 +1561,8 @@ func _swing_body_at(u: float) -> Dictionary:
 			var v := a
 			v.y = a.y + _swing_yaw(turn)
 			if key != "head":
-				v.x = lerpf(a.x, b.x, 0.35 * turn) + -0.16 * lean
+				var dive := -0.04 * lean if overhead else -0.16 * lean
+				v.x = lerpf(a.x, b.x, 0.35 * turn) + dive
 				v.z = lerpf(a.z, b.z, 0.25 * turn)
 			pose[k] = v
 		else:
@@ -1553,6 +1574,15 @@ func _swing_body_at(u: float) -> Dictionary:
 		if sv.x > deg_to_rad(-10.0):
 			sv.x = deg_to_rad(-26.0)
 		pose[leg] = sv
+	if overhead:
+		for leg in ["left_thigh", "right_thigh"]:
+			if not pose.has(leg):
+				continue
+			var tv: Vector3 = pose[leg]
+			# A kicked thigh tips the foot up. Keep the plant from the start.
+			if tv.x > deg_to_rad(22.0):
+				tv.x = deg_to_rad(18.0)
+			pose[leg] = tv
 	return pose
 
 
