@@ -52,6 +52,15 @@ var _guard_idx: int = 0
 var _jab_phase: StringName = &""
 var _jab_weapon_euler: Vector3 = Vector3.ZERO
 var _pose_root_drop: float = 0.0
+## Owns the jab while it travels. Tick must not restage a phase pose over it.
+var _jab_tween: Tween
+var _jab_blending: bool = false
+var _jab_xf_on: bool = false
+var _jab_from_xf: Transform3D = Transform3D.IDENTITY
+var _jab_to_xf: Transform3D = Transform3D.IDENTITY
+var _jab_xf_u: float = 0.0
+## Same return as Cian's goad settle. Not a new timing.
+const JAB_SETTLE_SEC := 0.22
 var _hurt_reacting: bool = false
 var _flinch_tween: Tween
 
@@ -221,9 +230,9 @@ func _tick_locomotion(delta: float) -> void:
 		_sync_goad_to_hand()
 		return
 	var jab_live := _jab_live()
-	if jab_live:
+	if jab_live and not _jab_blending:
 		_stage_jab(_jab_phase)
-	elif _jab_phase != &"":
+	elif _jab_phase != &"" and not _jab_blending:
 		_jab_phase = &""
 		locomotion.clear_combat_additives()
 		locomotion.set_root_drop(0.0)
@@ -248,7 +257,7 @@ func _begin_telegraph(kind: StringName, is_counter: bool) -> void:
 	# Goad: chamber the point. Other weapons keep the old weapon-mesh cock.
 	if combat.current_weapon == CombatSystem.Weapon.GOAD:
 		_jab_phase = &"windup"
-		pose_goad_jab(&"windup")
+		_start_jab_windup()
 	elif weapon_visual and combat:
 		var poses: Dictionary = combat.call("_swing_poses", kind)
 		weapon_visual.rotation_degrees = poses["windup_rot"]
@@ -268,7 +277,7 @@ func _release_attack() -> void:
 		ok = combat.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM)
 		if ok:
 			_jab_phase = &"contact"
-			pose_goad_jab(&"contact")
+			# attack_performed continues the blend. Do not snap contact here.
 	else:
 		ok = combat.try_attack(_pending_attack_kind)
 	if ok:
@@ -318,6 +327,7 @@ func _on_damage_taken(amount: float, from: Node) -> void:
 
 func _cancel_telegraph_stagger() -> void:
 	_show_telegraph_visual(false, false)
+	_stop_jab_blend()
 	if weapon_visual:
 		weapon_visual.transform = _weapon_rest
 	_is_counter = false
@@ -331,7 +341,7 @@ func _on_attack_performed(_attacker: Node, _kind: StringName, _weapon: StringNam
 		_set_state(State.RECOVER)
 	if _weapon == &"goad":
 		_jab_phase = &"contact"
-		pose_goad_jab(&"contact")
+		_start_jab_strike()
 
 
 func _set_state(next: State) -> void:
@@ -447,6 +457,7 @@ func _play_hurt_flinch() -> bool:
 	if combat.current_weapon != CombatSystem.Weapon.GOAD:
 		return false
 	_jab_phase = &""
+	_stop_jab_blend()
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
 	var pose_hurt: Dictionary = ToolStrikePoses.tool_hurt_flinch_pose(CombatSystem.Weapon.GOAD)
 	var start_pose: Dictionary = _current_goad_pose(pose_idle)
@@ -479,11 +490,12 @@ func _current_goad_pose(fallback: Dictionary) -> Dictionary:
 		if key == "root_drop":
 			pose[k] = _pose_root_drop
 		elif key == "weapon":
-			pose[k] = _jab_weapon_euler
+			pose[k] = weapon_visual.rotation if weapon_visual else _jab_weapon_euler
 		elif locomotion and locomotion.has_combat_additive(key):
 			pose[k] = locomotion.get_combat_additive(key)
 		else:
-			pose[k] = fallback[k]
+			# Rest is what is on screen when this joint has never been posed.
+			pose[k] = Vector3.ZERO
 	pose["root_drop"] = _pose_root_drop
 	return pose
 
@@ -509,11 +521,167 @@ func _apply_goad_pose(pose: Dictionary) -> void:
 
 func pose_goad_jab(phase: StringName) -> void:
 	## Uncharged point. Same body table as the player's jab. Not a heavy swing.
+	## Callers that want the stored phase pose (a still of contact) still get it.
+	## Play uses _start_jab_windup / _start_jab_strike so the phase is not a pop.
+	_stop_jab_blend()
 	_jab_phase = phase
 	_stage_jab(phase)
 	if locomotion:
 		locomotion.tick(0.0, 0.0, false, false, true, Vector3.ZERO)
 	_sync_goad_to_hand()
+
+
+func _stop_jab_blend() -> void:
+	_jab_blending = false
+	_jab_xf_on = false
+	if _jab_tween and _jab_tween.is_valid():
+		_jab_tween.kill()
+
+
+func _jab_pose(phase: StringName) -> Dictionary:
+	return ToolStrikePoses.tool_strike_pose(CombatSystem.Weapon.GOAD, CombatSystem.StrikeDirection.BOTTOM, phase, false)
+
+
+func _jab_light_phases() -> Dictionary:
+	## Same splits as Cian's goad point. The 0.72 / 0.85 scales are the jab
+	## in CombatSystem.try_attack, not a second clock.
+	var light: Dictionary = CombatSystem.PROFILES[CombatSystem.Weapon.GOAD][&"light"]
+	var windup := float(light["windup"]) * 0.72
+	var active := float(light["active"]) * 0.85
+	return combat.swing_phase_durations(&"light", windup, active, JAB_SETTLE_SEC)
+
+
+func _start_jab_windup() -> void:
+	## Telegraph chambers the point from whatever pose is already showing.
+	if locomotion == null or combat == null:
+		return
+	var phases := _jab_light_phases()
+	var pose_windup := _jab_pose(&"windup")
+	var start_pose := _current_goad_pose(pose_windup)
+	var start_xf := _live_shaft_xf()
+	var windup_xf := _peek_jab_xf(pose_windup)
+	_stop_jab_blend()
+	_jab_blending = true
+	_jab_phase = &"windup"
+	_jab_tween = create_tween()
+	_jab_tween.tween_method(_blend_jab_shaft.bind(start_pose, pose_windup, start_xf, windup_xf), 0.0, 1.0, float(phases["windup_move"])).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if float(phases["windup_hold"]) > 0.0:
+		_jab_tween.tween_interval(float(phases["windup_hold"]))
+	_jab_tween.tween_callback(_hold_jab_windup)
+
+
+func _hold_jab_windup() -> void:
+	_jab_blending = false
+	_jab_phase = &"windup"
+	_stage_jab(&"windup")
+	_sync_goad_to_hand()
+
+
+func _start_jab_strike() -> void:
+	## Release continues from the live pose through windup, contact, and follow.
+	## A telegraph that already arrived only travels the legs that are left.
+	if locomotion == null or combat == null:
+		return
+	var timings := combat.last_attack_timings()
+	var phases := combat.swing_phase_durations(&"light", float(timings["windup"]), float(timings["active"]), JAB_SETTLE_SEC)
+	var pose_windup := _jab_pose(&"windup")
+	var pose_contact := _jab_pose(&"contact")
+	var pose_follow := _jab_pose(&"follow")
+	var pose_idle := ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	var start_pose := _current_goad_pose(pose_windup)
+	var start_xf := _live_shaft_xf()
+	var windup_xf := _peek_jab_xf(pose_windup)
+	var contact_xf := _peek_jab_xf(pose_contact)
+	var follow_xf := _peek_jab_xf(pose_follow)
+	_stop_jab_blend()
+	_jab_blending = true
+	_jab_phase = &"contact"
+	_jab_tween = create_tween()
+	_jab_tween.tween_method(_blend_jab_shaft.bind(start_pose, pose_windup, start_xf, windup_xf), 0.0, 1.0, float(phases["windup_move"])).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if float(phases["windup_hold"]) > 0.0:
+		_jab_tween.tween_interval(float(phases["windup_hold"]))
+	_jab_tween.tween_method(_blend_jab_shaft.bind(pose_windup, pose_contact, windup_xf, contact_xf), 0.0, 1.0, float(phases["to_contact"])).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if float(phases["contact_hold"]) > 0.0:
+		_jab_tween.tween_interval(float(phases["contact_hold"]))
+	_jab_tween.tween_method(_blend_jab_shaft.bind(pose_contact, pose_follow, contact_xf, follow_xf), 0.0, 1.0, float(phases["follow"])).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_jab_tween.tween_method(_blend_jab_settle.bind(pose_follow, pose_idle), 0.0, 1.0, JAB_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_jab_tween.tween_callback(_finish_jab_blend)
+
+
+func _finish_jab_blend() -> void:
+	_jab_blending = false
+	_jab_phase = &""
+	if locomotion == null:
+		return
+	_apply_goad_pose(ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD))
+
+
+func _goad_node() -> Node3D:
+	if weapon_visual == null:
+		return null
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	return goad if goad else weapon_visual
+
+
+func _live_shaft_xf() -> Transform3D:
+	var goad := _goad_node()
+	if goad == null:
+		return Transform3D.IDENTITY
+	return goad.global_transform
+
+
+func _peek_jab_xf(pose: Dictionary) -> Transform3D:
+	## Where this phase seats the stick, without leaving it on screen.
+	var goad := _goad_node()
+	if goad == null or locomotion == null:
+		return Transform3D.IDENTITY
+	var saved_goad := goad.global_transform
+	var saved_weapon := weapon_visual.global_transform
+	var saved_euler := _jab_weapon_euler
+	var saved_drop := _pose_root_drop
+	var saved_pose := _current_goad_pose(pose)
+	var was := _jab_xf_on
+	_jab_xf_on = false
+	_apply_goad_pose(pose)
+	var xf := goad.global_transform
+	_jab_xf_on = was
+	_pose_root_drop = saved_drop
+	locomotion.set_root_drop(saved_drop)
+	_jab_weapon_euler = saved_euler
+	for k in saved_pose.keys():
+		var key := String(k)
+		if key == "weapon" or key == "root_drop" or key == "grip_slide":
+			continue
+		locomotion.set_combat_additive(key, saved_pose[k])
+	weapon_visual.global_transform = saved_weapon
+	goad.global_transform = saved_goad
+	return xf
+
+
+func _blend_jab_shaft(t: float, from_pose: Dictionary, to_pose: Dictionary, from_xf: Transform3D, to_xf: Transform3D) -> void:
+	_jab_from_xf = from_xf
+	_jab_to_xf = to_xf
+	_jab_xf_u = clampf(t, 0.0, 1.0)
+	_jab_xf_on = true
+	_blend_jab_poses(t, from_pose, to_pose)
+	_jab_xf_on = false
+
+
+func _blend_jab_poses(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
+	var blended := {}
+	var u := clampf(t, 0.0, 1.0)
+	for k in to_pose.keys():
+		if String(k) == "root_drop" or String(k) == "grip_slide":
+			blended[k] = lerpf(float(from_pose.get(k, 0.0)), float(to_pose[k]), u)
+			continue
+		var a: Vector3 = from_pose.get(k, Vector3.ZERO)
+		var b: Vector3 = to_pose[k]
+		blended[k] = a.lerp(b, u)
+	_apply_goad_pose(blended)
+
+
+func _blend_jab_settle(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
+	_apply_goad_pose(ToolStrikePoses.tool_goad_settle_pose(from_pose, to_pose, t))
 
 
 func _jab_live() -> bool:
@@ -549,7 +717,49 @@ func _sync_goad_to_hand() -> void:
 		return
 	weapon_visual.global_position = forearm.to_global(Vector3(0.0, -0.22, 0.0))
 	weapon_visual.rotation = _jab_weapon_euler
+	if _jab_xf_on:
+		var goad := _goad_node()
+		if goad:
+			goad.global_transform = _jab_from_xf.interpolate_with(_jab_to_xf, _jab_xf_u)
+			_grip_foe_shaft(goad, "right_arm", "right_forearm")
+			_grip_foe_shaft(goad, "left_arm", "left_forearm")
+		return
 	ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
+
+
+func _grip_foe_shaft(shaft: Node3D, arm_name: String, fore_name: String) -> void:
+	## Both hands stay on the stick while the jab travels. Not a new seat.
+	var arm := locomotion.get_joint(arm_name) as Node3D
+	var fore := locomotion.get_joint(fore_name) as Node3D
+	if arm == null or fore == null:
+		return
+	var shoulder: Vector3 = arm.global_position
+	var best := Vector3.INF
+	var best_d := 99.0
+	for i in 13:
+		var y := lerpf(-0.10, 1.02, i / 12.0)
+		var pt: Vector3 = shaft.to_global(Vector3(0.0, y, 0.0))
+		var d := shoulder.distance_to(pt)
+		if d < best_d:
+			best_d = d
+			best = pt
+	if best == Vector3.INF or best_d > 0.70:
+		return
+	var l1 := 0.30
+	var palm := 0.22
+	var reach := clampf(best_d, 0.12, l1 + palm - 0.01)
+	var dir := (best - shoulder).normalized()
+	var pole := Vector3(0.15, -0.35, 0.4)
+	var bend := pole - dir * pole.dot(dir)
+	if bend.length_squared() < 0.0001:
+		bend = Vector3.DOWN
+	bend = bend.normalized()
+	var cos_a := clampf((l1 * l1 + reach * reach - palm * palm) / (2.0 * l1 * reach), -1.0, 1.0)
+	var sin_a := sqrt(maxf(0.0, 1.0 - cos_a * cos_a))
+	var elbow: Vector3 = shoulder + dir * (l1 * cos_a) + bend * (l1 * sin_a)
+	ToolStrikePoses._store_aim(locomotion, arm, arm_name, elbow - shoulder)
+	var elbow_now: Vector3 = arm.to_global(Vector3(0.0, -l1, 0.0))
+	ToolStrikePoses._store_aim(locomotion, fore, fore_name, best - elbow_now)
 
 
 func _hide_stowed_goad() -> void:
