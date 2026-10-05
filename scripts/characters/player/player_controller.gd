@@ -1783,6 +1783,52 @@ func _bring_shaft_to_both_hands(butt_w: Vector3, tip_w: Vector3) -> Array:
 	return [butt_w, tip_w]
 
 
+
+func _pull_shaft_into_spaced_reach(butt_w: Vector3, tip_w: Vector3) -> Array:
+	## Keep both spaced stations inside forearm reach after a face-side slide.
+	if locomotion == null:
+		return [butt_w, tip_w]
+	var torso := locomotion.get_joint("torso") as Node3D
+	var face := Vector3(0.0, 0.0, -1.0)
+	if torso:
+		face = -torso.global_transform.basis.z
+		if face.length_squared() > 0.0001:
+			face = face.normalized()
+	var axis := tip_w - butt_w
+	if axis.length_squared() < 0.0001:
+		return [butt_w, tip_w]
+	axis = axis.normalized()
+	# Stations match _grip_shaft_at_y (goad Y 0 ≈ butt+0.255 along axis).
+	var right_pt: Vector3 = butt_w + axis * (0.255 + 0.12)
+	var left_pt: Vector3 = butt_w + axis * (0.255 + 0.48)
+	var pull := Vector3.ZERO
+	var n := 0
+	for pair in [["right_arm", right_pt, 0.50], ["left_arm", left_pt, 0.50]]:
+		var arm := locomotion.get_joint(String(pair[0])) as Node3D
+		if arm == null:
+			continue
+		var shoulder: Vector3 = arm.global_position
+		var target: Vector3 = pair[1]
+		var lim: float = float(pair[2])
+		var d := shoulder.distance_to(target)
+		if d <= lim:
+			continue
+		var step := (shoulder - target).normalized() * minf(d - lim, 0.38)
+		# Never yank the wood back through the cloak.
+		var into := -step.dot(face)
+		if into > 0.0:
+			step += face * into
+		pull += step
+		n += 1
+	if n > 0:
+		butt_w += pull / float(n)
+		tip_w += pull / float(n)
+		axis = tip_w - butt_w
+		if axis.length_squared() > 0.0001:
+			tip_w = butt_w + axis.normalized() * 1.30
+	return [butt_w, tip_w]
+
+
 func _place_continuous_shaft(butt_w: Vector3, tip_w: Vector3) -> Node3D:
 	if weapon_visual == null:
 		return null
