@@ -334,7 +334,7 @@ static func _goad_root_drop(direction: int, phase: StringName) -> float:
 	if phase == &"idle":
 		return 0.0
 	var table := {
-		"charge_0": 0.12, "charge_1": 0.12, "charge_2": 0.12, "charge_3": 0.20,
+		"charge_0": 0.04, "charge_1": 0.12, "charge_2": 0.12, "charge_3": 0.20,
 		"windup_0": 0.10, "windup_1": 0.12, "windup_2": 0.12, "windup_3": 0.12,
 		"contact_0": 0.13, "contact_1": 0.12, "contact_2": 0.12, "contact_3": 0.11,
 		"follow_0": 0.16, "follow_1": 0.20, "follow_2": 0.20, "follow_3": 0.10,
@@ -491,12 +491,13 @@ static func _goad_spec(direction: int, phase: StringName) -> Dictionary:
 						Vector3(66, 0, -4), Vector3(-72, 0, 0),
 						Vector3(16, 0, 4), Vector3(-26, 0, 0),
 						Vector3(-72, 4, -6))
-				_: # overhead — chest and front foot under the shaft, not a two-knee squat
-					return _pack(Vector3(-26, 0, 0), Vector3(-22, 0, 0), Vector3(16, 2, 0),
+				_: # overhead — upright with a slight rock back. Bar is over the head.
+					# Not a dive over the front foot. Arms are rewritten by the grip.
+					return _pack(Vector3(8, 0, 0), Vector3(4, 0, 0), Vector3(4, 0, 0),
 						Vector3(-44, 28, 26), Vector3(22, 0, 0),
 						Vector3(-188, -14, -16), Vector3(-52, 0, 0),
-						Vector3(62, 0, -4), Vector3(-68, 0, 0),
-						Vector3(10, 0, 4), Vector3(-34, 0, 0),
+						Vector3(16, 0, -4), Vector3(-26, 0, 0),
+						Vector3(10, 0, 4), Vector3(-20, 0, 0),
 						Vector3(30, 18, -22))
 		&"windup":
 			match direction:

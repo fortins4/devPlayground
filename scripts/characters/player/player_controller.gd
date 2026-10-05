@@ -956,8 +956,26 @@ func _overhead_charge_xf() -> Transform3D:
 	var head := locomotion.get_joint("head") as Node3D
 	if head == null:
 		return weapon_visual.global_transform
-	var right_pt := head.to_global(Vector3(0.20, 0.32, 0.02))
-	var left_pt := head.to_global(Vector3(-0.20, 0.32, 0.02))
+	# Measured from the shoulders in world up, not along the head. Straight
+	# arms reach ~0.55; this bar sits near that limit over the skull.
+	var r_arm := locomotion.get_joint("right_arm") as Node3D
+	var l_arm := locomotion.get_joint("left_arm") as Node3D
+	if r_arm == null or l_arm == null:
+		return weapon_visual.global_transform
+	var face := -global_transform.basis.z
+	face.y = 0.0
+	face = face.normalized() if face.length_squared() > 0.0001 else Vector3(0.0, 0.0, -1.0)
+	var side := global_transform.basis.x
+	side.y = 0.0
+	side = side.normalized() if side.length_squared() > 0.0001 else Vector3(1.0, 0.0, 0.0)
+	var mid := r_arm.global_position.lerp(l_arm.global_position, 0.5)
+	var bar := mid + Vector3.UP * 0.56 + face * 0.08
+	# Never closer than a hand over the skull.
+	var crown_clear := head.global_position.y + 0.36
+	if bar.y < crown_clear:
+		bar.y = crown_clear
+	var right_pt := bar + side * 0.20
+	var left_pt := bar - side * 0.20
 	var axis := left_pt - right_pt
 	if axis.length_squared() < 0.0001:
 		return weapon_visual.global_transform
