@@ -1528,8 +1528,9 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	tip_w = cleared[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
-		_grip_shaft_with(goad, "right_arm", "right_forearm", 0.30)
-		_grip_shaft_with(goad, "left_arm", "left_forearm", 0.24)
+		# Fixed stations along the wood — nearest-to-shoulder piled both hands on the butt.
+		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.14)
+		_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.52)
 
 
 func _continuous_line_at(u: float) -> Array:
@@ -1699,10 +1700,11 @@ func _slide_line_off_body(butt_w: Vector3, tip_w: Vector3) -> Array:
 		var p: Vector3 = butt_w.lerp(tip_w, float(i) / 17.0)
 		var hp: Vector3 = head.to_local(p)
 		var along := maxf(dir.dot(face), 0.35)
-		if hp.length() < 0.36:
-			push = maxf(push, (0.42 - hp.length()) / 0.40)
-		if hp.z > -0.18 and hp.length() < 0.55 and absf(hp.y) < 0.42:
-			push = maxf(push, (hp.z + 0.34) / along)
+		var head_r := 0.40 if absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y < -0.5 else 0.36
+		if hp.length() < head_r:
+			push = maxf(push, (head_r + 0.06 - hp.length()) / 0.40)
+		if hp.z > -0.22 and hp.length() < 0.58 and absf(hp.y) < 0.48:
+			push = maxf(push, (hp.z + 0.38) / along)
 		if hp.y < 0.14 and hp.y > -0.52 and hp.z > -0.16 and Vector2(hp.x, hp.z).length() < 0.30:
 			push = maxf(push, (hp.z + 0.30) / along)
 		var tp: Vector3 = torso.to_local(p)
@@ -2167,6 +2169,9 @@ func _sync_weapon_to_hand() -> void:
 	## Keep hatchet/knife/goad near the right forearm tip so swings read with the arm.
 	if weapon_visual == null or locomotion == null:
 		return
+	# Continuous goad arc placed the shaft + spaced grips. Do not glue to one hand.
+	if _swing_arc_live:
+		return
 	# Hatchet swing tween owns WeaponVisual. Goad/knife stay glued to the hand.
 	if combat and combat.is_attacking and combat.current_weapon == CombatSystem.Weapon.HATCHET:
 		return
@@ -2563,6 +2568,34 @@ func _guide_draw_hands(shaft: Node3D, s: float) -> void:
 	if on_back or s < 0.36 or s > 0.90:
 		return
 	_grip_shaft_with(shaft, "left_arm", "left_forearm", 0.24)
+
+
+func _grip_shaft_at_y(shaft: Node3D, arm_name: String, fore_name: String, shaft_y: float) -> void:
+	## Plant the palm on a fixed station along the goad local Y (butt→tip).
+	var arm := locomotion.get_joint(arm_name) as Node3D
+	var fore := locomotion.get_joint(fore_name) as Node3D
+	if arm == null or fore == null:
+		return
+	var shoulder: Vector3 = arm.global_position
+	var best: Vector3 = shaft.to_global(Vector3(0.0, shaft_y, 0.0))
+	var best_d := shoulder.distance_to(best)
+	if best_d > 0.85:
+		return
+	var l1 := 0.30
+	var palm := 0.22
+	var d := clampf(best_d, 0.12, l1 + palm - 0.01)
+	var dir := (best - shoulder).normalized()
+	var pole := Vector3(0.15, -0.35, 0.4)
+	var bend := pole - dir * pole.dot(dir)
+	if bend.length_squared() < 0.0001:
+		bend = Vector3.DOWN
+	bend = bend.normalized()
+	var cos_a := clampf((l1 * l1 + d * d - palm * palm) / (2.0 * l1 * d), -1.0, 1.0)
+	var sin_a := sqrt(maxf(0.0, 1.0 - cos_a * cos_a))
+	var elbow: Vector3 = shoulder + dir * (l1 * cos_a) + bend * (l1 * sin_a)
+	ToolStrikePoses._store_aim(locomotion, arm, arm_name, elbow - shoulder)
+	var elbow_now: Vector3 = arm.to_global(Vector3(0.0, -l1, 0.0))
+	ToolStrikePoses._store_aim(locomotion, fore, fore_name, best - elbow_now)
 
 
 func _grip_shaft_with(shaft: Node3D, arm_name: String, fore_name: String, _fore_len: float) -> void:
