@@ -1303,6 +1303,11 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 	if goad:
 		live_butt = _swing_frame.affine_inverse() * goad.to_global(Vector3(0.0, -0.255, 0.0))
 		live_tip = _swing_frame.affine_inverse() * goad.to_global(Vector3(0.0, 1.045, 0.0))
+	# The guard may sit behind the ear. The swing does not. The first sample
+	# is already on the face side, so the lift cannot rise behind the hair.
+	var faced: Array = _lift_line_onto_the_face(live_butt, live_tip)
+	live_butt = faced[0]
+	live_tip = faced[1]
 	_swing_keys_butt = PackedVector3Array()
 	_swing_keys_tip = PackedVector3Array()
 	_swing_key_u = PackedFloat32Array()
@@ -1394,6 +1399,9 @@ func _sample_continuous_goad_swing(u: float) -> void:
 		var held: Array = _bring_shaft_to_both_hands(butt_w, tip_w)
 		butt_w = held[0]
 		tip_w = held[1]
+	var cleared: Array = _slide_line_off_body(butt_w, tip_w)
+	butt_w = cleared[0]
+	tip_w = cleared[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
 		_grip_shaft_with(goad, "right_arm", "right_forearm", 0.30)
@@ -1483,6 +1491,83 @@ func _swing_body_at(u: float) -> Dictionary:
 		pose[leg] = sv
 	return pose
 
+
+
+
+func _lift_line_onto_the_face(butt: Vector3, tip: Vector3) -> Array:
+	## Player space. Negative Z is the face. A point behind the ear or the
+	## neck is slid forward with the whole shaft, not along it.
+	var need := 0.0
+	for i in 14:
+		var p: Vector3 = butt.lerp(tip, float(i) / 13.0)
+		var by_body := absf(p.x) < 0.70 and p.y > 0.80 and p.y < 2.15
+		if by_body and p.z > -0.36:
+			need = maxf(need, p.z + 0.42)
+		if p.y > 1.40 and p.z > -0.22 and absf(p.x) < 1.05:
+			need = maxf(need, p.z + 0.40)
+	if need > 0.001:
+		butt.z -= need
+		tip.z -= need
+	var axis := tip - butt
+	if axis.length_squared() > 0.0001:
+		tip = butt + axis.normalized() * 1.30
+	return [butt, tip]
+
+
+func _slide_line_off_body(butt_w: Vector3, tip_w: Vector3) -> Array:
+	## Any sample in the skull, the neck, or the torso steps toward the face,
+	## perpendicular to the shaft. A push along the wood does not count.
+	if locomotion == null:
+		return [butt_w, tip_w]
+	var head := locomotion.get_joint("head") as Node3D
+	var torso := locomotion.get_joint("torso") as Node3D
+	if head == null or torso == null:
+		return [butt_w, tip_w]
+	var axis := tip_w - butt_w
+	if axis.length_squared() < 0.0001:
+		return [butt_w, tip_w]
+	axis = axis.normalized()
+	var face := -head.global_transform.basis.z
+	if face.length_squared() < 0.0001:
+		return [butt_w, tip_w]
+	face = face.normalized()
+	var dir := face - axis * axis.dot(face)
+	if dir.length() < 0.28:
+		var side := head.global_transform.basis.x
+		if _swing_arc_aim.x > 0.25:
+			side = -side
+		dir = side - axis * axis.dot(side)
+	if dir.length_squared() < 0.0001:
+		return [butt_w, tip_w]
+	dir = dir.normalized()
+	if dir.dot(face) < 0.0:
+		dir = -dir
+	var push := 0.0
+	for i in 18:
+		var p: Vector3 = butt_w.lerp(tip_w, float(i) / 17.0)
+		var hp: Vector3 = head.to_local(p)
+		var along := maxf(dir.dot(face), 0.35)
+		if hp.length() < 0.36:
+			push = maxf(push, (0.42 - hp.length()) / 0.40)
+		if hp.z > -0.18 and hp.length() < 0.55 and absf(hp.y) < 0.42:
+			push = maxf(push, (hp.z + 0.34) / along)
+		if hp.y < 0.14 and hp.y > -0.52 and hp.z > -0.16 and Vector2(hp.x, hp.z).length() < 0.30:
+			push = maxf(push, (hp.z + 0.30) / along)
+		var tp: Vector3 = torso.to_local(p)
+		if absf(tp.x) < 0.36 and tp.y > -0.08 and tp.y < 0.62 and tp.z > -0.10:
+			var chest_face := -torso.global_transform.basis.z
+			var along_c := 0.35
+			if chest_face.length_squared() > 0.0001:
+				along_c = maxf(dir.dot(chest_face.normalized()), 0.35)
+			push = maxf(push, (tp.z + 0.22) / along_c)
+	if push > 0.001:
+		var delta := dir * minf(push, 0.55)
+		butt_w += delta
+		tip_w += delta
+		var kept := tip_w - butt_w
+		if kept.length_squared() > 0.0001:
+			tip_w = butt_w + kept.normalized() * 1.30
+	return [butt_w, tip_w]
 
 
 func _bring_shaft_to_both_hands(butt_w: Vector3, tip_w: Vector3) -> Array:
