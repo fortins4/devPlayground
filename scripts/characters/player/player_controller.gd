@@ -73,11 +73,15 @@ var mounted_horse: Node3D = null
 
 ## Directional hatchet: hold LMB to charge; mouse aim (look) picks top|left|right.
 var _charge_aim_delta: Vector2 = Vector2.ZERO ## mouse aim offset while holding (not WASD/flick)
+## Look face snapped at charge begin (guard face is cleared while charging).
+var _charge_look_face: StringName = &"chest"
 var _hatchet_charge_armed: bool = false
-const CHARGE_AIM_SIDE_THRESH := 12.0 ## px horizontal aim for left/right
-const CHARGE_AIM_TOP_THRESH := 10.0 ## px upward aim for top (also camera pitch)
-## Goad aim stick. Full left/right/stab by the time the strike cardinal locks,
-## and it keeps tracking back toward center. Not used for guard faces.
+## Shared look deadzone for guard + charge/swing (px). Outside it, equal 90°
+## axis-dominant quadrants: left | right | high(top) | low(down). Ties → horizontal.
+const LOOK_AIM_DEADZONE := 10.0
+const LOOK_PITCH_UP := -10.0 ## deg: camera pitch counts as top quadrant
+const LOOK_PITCH_DOWN := 12.0 ## deg: camera pitch counts as low quadrant
+## Goad aim stick span (legacy normalize). Cardinal faces snap aim axes directly.
 const GOAD_AIM_SPAN := 18.0
 ## Follow-through eases back to the ready pose. Not a hard zero, not a victory hold.
 const GOAD_SETTLE_SEC := 0.22
@@ -152,8 +156,7 @@ var _swing_strike_u: float = 0.5
 ## After a shaft swing the follow-through stays. Idle must not stand the stick up.
 var _goad_swing_held: bool = false
 ## While the goad guard is up, look offset is not decayed so a face stays put.
-const TOOL_AIM_SIDE := 10.0
-const TOOL_AIM_VERT := 8.0
+## Look face / strike cardinals share LOOK_AIM_DEADZONE + equal quadrants.
 
 
 func _ready() -> void:
@@ -696,27 +699,69 @@ func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) ->
 	_grip_shaft_with(shaft, "left_arm", "left_forearm", 0.24)
 
 
-## Look picks the guard face. No button. Horizontal look wins over vertical.
-## Camera pitch counts as up/down when the mouse offset is quiet.
+## Look stick with camera pitch folded in. Mouse left (−X) = player left.
+func _look_stick_from(delta: Vector2) -> Vector2:
+	var mx := delta.x
+	var my := delta.y
+	if pivot:
+		if pivot.rotation.x <= deg_to_rad(LOOK_PITCH_UP):
+			my = minf(my, -LOOK_AIM_DEADZONE)
+		elif pivot.rotation.x >= deg_to_rad(LOOK_PITCH_DOWN):
+			my = maxf(my, LOOK_AIM_DEADZONE)
+	return Vector2(mx, my)
+
+
+## Equal 90° axis-dominant quadrants outside a shared square deadzone.
+## Center → chest. |mx| >= |my| → left/right; else high/low. Ties → horizontal.
+func _resolve_look_face_from(delta: Vector2) -> StringName:
+	var stick := _look_stick_from(delta)
+	var mx := stick.x
+	var my := stick.y
+	if absf(mx) < LOOK_AIM_DEADZONE and absf(my) < LOOK_AIM_DEADZONE:
+		return &"chest"
+	if absf(mx) >= absf(my):
+		if mx < 0.0:
+			return &"left"
+		return &"right"
+	if my < 0.0:
+		return &"high"
+	return &"low"
+
+
+## Look picks the guard face. No button. Same zones as charge/swing.
 ##   look left  → left    look right → right
 ##   look up    → high    look down  → low (guard only, not a jab)
 ##   centered   → chest
 func _resolve_shaft_guard_face() -> StringName:
-	var mx := _tool_aim_delta.x
-	var my := _tool_aim_delta.y
-	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
-	var pitch_down := pivot != null and pivot.rotation.x >= deg_to_rad(12.0)
-	if absf(mx) >= TOOL_AIM_SIDE and absf(mx) >= absf(my) * 0.85:
-		if mx < 0.0:
-			return &"left"
-		return &"right"
-	var down_bias := 12.0 if pitch_down else 0.0
-	if (my >= TOOL_AIM_VERT or pitch_down) and absf(my) + down_bias >= absf(mx) * 0.75:
-		return &"low"
-	var up_bias := 12.0 if pitch_up else 0.0
-	if (my <= -TOOL_AIM_VERT or pitch_up) and absf(my) + up_bias >= absf(mx) * 0.75:
-		return &"high"
-	return &"chest"
+	return _resolve_look_face_from(_tool_aim_delta)
+
+
+## Cardinal aim axes for a look face. High is pure overhead (−Y).
+func _aim_axes_for_look_face(face: StringName) -> Vector2:
+	match face:
+		&"left":
+			return Vector2(-1.0, 0.0)
+		&"right":
+			return Vector2(1.0, 0.0)
+		&"high":
+			return Vector2(0.0, -1.0)
+		&"low":
+			return Vector2(0.0, 1.0)
+		_:
+			return Vector2.ZERO
+
+
+func _strike_direction_for_look_face(face: StringName) -> CombatSystem.StrikeDirection:
+	match face:
+		&"left":
+			return CombatSystem.StrikeDirection.LEFT
+		&"right":
+			return CombatSystem.StrikeDirection.RIGHT
+		&"low":
+			# Shaft swings never jab; low press is handled before charge.
+			return CombatSystem.StrikeDirection.TOP
+		_:
+			return CombatSystem.StrikeDirection.TOP
 
 
 func _apply_crouch_visual(delta: float) -> void:
@@ -796,6 +841,7 @@ func _begin_hatchet_or_light() -> void:
 	if hatchet or goad:
 		# Goad keeps the look you already had; hatchet aim starts neutral (top).
 		_charge_aim_delta = _tool_aim_delta if goad else Vector2.ZERO
+		_charge_look_face = _resolve_look_face_from(_charge_aim_delta) if goad else &"chest"
 		_hatchet_charge_armed = true
 		if not combat.begin_charge():
 			_hatchet_charge_armed = false
@@ -854,38 +900,20 @@ func _fire_goad_jab() -> void:
 
 func _resolve_tool_strike_direction() -> CombatSystem.StrikeDirection:
 	## Knife tap, and the goad fallback if a charge cannot start.
-	## Look-down is not a strike direction here — that click is the jab.
-	## Knife top is a thrust. Knife and hatchet have no bottom.
-	var mx := _tool_aim_delta.x
-	var my := _tool_aim_delta.y
-	if absf(mx) >= TOOL_AIM_SIDE and absf(mx) >= absf(my) * 0.85:
-		if mx < 0.0:
-			return CombatSystem.StrikeDirection.LEFT
-		return CombatSystem.StrikeDirection.RIGHT
-	return CombatSystem.StrikeDirection.TOP
+	## Same equal zones as look-guard. Look-down jab is handled before charge.
+	return _strike_direction_for_look_face(_resolve_look_face_from(_tool_aim_delta))
 
 
 func _apply_charge_direction_from_input() -> void:
 	if combat == null or not combat.is_charging:
 		return
+	_charge_look_face = _resolve_look_face_from(_charge_aim_delta)
 	combat.set_charge_direction(_resolve_strike_direction())
 
 
 func _resolve_strike_direction() -> CombatSystem.StrikeDirection:
-	## Mouse aim while a shaft is charging. Left/right/up, including diagonals.
-	## Look-down is not a shaft direction. Hatchet never stabs.
-	var mx := _charge_aim_delta.x
-	var my := _charge_aim_delta.y
-	var pitch_up := pivot != null and pivot.rotation.x <= deg_to_rad(-10.0)
-
-	if absf(mx) >= CHARGE_AIM_SIDE_THRESH and absf(mx) >= absf(my) * 0.9:
-		if mx < 0.0:
-			return CombatSystem.StrikeDirection.LEFT
-		return CombatSystem.StrikeDirection.RIGHT
-
-	if my <= -CHARGE_AIM_TOP_THRESH or pitch_up:
-		return CombatSystem.StrikeDirection.TOP
-	return CombatSystem.StrikeDirection.TOP
+	## Same equal look zones as the shaft guard. Low is not a shaft cardinal.
+	return _strike_direction_for_look_face(_resolve_look_face_from(_charge_aim_delta))
 
 
 func _on_charge_updated(ratio: float, direction: StringName) -> void:
@@ -950,9 +978,9 @@ func _apply_goad_charge_pose(ratio: float, _direction: StringName) -> void:
 		locomotion.lock_attack(0.08)
 
 
-func _is_top_goad_charge(aim: Vector2) -> bool:
-	## Overhead only. A side aim, including a diagonal, keeps its own chamber.
-	return absf(aim.x) < 0.35 and aim.y <= 0.05
+func _is_top_goad_charge(_aim: Vector2) -> bool:
+	## Overhead bar when the shared look face is high (not a thin |aim.x| band).
+	return _resolve_look_face_from(_charge_aim_delta) == &"high"
 
 
 func _overhead_charge_xf() -> Transform3D:
@@ -1004,25 +1032,17 @@ func _overhead_charge_xf() -> Transform3D:
 
 
 func _shaft_aim_axes() -> Vector2:
-	## Shaft charge/swing only. Look-down is clamped off so the hold cannot
-	## chamber a jab. High-left and the other up diagonals still track.
-	var aim := _goad_aim_axes()
+	## Shaft charge/swing: same equal look face as the guard, snapped to cardinals.
+	## High → pure overhead (−Y). Look-down is clamped off for shaft holds.
+	var face := _resolve_look_face_from(_charge_aim_delta)
+	var aim := _aim_axes_for_look_face(face)
 	aim.y = minf(aim.y, 0.0)
 	return aim
 
 
 func _goad_aim_axes() -> Vector2:
-	## -1 left / +1 right, -1 up / +1 down.
-	## Camera pitch counts when the mouse offset is quiet, same as the guard.
-	var ax := clampf(_charge_aim_delta.x / GOAD_AIM_SPAN, -1.0, 1.0)
-	var ay := clampf(_charge_aim_delta.y / GOAD_AIM_SPAN, -1.0, 1.0)
-	if pivot:
-		var pitch_n := clampf(pivot.rotation.x / deg_to_rad(18.0), -1.0, 1.0)
-		if pitch_n > 0.0:
-			ay = maxf(ay, pitch_n)
-		else:
-			ay = minf(ay, pitch_n)
-	return Vector2(ax, ay)
+	## Cardinal axes from the shared look-face zones (left = local −X).
+	return _aim_axes_for_look_face(_resolve_look_face_from(_charge_aim_delta))
 
 
 func _on_charge_cancelled(_weapon: StringName) -> void:
@@ -1308,7 +1328,10 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	_guard_blend_active = false
 	_guard_face_held = &""
 	_charge_from_ready = false
-	var aim := _shaft_aim_axes()
+	# Same equal look face as the guard (high → pure overhead axes / top keys).
+	var face := _resolve_look_face_from(_charge_aim_delta)
+	var aim := _aim_axes_for_look_face(face)
+	aim.y = minf(aim.y, 0.0)
 	# The jab is the point, at any look. It is not the shaft swing he was aiming.
 	var jab := combat.last_strike_direction() == CombatSystem.StrikeDirection.BOTTOM
 	if jab:
@@ -1377,9 +1400,10 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 	# The guard may sit behind the ear. Side swings lift onto the face side.
 	# A top charge is already a bar over the skull — that lift shoved it
 	# forward of the hands and the first sample fell to chest height.
-	var overhead_start := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05
+	# Pure top aim (high face) keeps the overhead bar; do not face-lift it away.
+	var overhead_start := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
 	var bar_high := minf(live_butt.y, live_tip.y) > 1.55 and absf(live_butt.y - live_tip.y) < 0.20
-	if not (overhead_start and bar_high):
+	if not (overhead_start or bar_high):
 		var faced: Array = _lift_line_onto_the_face(live_butt, live_tip)
 		live_butt = faced[0]
 		live_tip = faced[1]
@@ -1477,7 +1501,7 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	# Top keeps the overhead bar up at the first samples — a pull toward the
 	# shoulders was dropping it onto the chest. Later samples may pull, but
 	# only sideways / forward, never lowering the high end of the shaft.
-	var overhead := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05
+	var overhead := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
 	if u > 0.02:
 		var high_before := maxf(butt_w.y, tip_w.y)
 		var held: Array = _bring_shaft_to_both_hands(butt_w, tip_w)
@@ -1508,7 +1532,7 @@ func _continuous_line_at(u: float) -> Array:
 	var t := clampf((u - _swing_key_u[i]) / span, 0.0, 1.0)
 	# A pure top chop is a straight drop from the overhead bar. The face-side
 	# quadratic pulls a high tip forward of the hands and leaves the wood.
-	var overhead := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05
+	var overhead := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
 	var butt: Vector3
 	var tip: Vector3
 	if overhead:
@@ -1563,7 +1587,7 @@ func _swing_body_at(u: float) -> Dictionary:
 	var step_u := clampf(u / maxf(_swing_strike_u, 0.05), 0.0, 1.0)
 	var turn := clampf(u, 0.0, 1.0)
 	var lean := sin(turn * PI)
-	var overhead := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05
+	var overhead := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
 	if overhead:
 		step_u *= 0.18
 		lean *= 0.20
