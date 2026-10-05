@@ -869,9 +869,10 @@ func _apply_weapon_idle_pose() -> void:
 		_tool_pose_active = false
 		_sync_weapon_to_hand()
 		return
-	# Draw eases the body from empty hands into the existing idle. The idle itself is unchanged.
+	# One-hand draw. The right hand takes it off the shoulder. The left hand
+	# meets it only once the shaft is off the back. The idle itself is unchanged.
 	if combat.current_weapon == CombatSystem.Weapon.GOAD and _goad_draw_u < 0.999:
-		_ease_goad_draw_body()
+		_ease_one_hand_draw_body()
 		_sync_weapon_to_hand()
 		return
 	_tool_pose_active = false
@@ -1233,7 +1234,13 @@ func _sync_weapon_to_hand() -> void:
 	if drawing:
 		var hand_xf := weapon_visual.global_transform
 		var seat_xf := _back_seat_global()
-		weapon_visual.global_transform = seat_xf.interpolate_with(hand_xf, _goad_draw_smooth())
+		var s := _goad_draw_smooth()
+		weapon_visual.global_transform = seat_xf.interpolate_with(hand_xf, s)
+		# The straight slide swings wide of the right hand. Bring a point of
+		# the shaft back into reach, then bow it off the skull.
+		_keep_draw_in_right_reach(weapon_visual)
+		_bow_stow_off_the_head(weapon_visual)
+		_guide_draw_hands(weapon_visual, s)
 	elif _goad_stowing:
 		_apply_back_goad_carry(_goad_draw_u)
 	elif combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
@@ -1299,8 +1306,23 @@ func _begin_goad_travel(to_hands: bool) -> void:
 		_goad_draw_tween.tween_method(_set_goad_draw_u, _goad_draw_u if _goad_draw_u > 0.0 else 1.0, 0.0, GOAD_DRAW_SEC)
 
 
+func _ease_one_hand_draw_body() -> void:
+	# u=0 is the short seat. The right arm comes up to take it. The left arm
+	# stays down until the shaft has left the back, then it joins the idle.
+	var pose: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	var s := _goad_draw_smooth()
+	var meet := smoothstep(0.50, 0.92, s)
+	for k in pose.keys():
+		var key := String(k)
+		if key == "weapon" or key == "root_drop" or key == "grip_slide":
+			continue
+		var w := meet if key == "left_arm" or key == "left_forearm" else s
+		locomotion.set_combat_additive(key, (pose[k] as Vector3) * w)
+	_tool_pose_active = false
+
+
 func _ease_goad_draw_body() -> void:
-	# Shared by the draw and the stow. u=0 is empty hands, u=1 is the goad idle.
+	# Stow only. Both arms ease with the idle. The draw does not use this.
 	var pose: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
 	var u := _goad_draw_smooth()
 	for k in pose.keys():
@@ -1372,6 +1394,76 @@ func _bow_stow_off_the_head(back: Node3D) -> void:
 	if push <= 0.001:
 		return
 	back.global_position += side * push
+
+
+func _keep_draw_in_right_reach(shaft: Node3D) -> void:
+	if locomotion == null:
+		return
+	var arm := locomotion.get_joint("right_arm") as Node3D
+	if arm == null:
+		return
+	var shoulder: Vector3 = arm.global_position
+	var best := Vector3.INF
+	var best_d := 99.0
+	for i in 13:
+		var y := lerpf(-0.05, 1.00, i / 12.0)
+		var p: Vector3 = shaft.to_global(Vector3(0.0, y, 0.0))
+		var d := shoulder.distance_to(p)
+		if d < best_d:
+			best_d = d
+			best = p
+	if best_d <= 0.50 or best == Vector3.INF:
+		return
+	shaft.global_position += (shoulder - best).normalized() * (best_d - 0.48)
+
+
+func _guide_draw_hands(shaft: Node3D, s: float) -> void:
+	# Right hand reaches back and takes the shaft off the right shoulder.
+	# The left hand stays off it while that shaft is still on the back.
+	if locomotion == null:
+		return
+	var seat_xf := _back_seat_global()
+	var on_back := shaft.global_position.distance_to(seat_xf.origin) < 0.28
+	if s < 0.90:
+		_grip_shaft_with(shaft, "right_arm", "right_forearm", 0.30)
+	if on_back or s < 0.36 or s > 0.90:
+		return
+	_grip_shaft_with(shaft, "left_arm", "left_forearm", 0.24)
+
+
+func _grip_shaft_with(shaft: Node3D, arm_name: String, fore_name: String, _fore_len: float) -> void:
+	var arm := locomotion.get_joint(arm_name) as Node3D
+	var fore := locomotion.get_joint(fore_name) as Node3D
+	if arm == null or fore == null:
+		return
+	var shoulder: Vector3 = arm.global_position
+	var best := Vector3.INF
+	var best_d := 99.0
+	for i in 13:
+		var y := lerpf(-0.10, 1.02, i / 12.0)
+		var p: Vector3 = shaft.to_global(Vector3(0.0, y, 0.0))
+		var d := shoulder.distance_to(p)
+		if d < best_d:
+			best_d = d
+			best = p
+	if best == Vector3.INF or best_d > 0.70:
+		return
+	var l1 := 0.30
+	# The palm sits 0.22 along the forearm, not at the bone tip.
+	var palm := 0.22
+	var d := clampf(best_d, 0.12, l1 + palm - 0.01)
+	var dir := (best - shoulder).normalized()
+	var pole := Vector3(0.15, -0.35, 0.4)
+	var bend := pole - dir * pole.dot(dir)
+	if bend.length_squared() < 0.0001:
+		bend = Vector3.DOWN
+	bend = bend.normalized()
+	var cos_a := clampf((l1 * l1 + d * d - palm * palm) / (2.0 * l1 * d), -1.0, 1.0)
+	var sin_a := sqrt(maxf(0.0, 1.0 - cos_a * cos_a))
+	var elbow: Vector3 = shoulder + dir * (l1 * cos_a) + bend * (l1 * sin_a)
+	ToolStrikePoses._store_aim(locomotion, arm, arm_name, elbow - shoulder)
+	var elbow_now: Vector3 = arm.to_global(Vector3(0.0, -l1, 0.0))
+	ToolStrikePoses._store_aim(locomotion, fore, fore_name, best - elbow_now)
 
 
 func _guide_stow_hand(back: Node3D, s: float) -> void:
