@@ -740,26 +740,37 @@ static func _is_authored_left_guard(loco: Object, weapon_visual: Node3D) -> bool
 	return weapon_visual != null
 
 
+static func _in_front_of_cheek(head: Node3D, p: Vector3) -> bool:
+	var h: Vector3 = head.to_local(p)
+	return h.z < -0.02 or h.x > -0.20
+
+
 static func _seat_left_guard_beside(loco: Object, weapon_visual: Node3D, goad: Node3D, left_arm: Node3D, left_fore: Node3D, right_arm: Node3D, right_fore: Node3D, torso: Node3D, head: Node3D) -> void:
-	# Just outside the left ear: off the neck, not across the face, not behind the skull.
-	var high: Vector3 = head.to_global(Vector3(-0.30, 0.02, 0.0))
-	# Near arm (player's left) holds the high grip. Elbow drops out so the
-	# upper arm leaves the shoulder pad and the forearm rises to the shaft.
+	# One vertical line outside the left ear. The low grip used to sit in
+	# front of the chest, so the short shaft crossed the tunic and the cheek.
+	# Both hands stay on that line. It does not cross the chest or the face.
+	var up := head.global_transform.basis.y.normalized()
+	var origin: Vector3 = head.to_global(Vector3(-0.50, -0.06, 0.0))
+	var high: Vector3 = origin + up * 0.22
+	var low: Vector3 = origin - up * 0.16
 	var l_shoulder: Vector3 = left_arm.global_position
-	var l_pole: Vector3 = l_shoulder - torso.global_transform.basis.x * 0.48 + torso.global_transform.basis.y * -0.45 + torso.global_transform.basis.z * -0.22
+	var side := -torso.global_transform.basis.x
+	var l_pole: Vector3 = l_shoulder + side * 0.55 + torso.global_transform.basis.y * -0.42 + torso.global_transform.basis.z * 0.08
 	_ik_left(loco, left_arm, left_fore, l_shoulder, l_pole, high)
-	var l_palm: Vector3 = left_fore.to_global(Vector3(0.0, -0.22, 0.0))
-	# Far hand holds lower, in front of the chest, so that arm bends outside
-	# the torso instead of running through it. The stick still rises to the
-	# near hand beside the ear.
-	var low: Vector3 = torso.to_global(Vector3(-0.24, 0.44, -0.20))
 	var r_shoulder: Vector3 = right_arm.global_position
-	var r_pole: Vector3 = r_shoulder + torso.global_transform.basis.x * 0.05 + torso.global_transform.basis.y * -0.05 + torso.global_transform.basis.z * -0.8
+	var r_pole: Vector3 = r_shoulder + torso.global_transform.basis.x * 0.2 + torso.global_transform.basis.y * -0.45 + torso.global_transform.basis.z * -0.15
 	_ik_right(loco, right_arm, right_fore, r_shoulder, r_pole, low)
+	var l_palm: Vector3 = left_fore.to_global(Vector3(0.0, -0.22, 0.0))
 	var r_palm: Vector3 = right_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	# A hand that lands in front of the cheek does not get to drag the stick
+	# with it. A hand that is already outside the ear keeps the grip.
+	if _in_front_of_cheek(head, l_palm):
+		l_palm = high
+	if _in_front_of_cheek(head, r_palm):
+		r_palm = low
 	var axis: Vector3 = (l_palm - r_palm)
 	if axis.length() < 0.05:
-		axis = torso.global_transform.basis.y.normalized()
+		axis = up
 	else:
 		axis = axis.normalized()
 	weapon_visual.global_position = r_palm
