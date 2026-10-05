@@ -1530,12 +1530,10 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	# spaced palms can actually hold it — slide-only left the mid station
 	# past left-arm reach so both hands piled on the butt.
 	if not overhead:
+		# Seat last — a follow-up slide was shoving stations back out of reach.
 		var seated: Array = _seat_charged_shaft_at_shoulders(butt_w, tip_w)
 		butt_w = seated[0]
 		tip_w = seated[1]
-		cleared = _slide_line_off_body(butt_w, tip_w)
-		butt_w = cleared[0]
-		tip_w = cleared[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
 		# Fixed stations along the wood — nearest-to-shoulder piled both hands on the butt.
@@ -1809,7 +1807,7 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 	var mid_sh: Vector3 = (r_sh + l_sh) * 0.5
 	var swing_mid_y := (butt_w.y + tip_w.y) * 0.5
 	# Hold the wood just ahead of the chest — close enough for both palms.
-	var grip_mid: Vector3 = mid_sh + face * 0.40
+	var grip_mid: Vector3 = mid_sh + face * 0.34
 	grip_mid.y = clampf(swing_mid_y, mid_sh.y - 0.10, mid_sh.y + 0.40)
 	# ~38cm of shaft between palms (readable two-hand swing).
 	var spacing := 0.38
@@ -1817,6 +1815,18 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 	# right station is goad Y 0.14 ⇒ world = butt + axis * (0.255 + 0.14)
 	butt_w = right_pt - axis * (0.255 + 0.14)
 	tip_w = butt_w + axis * 1.30
+	# Nudge so the forward (left) station stays inside left-arm reach.
+	var left_pt: Vector3 = butt_w + axis * (0.255 + 0.52)
+	var left_d := l_sh.distance_to(left_pt)
+	if left_d > 0.48:
+		var step := l_sh - left_pt
+		var into := -step.dot(face)
+		if into > 0.0:
+			step += face * into
+		if step.length_squared() > 0.0001:
+			step = step.normalized() * minf(left_d - 0.45, 0.32)
+			butt_w += step
+			tip_w += step
 	return [butt_w, tip_w]
 
 
@@ -2625,7 +2635,7 @@ func _grip_shaft_at_y(shaft: Node3D, arm_name: String, fore_name: String, shaft_
 	var shoulder: Vector3 = arm.global_position
 	var best: Vector3 = shaft.to_global(Vector3(0.0, shaft_y, 0.0))
 	var best_d := shoulder.distance_to(best)
-	if best_d > 0.85:
+	if best_d > 0.70:
 		return
 	var l1 := 0.30
 	var palm := 0.22
