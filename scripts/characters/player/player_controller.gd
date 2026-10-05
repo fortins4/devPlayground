@@ -133,6 +133,14 @@ var _shaft_xf_blend: bool = false
 var _shaft_from_xf: Transform3D = Transform3D.IDENTITY
 var _shaft_to_xf: Transform3D = Transform3D.IDENTITY
 var _shaft_xf_u: float = 0.0
+## Non-jab swings. The jab leaves this clear so its blend is not retuned.
+var _swing_arc_live: bool = false
+var _swing_arc_aim: Vector2 = Vector2.ZERO
+var _swing_from_slide: float = 0.0
+var _swing_to_slide: float = 0.0
+## Body sample only. The shaft arc is solved after the spine has turned.
+var _swing_pose_only: bool = false
+var _swing_arc_interior: bool = false
 ## While the goad guard is up, look offset is not decayed so a face stays put.
 const TOOL_AIM_SIDE := 10.0
 const TOOL_AIM_VERT := 8.0
@@ -664,6 +672,10 @@ func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) ->
 		goad.rotation = Vector3.ZERO
 		shaft = goad
 	_bow_stow_off_the_head(shaft)
+	if _swing_arc_live and _swing_arc_interior:
+		_bow_swing_off_the_chest(shaft)
+		_pull_shaft_into_reach(shaft)
+		_bow_stow_off_the_head(shaft)
 	_grip_shaft_with(shaft, "right_arm", "right_forearm", 0.30)
 	_grip_shaft_with(shaft, "left_arm", "left_forearm", 0.24)
 
@@ -1217,8 +1229,11 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	_charge_from_ready = false
 	var aim := _shaft_aim_axes()
 	# The jab is the point, at any look. It is not the shaft swing he was aiming.
-	if combat.last_strike_direction() == CombatSystem.StrikeDirection.BOTTOM:
+	var jab := combat.last_strike_direction() == CombatSystem.StrikeDirection.BOTTOM
+	if jab:
 		aim = Vector2(0.0, 1.0)
+	_swing_arc_live = not jab
+	_swing_arc_aim = aim
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
 	var pose_windup: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"windup")
 	var pose_contact: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"contact")
@@ -1234,20 +1249,23 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	_tool_pose_active = true
+	# Same phase lengths. The hold used to freeze a pose while the next
+	# sample of the stick had already jumped. Travel uses that time instead.
+	# Sine, not a cubic ease-in, so the middle of the window is on the arc.
+	var windup_move := float(phases["windup_move"]) + float(phases["windup_hold"])
+	var to_contact := float(phases["to_contact"]) + float(phases["contact_hold"])
+	var follow_move := float(phases["follow"])
 	_arm_tween = create_tween()
-	_arm_tween.tween_method(_lerp_goad_shaft.bind(start_pose, pose_windup, start_xf, windup_xf), 0.0, 1.0, phases["windup_move"]).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	if float(phases["windup_hold"]) > 0.0:
-		_arm_tween.tween_interval(float(phases["windup_hold"]))
-	_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_windup, pose_contact, windup_xf, contact_xf), 0.0, 1.0, phases["to_contact"]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	if float(phases["contact_hold"]) > 0.0:
-		_arm_tween.tween_interval(float(phases["contact_hold"]))
-	_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_contact, pose_follow, contact_xf, follow_xf), 0.0, 1.0, phases["follow"]).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_arm_tween.tween_method(_lerp_goad_shaft.bind(start_pose, pose_windup, start_xf, windup_xf), 0.0, 1.0, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_windup, pose_contact, windup_xf, contact_xf), 0.0, 1.0, to_contact).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_contact, pose_follow, contact_xf, follow_xf), 0.0, 1.0, follow_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_arm_tween.tween_method(_slerp_goad_settle.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_arm_tween.tween_callback(_finish_goad_return)
 
 
 func _finish_goad_return() -> void:
 	## Already eased to the ready pose. Do not snap additives to bind pose.
+	_swing_arc_live = false
 	if combat and (combat.is_charging or combat.is_shaft_blocking):
 		return
 	if combat == null or locomotion == null:
@@ -1262,12 +1280,150 @@ func _lerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> vo
 
 
 func _lerp_goad_shaft(t: float, from_pose: Dictionary, to_pose: Dictionary, from_xf: Transform3D, to_xf: Transform3D) -> void:
-	_shaft_from_xf = from_xf
-	_shaft_to_xf = to_xf
-	_shaft_xf_u = clampf(t, 0.0, 1.0)
+	var u := clampf(t, 0.0, 1.0)
+	_swing_from_slide = float(from_pose.get("grip_slide", 0.0))
+	_swing_to_slide = float(to_pose.get("grip_slide", 0.0))
+	if _swing_arc_live:
+		# Turn the spine first, then lay the wood on the face side of that head.
+		_swing_pose_only = true
+		if u > 0.001 and u < 0.999:
+			var mid := _swing_arc_mid(from_pose, to_pose)
+			if u <= 0.5:
+				_apply_blended_pose(from_pose, mid, u / 0.5, false)
+			else:
+				_apply_blended_pose(mid, to_pose, (u - 0.5) / 0.5, false)
+		else:
+			_apply_blended_pose(from_pose, to_pose, u, false)
+		_swing_pose_only = false
+		_swing_arc_interior = u > 0.02 and u < 0.98
+		var shaft_xf := _swing_shaft_on_arc(from_xf, to_xf, u)
+		_shaft_from_xf = shaft_xf
+		_shaft_to_xf = shaft_xf
+		_shaft_xf_u = 1.0
+		_shaft_xf_blend = true
+		_sync_weapon_to_hand()
+		_shaft_xf_blend = false
+		_swing_arc_interior = false
+		return
+	var shaft_xf := from_xf.interpolate_with(to_xf, u)
+	# Jab keeps the old blend. One transform, so the plant cannot slerp off it.
+	_shaft_from_xf = shaft_xf
+	_shaft_to_xf = shaft_xf
+	_shaft_xf_u = 1.0
 	_shaft_xf_blend = true
-	_apply_blended_pose(from_pose, to_pose, t, false)
+	_apply_blended_pose(from_pose, to_pose, u, false)
 	_shaft_xf_blend = false
+
+
+func _swing_arc_mid(from_pose: Dictionary, to_pose: Dictionary) -> Dictionary:
+	## Halfway is not the straight lerp. The chord leaves the chest still
+	## while the stick travels. This sample turns hips and spine with that
+	## travel. It is only the in-between; the phase poses stay put.
+	var mid := {}
+	for k in to_pose.keys():
+		if String(k) == "root_drop" or String(k) == "grip_slide":
+			mid[k] = lerpf(float(from_pose.get(k, 0.0)), float(to_pose[k]), 0.5)
+		else:
+			var a: Vector3 = from_pose.get(k, Vector3.ZERO)
+			var b: Vector3 = to_pose[k]
+			var along := 0.5
+			# Hips and spine lead, but they do not spin all the way to the
+			# contact yaw in the middle. That turn shows the cloak and leaves
+			# the stick behind the chest.
+			var key := String(k)
+			if key == "hips" or key == "torso" or key == "head":
+				along = 0.32
+			mid[k] = a.lerp(b, along)
+	var side := 0.0
+	if _swing_arc_aim.x < -0.35:
+		side = 1.0
+	elif _swing_arc_aim.x > 0.35:
+		side = -1.0
+	var overhead := 1.0 if _swing_arc_aim.y < -0.35 else 0.0
+	if mid.has("hips"):
+		mid["hips"] = (mid["hips"] as Vector3) + Vector3(overhead * -0.18, side * 0.14, 0.0)
+	if mid.has("torso"):
+		mid["torso"] = (mid["torso"] as Vector3) + Vector3(overhead * -0.16, side * 0.12, 0.0)
+	if mid.has("head"):
+		mid["head"] = (mid["head"] as Vector3) + Vector3(overhead * 0.08, side * 0.05, 0.0)
+	if mid.has("right_arm"):
+		mid["right_arm"] = (mid["right_arm"] as Vector3) + Vector3(overhead * -0.16, side * 0.2, side * -0.08)
+	if mid.has("left_arm"):
+		mid["left_arm"] = (mid["left_arm"] as Vector3) + Vector3(overhead * -0.12, side * 0.12, side * 0.06)
+	# A positive shin kicks the foot up. The in-between keeps the sole down.
+	for leg in ["left_shin", "right_shin"]:
+		if not mid.has(leg):
+			continue
+		var sv: Vector3 = mid[leg]
+		if sv.x > deg_to_rad(-12.0):
+			sv.x = deg_to_rad(-28.0)
+		mid[leg] = sv
+	return mid
+
+
+func _swing_shaft_on_arc(from_xf: Transform3D, to_xf: Transform3D, u: float) -> Transform3D:
+	## Wood ends, not a quaternion slerp. The slerp bows the tip behind the
+	## skull while the chest stays on the chord. Ends are the phase holds.
+	if u <= 0.001:
+		return from_xf
+	if u >= 0.999:
+		return to_xf
+	var from_line := _guard_line(from_xf, _swing_from_slide)
+	var to_line := _guard_line(to_xf, _swing_to_slide)
+	var slide := lerpf(_swing_from_slide, _swing_to_slide, u)
+	var mid_butt: Vector3 = from_line[0].lerp(to_line[0], 0.5)
+	var mid_tip: Vector3 = from_line[1].lerp(to_line[1], 0.5)
+	var bulge := _swing_face_bulge(mid_tip)
+	var butt := _quad_bez(from_line[0], mid_butt + bulge, to_line[0], u)
+	var tip := _quad_bez(from_line[1], mid_tip + bulge, to_line[1], u)
+	var axis := tip - butt
+	if axis.length_squared() < 0.0001:
+		return from_xf.interpolate_with(to_xf, u)
+	axis = axis.normalized()
+	var origin := butt - axis * (-0.255 - slide)
+	var carry := from_xf.interpolate_with(to_xf, u)
+	var x := carry.basis.x
+	x = x - axis * x.dot(axis)
+	if x.length_squared() < 0.0001:
+		x = carry.basis.z.cross(axis)
+	x = x.normalized()
+	var z := x.cross(axis).normalized()
+	return Transform3D(Basis(x, axis, z), origin)
+
+
+func _swing_face_bulge(mid_tip: Vector3) -> Vector3:
+	## The quaternion chord leaves the tip behind the skull. The control is
+	## pushed until the middle of the wood is in front of the chest. A side
+	## swing also leads across. Negative torso Z is the face.
+	if locomotion == null:
+		return Vector3.ZERO
+	var torso := locomotion.get_joint("torso") as Node3D
+	if torso == null:
+		return Vector3.ZERO
+	var basis := torso.global_transform.basis
+	var face := -basis.z
+	var side_axis := basis.x
+	var swing := 0.0
+	if _swing_arc_aim.x < -0.35:
+		swing = -1.0
+	elif _swing_arc_aim.x > 0.35:
+		swing = 1.0
+	# Bezier at u=0.5 sits halfway from the chord midpoint to the control,
+	# so the push is twice the distance the tip still has to travel.
+	var lp: Vector3 = torso.to_local(mid_tip)
+	var need := 0.28
+	if lp.z > -0.12:
+		need = maxf(need, (lp.z + 0.22) * 2.0)
+	# Stay between the hands. A longer push parks the wood where one palm slips off.
+	var cap := 0.85 if _swing_arc_aim.y < -0.35 else 0.48
+	need = clampf(need, 0.22, cap)
+	return face * need + side_axis * swing * 0.1
+
+
+func _quad_bez(a: Vector3, b: Vector3, c: Vector3, t: float) -> Vector3:
+	var ab := a.lerp(b, t)
+	var bc := b.lerp(c, t)
+	return ab.lerp(bc, t)
 
 
 func _slerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
@@ -1536,6 +1692,8 @@ func _sync_weapon_to_hand() -> void:
 		_guide_draw_hands(weapon_visual, s)
 	elif _goad_stowing:
 		_apply_back_goad_carry(_goad_draw_u)
+	elif _swing_pose_only:
+		pass
 	elif combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
 		if _guard_blend_active:
 			_plant_shaft_between(_guard_from_xf, _guard_to_xf, _guard_blend_u)
@@ -1663,6 +1821,57 @@ func _apply_back_goad_carry(u: float) -> void:
 		back.global_transform = seat_xf.interpolate_with(_goad_stow_from, ku)
 		# Same bow as the unarmed stow. The knife hand is not pulled onto the shaft.
 		_bow_stow_off_the_head(back)
+
+
+func _pull_shaft_into_reach(shaft: Node3D) -> void:
+	## Both hands stay on the wood. If the arc stepped out of reach, bring
+	## it back toward the shoulders before the grip solves.
+	if locomotion == null:
+		return
+	var pull := Vector3.ZERO
+	var n := 0
+	for arm_name in ["right_arm", "left_arm"]:
+		var arm := locomotion.get_joint(arm_name) as Node3D
+		if arm == null:
+			continue
+		var shoulder: Vector3 = arm.global_position
+		var best_d := 99.0
+		var best := Vector3.ZERO
+		for i in 12:
+			var p: Vector3 = shaft.to_global(Vector3(0.0, lerpf(-0.05, 0.95, float(i) / 11.0), 0.0))
+			var d := shoulder.distance_to(p)
+			if d < best_d:
+				best_d = d
+				best = p
+		if best_d > 0.50:
+			pull += (shoulder - best).normalized() * (best_d - 0.46)
+			n += 1
+	if n > 0:
+		shaft.global_position += pull / float(n)
+
+
+func _bow_swing_off_the_chest(shaft: Node3D) -> void:
+	## A swing sample that would pass through the ribs is carried out in
+	## front. Same idea as the stow bow. End poses are not rewritten.
+	if locomotion == null:
+		return
+	var torso := locomotion.get_joint("torso") as Node3D
+	if torso == null:
+		return
+	var face := -torso.global_transform.basis.z
+	if face.length_squared() < 0.001:
+		return
+	face = face.normalized()
+	var push := 0.0
+	for i in 14:
+		var along := lerpf(-0.15, 1.02, float(i) / 13.0)
+		var lp: Vector3 = torso.to_local(shaft.to_global(Vector3(0.0, along, 0.0)))
+		if absf(lp.x) > 0.36 or lp.y < -0.08 or lp.y > 0.62:
+			continue
+		if lp.z > -0.06:
+			push = maxf(push, lp.z + 0.14)
+	if push > 0.001:
+		shaft.global_position += face * push
 
 
 func _bow_stow_off_the_head(back: Node3D) -> void:
