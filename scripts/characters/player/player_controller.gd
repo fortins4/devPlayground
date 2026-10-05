@@ -1807,7 +1807,7 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 	var mid_sh: Vector3 = (r_sh + l_sh) * 0.5
 	var swing_mid_y := (butt_w.y + tip_w.y) * 0.5
 	# Hold the wood just ahead of the chest — close enough for both palms.
-	var grip_mid: Vector3 = mid_sh + face * 0.38
+	var grip_mid: Vector3 = mid_sh + face * 0.30
 	grip_mid.y = clampf(swing_mid_y, mid_sh.y - 0.10, mid_sh.y + 0.40)
 	# ~42cm of shaft between palms (readable two-hand swing).
 	var spacing := 0.42
@@ -1836,11 +1836,11 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 			var rel: Vector3 = p - torso.global_position
 			var ahead := rel.dot(face)
 			var side := rel - face * ahead
-			if absf(side.x) + absf(side.z) < 0.55 and absf(rel.y) < 0.55 and ahead < 0.30:
-				need = maxf(need, 0.30 - ahead)
+			if side.length() < 0.50 and absf(rel.y) < 0.55 and ahead < 0.28:
+				need = maxf(need, 0.28 - ahead)
 		if need > 0.001:
-			butt_w += face * minf(need, 0.22)
-			tip_w += face * minf(need, 0.22)
+			butt_w += face * minf(need, 0.16)
+			tip_w += face * minf(need, 0.16)
 	return [butt_w, tip_w]
 
 
