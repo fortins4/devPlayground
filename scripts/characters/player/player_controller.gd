@@ -528,13 +528,89 @@ func _peek_shaft_xf(pose: Dictionary) -> Transform3D:
 	return xf
 
 
+func _guard_line(xf: Transform3D, slide: float) -> PackedVector3Array:
+	## Wood ends in world space. slide is the goad grip offset on this hold.
+	var butt := xf * Vector3(0.0, -0.255 - slide, 0.0)
+	var tip := xf * Vector3(0.0, 1.045 - slide, 0.0)
+	return PackedVector3Array([butt, tip])
+
+
+func _guard_shaft_beside(from_xf: Transform3D, to_xf: Transform3D, u: float) -> Transform3D:
+	## Side guards are both vertical, so a quaternion slerp flips the shaft
+	## up behind the skull. Lerp the wood ends, then carry that line around
+	## the face side of the head. Ends are the captured seats.
+	if u <= 0.001:
+		return from_xf
+	if u >= 0.999:
+		return to_xf
+	if locomotion == null:
+		return from_xf.interpolate_with(to_xf, u)
+	var head := locomotion.get_joint("head") as Node3D
+	if head == null:
+		return from_xf.interpolate_with(to_xf, u)
+	var from_slide := float(_guard_from_pose.get("grip_slide", 0.0))
+	var to_slide := float(_guard_to_pose.get("grip_slide", 0.0))
+	var slide := lerpf(from_slide, to_slide, u)
+	var from_line := _guard_line(from_xf, from_slide)
+	var to_line := _guard_line(to_xf, to_slide)
+	var butt := from_line[0].lerp(to_line[0], u)
+	var tip := from_line[1].lerp(to_line[1], u)
+	var from_anchor: Vector3 = head.to_local(from_line[0].lerp(from_line[1], 0.55))
+	var to_anchor: Vector3 = head.to_local(to_line[0].lerp(to_line[1], 0.55))
+	var anchor := butt.lerp(tip, 0.55)
+	var anchor_l: Vector3 = head.to_local(anchor)
+	var from_ang := atan2(from_anchor.z, from_anchor.x)
+	var to_ang := atan2(to_anchor.z, to_anchor.x)
+	var sweep := _guard_face_sweep(from_ang, to_ang)
+	# Stay beside the ear through the middle of the blend. The cross
+	# in front of the cheeks is the late part, not the shortest flip.
+	var arc_u := pow(u, 1.75)
+	var ang := from_ang + sweep * arc_u
+	var from_r := Vector2(from_anchor.x, from_anchor.z).length()
+	var to_r := Vector2(to_anchor.x, to_anchor.z).length()
+	var radius := maxf(lerpf(from_r, to_r, u), 0.38)
+	var desired := Vector3(cos(ang) * radius, lerpf(from_anchor.y, to_anchor.y, u), sin(ang) * radius)
+	var delta: Vector3 = head.global_transform.basis * (desired - anchor_l)
+	butt += delta
+	tip += delta
+	var axis := tip - butt
+	if axis.length_squared() < 0.0001:
+		return from_xf.interpolate_with(to_xf, u)
+	axis = axis.normalized()
+	var origin := butt - axis * (-0.255 - slide)
+	var carry := from_xf.interpolate_with(to_xf, u)
+	var x := carry.basis.x
+	x = x - axis * x.dot(axis)
+	if x.length_squared() < 0.0001:
+		x = carry.basis.z.cross(axis)
+	x = x.normalized()
+	var z := x.cross(axis).normalized()
+	return Transform3D(Basis(x, axis, z), origin)
+
+
+func _guard_face_sweep(from_ang: float, to_ang: float) -> float:
+	## Head-local atan2(z, x). Negative Z is the face. Pick the arc whose
+	## middle is in front of the cheeks, not the one behind the hair.
+	var short := wrapf(to_ang - from_ang, -PI, PI)
+	var long := short - TAU if short > 0.0 else short + TAU
+	var mid_short := from_ang + short * 0.5
+	var mid_long := from_ang + long * 0.5
+	if sin(mid_long) < sin(mid_short):
+		return long
+	return short
+
+
 func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) -> void:
 	## Shaft rides between two holds. Hands stay on it. A sample that would
 	## meet the skull bows out, the same way the stow does. End poses are the
 	## captured seats, not a new one.
 	if weapon_visual == null:
 		return
-	weapon_visual.global_transform = from_xf.interpolate_with(to_xf, clampf(u, 0.0, 1.0))
+	var along := clampf(u, 0.0, 1.0)
+	if _guard_blend_active:
+		weapon_visual.global_transform = _guard_shaft_beside(from_xf, to_xf, along)
+	else:
+		weapon_visual.global_transform = from_xf.interpolate_with(to_xf, along)
 	var shaft: Node3D = weapon_visual
 	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
 	if goad:
