@@ -1526,6 +1526,10 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	var cleared: Array = _slide_line_off_body(butt_w, tip_w)
 	butt_w = cleared[0]
 	tip_w = cleared[1]
+	if absf(_swing_arc_aim.x) > 0.35:
+		cleared = _slide_line_off_body(butt_w, tip_w)
+		butt_w = cleared[0]
+		tip_w = cleared[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
 		# Fixed stations along the wood — nearest-to-shoulder piled both hands on the butt.
@@ -1565,7 +1569,7 @@ func _face_quad(a: Vector3, b: Vector3, t: float) -> Vector3:
 		mid.z = -0.55
 	# Side mid-arc: keep the bezier in front of the chest, not through it.
 	if absf(_swing_arc_aim.x) > 0.35 and mid.y > 0.70 and mid.y < 1.50:
-		mid.z = minf(mid.z, -0.92)
+		mid.z = minf(mid.z, -1.05)
 	# Do not crest the skull. Overhead stays in front; a side swing stays wide.
 	if mid.y > 1.42 and absf(mid.x) < 0.34:
 		mid.z = minf(mid.z, -0.64)
@@ -1709,14 +1713,14 @@ func _slide_line_off_body(butt_w: Vector3, tip_w: Vector3) -> Array:
 			push = maxf(push, (hp.z + 0.30) / along)
 		var tp: Vector3 = torso.to_local(p)
 		# Wider / deeper torso sample so a side chord cannot sit in the chest.
-		if absf(tp.x) < 0.44 and tp.y > -0.14 and tp.y < 0.72 and tp.z > -0.30:
+		if absf(tp.x) < 0.52 and tp.y > -0.18 and tp.y < 0.78 and tp.z > -0.42:
 			var chest_face := -torso.global_transform.basis.z
 			var along_c := 0.35
 			if chest_face.length_squared() > 0.0001:
 				along_c = maxf(dir.dot(chest_face.normalized()), 0.35)
-			push = maxf(push, (tp.z + 0.40) / along_c)
+			push = maxf(push, (tp.z + 0.55) / along_c)
 	if push > 0.001:
-		var push_cap := 0.95 if absf(_swing_arc_aim.x) > 0.35 else 0.55
+		var push_cap := 1.10 if absf(_swing_arc_aim.x) > 0.35 else 0.55
 		var delta := dir * minf(push, push_cap)
 		butt_w += delta
 		tip_w += delta
