@@ -1,0 +1,7 @@
+[gd_scene load_steps=3 format=3 uid="uid://cq8riochtopencow01"]
+
+[ext_resource type="PackedScene" uid="uid://cq8riochtraidcow01" path="res://scenes/world/raid/raid_cow.tscn" id="1_raidcow"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_cow.gd" id="2_opencow"]
+
+[node name="OpeningCow" instance=ExtResource("1_raidcow")]
+script = ExtResource("2_opencow")

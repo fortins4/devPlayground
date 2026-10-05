@@ -1,0 +1,139 @@
+[gd_scene load_steps=17 format=3 uid="uid://cq8riochtopendrv01"]
+
+[ext_resource type="Script" path="res://scripts/prologue/opening_farm_greybox.gd" id="1_greybox"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_drive_director.gd" id="2_director"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_drive_hud.gd" id="3_hud"]
+[ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="4_player"]
+[ext_resource type="PackedScene" uid="uid://cq8riochtopencow01" path="res://scenes/prologue/opening_cow.tscn" id="5_cow"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_drive_launcher.gd" id="6_launch"]
+
+[sub_resource type="ProceduralSkyMaterial" id="Sky_morning_mat"]
+sky_top_color = Color(0.5, 0.62, 0.74, 1)
+sky_horizon_color = Color(0.86, 0.8, 0.68, 1)
+ground_bottom_color = Color(0.22, 0.28, 0.2, 1)
+ground_horizon_color = Color(0.62, 0.6, 0.5, 1)
+sun_angle_max = 20.0
+
+[sub_resource type="Sky" id="Sky_morning"]
+sky_material = SubResource("Sky_morning_mat")
+
+[sub_resource type="Environment" id="Env_morning"]
+background_mode = 2
+sky = SubResource("Sky_morning")
+ambient_light_source = 3
+ambient_light_color = Color(0.78, 0.78, 0.7, 1)
+ambient_light_energy = 0.7
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.78, 0.78, 0.7, 1)
+fog_density = 0.0028
+
+[sub_resource type="BoxShape3D" id="Shape_home"]
+size = Vector3(12.6, 2.4, 10.6)
+
+[sub_resource type="BoxShape3D" id="Shape_bog"]
+size = Vector3(18, 2, 18)
+
+[sub_resource type="BoxShape3D" id="Shape_pasture"]
+size = Vector3(40, 2.4, 28)
+
+[node name="OpeningCattleDrive" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_morning")
+
+[node name="MorningSun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.3420, -0.4698, 0.8138, 0, 0.8660, 0.5, -0.9397, 0.1710, -0.2962, 0, 30, 0)
+light_color = Color(1, 0.92, 0.8, 1)
+light_energy = 1.2
+shadow_enabled = true
+directional_shadow_max_distance = 140.0
+
+[node name="PathMarkers" type="Node3D" parent="."]
+
+[node name="Gate" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, 15)
+
+[node name="Bend1" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, 30)
+
+[node name="Bend2" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0, 44)
+
+[node name="Bend3" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0, 62)
+
+[node name="Bend4" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 78)
+
+[node name="PastureMouth" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 94)
+
+[node name="HomeZone" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 1.2, 6.5)
+collision_layer = 0
+collision_mask = 1
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="HomeZone"]
+shape = SubResource("Shape_home")
+
+[node name="BogZone" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 1, 55)
+collision_layer = 0
+collision_mask = 1
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BogZone"]
+shape = SubResource("Shape_bog")
+
+[node name="PastureZone" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1.2, 112)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PastureZone"]
+shape = SubResource("Shape_pasture")
+
+[node name="Greybox" type="Node3D" parent="."]
+script = ExtResource("1_greybox")
+
+[node name="Herd" type="Node3D" parent="."]
+
+[node name="Cow0" parent="Herd" instance=ExtResource("5_cow")]
+transform = Transform3D(0.9397, 0, -0.3420, 0, 1, 0, 0.3420, 0, 0.9397, 4, 0.1, 108)
+cow_id = 0
+
+[node name="Cow1" parent="Herd" instance=ExtResource("5_cow")]
+transform = Transform3D(0.8192, 0, 0.5736, 0, 1, 0, -0.5736, 0, 0.8192, 9, 0.1, 111)
+cow_id = 1
+
+[node name="Cow2" parent="Herd" instance=ExtResource("5_cow")]
+transform = Transform3D(0.3420, 0, -0.9397, 0, 1, 0, 0.9397, 0, 0.3420, 14, 0.1, 107)
+cow_id = 2
+
+[node name="Cow3" parent="Herd" instance=ExtResource("5_cow")]
+transform = Transform3D(-0.8660, 0, -0.5000, 0, 1, 0, 0.5000, 0, -0.8660, 7, 0.1, 116)
+cow_id = 3
+
+[node name="Cow4" parent="Herd" instance=ExtResource("5_cow")]
+transform = Transform3D(-0.3420, 0, 0.9397, 0, 1, 0, -0.9397, 0, -0.3420, 17, 0.1, 114)
+cow_id = 4
+
+[node name="Cow5" parent="Herd" instance=ExtResource("5_cow")]
+transform = Transform3D(0.9848, 0, -0.1736, 0, 1, 0, 0.1736, 0, 0.9848, 12, 0.1, 120)
+cow_id = 5
+
+[node name="Player" parent="." instance=ExtResource("4_player")]
+transform = Transform3D(-0.5736, 0, -0.8192, 0, 1, 0, 0.8192, 0, -0.5736, -3, 0.1, 9)
+
+[node name="OpeningDriveDirector" type="Node3D" parent="."]
+script = ExtResource("2_director")
+need_home = 4
+
+[node name="OpeningDriveHUD" type="CanvasLayer" parent="."]
+script = ExtResource("3_hud")
+
+[node name="OpeningDriveLauncher" type="Node" parent="."]
+script = ExtResource("6_launch")

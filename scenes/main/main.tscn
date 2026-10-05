@@ -1,4 +1,4 @@
-[gd_scene load_steps=34 format=3 uid="uid://cq8riochtmain0001"]
+[gd_scene load_steps=35 format=3 uid="uid://cq8riochtmain0001"]
 
 [ext_resource type="PackedScene" uid="uid://bq8riochtplayer01" path="res://scenes/characters/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtdummy01" path="res://scenes/characters/npcs/dummy_fighter.tscn" id="2_dummy"]
@@ -20,6 +20,7 @@
 [ext_resource type="PackedScene" uid="uid://cq8riochthorse001" path="res://scenes/characters/horse/horse.tscn" id="13_horse"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtraidlane01" path="res://scenes/world/raid/cattle_raid_lane.tscn" id="14_raid_lane"]
 [ext_resource type="PackedScene" uid="uid://cq8riochtraidhud01" path="res://scenes/ui/cattle_raid_hud.tscn" id="15_raid_hud"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_drive_launcher.gd" id="16_open_launch"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.45, 0.55, 0.65, 1)
@@ -274,3 +275,6 @@ modulate = Color(0.92, 0.82, 0.5, 1)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 26)
 
 [node name="CattleRaidHUD" parent="." instance=ExtResource("15_raid_hud")]
+
+[node name="OpeningDriveLauncher" type="Node" parent="."]
+script = ExtResource("16_open_launch")
