@@ -639,6 +639,9 @@ static func seat_goad_off_hand(loco: Object, weapon_visual: Node3D) -> void:
 	if right_arm_early != null and right_fore_early != null and _is_authored_left_guard(loco, weapon_visual):
 		_seat_left_guard_beside(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
 		return
+	if right_arm_early != null and right_fore_early != null and _is_authored_right_guard(loco, weapon_visual):
+		_seat_right_guard_beside(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
+		return
 	if right_arm_early != null and right_fore_early != null and _is_authored_high_guard(loco, weapon_visual):
 		_seat_high_guard_overhead(loco, weapon_visual, goad, left_arm, left_fore, right_arm_early, right_fore_early, torso, head)
 		return
@@ -779,6 +782,62 @@ static func _seat_left_guard_beside(loco: Object, weapon_visual: Node3D, goad: N
 	goad.position.y = -_slide_for(-goad.position.y, 0.0, t_off)
 
 
+
+
+
+## Right guard only. Same rule as the left: both grips on a line outside
+## this ear, off the neck. A hand in front of the cheek does not drag the
+## stick across the face. Left, high, and low do not use this.
+static func _is_authored_right_guard(loco: Object, weapon_visual: Node3D) -> bool:
+	var pose := tool_shaft_guard_pose(&"right")
+	for joint in ["hips", "torso", "head"]:
+		var have: Vector3 = loco.get_combat_additive(joint)
+		if have.distance_to(pose[joint]) > deg_to_rad(5.0):
+			return false
+	return weapon_visual != null
+
+
+static func _in_front_of_right_cheek(head: Node3D, p: Vector3) -> bool:
+	var h: Vector3 = head.to_local(p)
+	return h.z < -0.02 or h.x < 0.20
+
+
+static func _seat_right_guard_beside(loco: Object, weapon_visual: Node3D, goad: Node3D, left_arm: Node3D, left_fore: Node3D, right_arm: Node3D, right_fore: Node3D, torso: Node3D, head: Node3D) -> void:
+	# One line outside the right ear. The near arm is the right arm, bent
+	# as one limb. The shaft does not cross the chest or sit in front of the nose.
+	var up := head.global_transform.basis.y.normalized()
+	# Vertical line outside the right ear. The low grip is as far right as the
+	# left hand can reach without crossing the chest. Length runs upward.
+	var origin: Vector3 = head.to_global(Vector3(0.24, -0.32, 0.0))
+	var high: Vector3 = origin + up * 0.46
+	var low: Vector3 = origin
+	var basis := torso.global_transform.basis
+	var r_shoulder: Vector3 = right_arm.global_position
+	var r_pole: Vector3 = r_shoulder + basis.x * 0.55 + basis.y * -0.42 + basis.z * 0.08
+	_ik_right(loco, right_arm, right_fore, r_shoulder, r_pole, high)
+	var l_shoulder: Vector3 = left_arm.global_position
+	var l_pole: Vector3 = l_shoulder - basis.x * 0.20 + basis.y * -0.45 + basis.z * -0.15
+	_ik_left(loco, left_arm, left_fore, l_shoulder, l_pole, low)
+	var r_palm: Vector3 = right_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	var l_palm: Vector3 = left_fore.to_global(Vector3(0.0, -0.22, 0.0))
+	# A hand in front of the cheek, or short of the ear line, does not drag the stick.
+	var line_x := 0.24
+	var rh: Vector3 = head.to_local(r_palm)
+	var lh: Vector3 = head.to_local(l_palm)
+	# Inward of the ear line, or in front of the cheek, the hand does not drag the stick.
+	if _in_front_of_right_cheek(head, r_palm) or rh.x < line_x:
+		r_palm = high
+	if _in_front_of_right_cheek(head, l_palm) or lh.x < line_x:
+		l_palm = low
+	var axis: Vector3 = r_palm - l_palm
+	if axis.length() < 0.05:
+		axis = up
+	else:
+		axis = axis.normalized()
+	weapon_visual.global_position = l_palm
+	_aim_weapon_y(weapon_visual, axis)
+	# Butt at the low grip, so the rest of the shaft rises beside the ear.
+	goad.position.y = 0.255
 
 
 ## High guard only. Look-up. The shaft is held over the head so it covers a
