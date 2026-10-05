@@ -1451,16 +1451,16 @@ func _continuous_swing_keys(aim: Vector2) -> Array:
 	# Side arcs stay in front of the torso (−Z). Mid keys used to park the
 	# butt on the centerline so the tip chord cut through the chest.
 	var left: Array = [
-		_swing_line(Vector3(-0.26, 1.34, -0.55), Vector3(-0.70, 0.55, -0.65)),
-		_swing_line(Vector3(-0.16, 1.22, -0.78), Vector3(0.50, 0.20, -1.00)),
-		_swing_line(Vector3(-0.06, 1.14, -0.74), Vector3(0.58, -0.28, -0.92)),
-		_swing_line(Vector3(0.00, 1.12, -0.62), Vector3(0.50, -0.48, -0.72)),
+		_swing_line(Vector3(-0.24, 1.32, -0.52), Vector3(-0.70, 0.52, -0.58)),
+		_swing_line(Vector3(-0.16, 1.22, -0.78), Vector3(0.55, 0.18, -0.98)),
+		_swing_line(Vector3(-0.06, 1.14, -0.72), Vector3(0.60, -0.30, -0.88)),
+		_swing_line(Vector3(0.02, 1.14, -0.58), Vector3(0.50, -0.48, -0.68)),
 	]
 	var right: Array = [
-		_swing_line(Vector3(0.26, 1.34, -0.55), Vector3(0.70, 0.55, -0.65)),
-		_swing_line(Vector3(0.16, 1.22, -0.78), Vector3(-0.50, 0.20, -1.00)),
-		_swing_line(Vector3(0.06, 1.14, -0.74), Vector3(-0.58, -0.28, -0.92)),
-		_swing_line(Vector3(0.00, 1.12, -0.62), Vector3(-0.50, -0.48, -0.72)),
+		_swing_line(Vector3(0.24, 1.32, -0.52), Vector3(0.70, 0.52, -0.58)),
+		_swing_line(Vector3(0.16, 1.22, -0.78), Vector3(-0.55, 0.18, -0.98)),
+		_swing_line(Vector3(0.06, 1.14, -0.72), Vector3(-0.60, -0.30, -0.88)),
+		_swing_line(Vector3(-0.02, 1.14, -0.58), Vector3(-0.50, -0.48, -0.68)),
 	]
 	# Overhead chop. Key 0 is the live bar over the head. These keep the
 	# hands high and drop the tip straight down the face side — not the
@@ -1526,17 +1526,21 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	var cleared: Array = _slide_line_off_body(butt_w, tip_w)
 	butt_w = cleared[0]
 	tip_w = cleared[1]
-	# Clearance can shove the mid chord out of left-hand reach — both palms
-	# then sat on the butt. Pull into dual-station reach AFTER the slide so
-	# a second push cannot undo the left grip.
-	var reached: Array = _pull_shaft_into_spaced_reach(butt_w, tip_w)
-	butt_w = reached[0]
-	tip_w = reached[1]
+	# Charged release only (this continuous path). Seat the wood where both
+	# spaced palms can actually hold it — slide-only left the mid station
+	# past left-arm reach so both hands piled on the butt.
+	if not overhead:
+		var seated: Array = _seat_charged_shaft_at_shoulders(butt_w, tip_w)
+		butt_w = seated[0]
+		tip_w = seated[1]
+		cleared = _slide_line_off_body(butt_w, tip_w)
+		butt_w = cleared[0]
+		tip_w = cleared[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
 		# Fixed stations along the wood — nearest-to-shoulder piled both hands on the butt.
-		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.12)
-		_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.48)
+		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.14)
+		_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.52)
 
 
 func _continuous_line_at(u: float) -> Array:
@@ -1570,8 +1574,8 @@ func _face_quad(a: Vector3, b: Vector3, t: float) -> Vector3:
 	if mid.z > -0.36:
 		mid.z = -0.55
 	# Side mid-arc: keep the bezier in front of the chest, not through it.
-	if absf(_swing_arc_aim.x) > 0.35 and mid.y > 0.70 and mid.y < 1.50:
-		mid.z = minf(mid.z, -0.82)
+	if absf(_swing_arc_aim.x) > 0.35 and mid.y > 0.75 and mid.y < 1.48:
+		mid.z = minf(mid.z, -0.78)
 	# Do not crest the skull. Overhead stays in front; a side swing stays wide.
 	if mid.y > 1.42 and absf(mid.x) < 0.34:
 		mid.z = minf(mid.z, -0.64)
@@ -1715,14 +1719,14 @@ func _slide_line_off_body(butt_w: Vector3, tip_w: Vector3) -> Array:
 			push = maxf(push, (hp.z + 0.30) / along)
 		var tp: Vector3 = torso.to_local(p)
 		# Wider / deeper torso sample so a side chord cannot sit in the chest.
-		if absf(tp.x) < 0.46 and tp.y > -0.14 and tp.y < 0.72 and tp.z > -0.28:
+		if absf(tp.x) < 0.44 and tp.y > -0.14 and tp.y < 0.72 and tp.z > -0.30:
 			var chest_face := -torso.global_transform.basis.z
 			var along_c := 0.35
 			if chest_face.length_squared() > 0.0001:
 				along_c = maxf(dir.dot(chest_face.normalized()), 0.35)
-			push = maxf(push, (tp.z + 0.36) / along_c)
+			push = maxf(push, (tp.z + 0.40) / along_c)
 	if push > 0.001:
-		var push_cap := 0.62 if absf(_swing_arc_aim.x) > 0.35 else 0.55
+		var push_cap := 0.78 if absf(_swing_arc_aim.x) > 0.35 else 0.55
 		var delta := dir * minf(push, push_cap)
 		butt_w += delta
 		tip_w += delta
@@ -1781,48 +1785,38 @@ func _bring_shaft_to_both_hands(butt_w: Vector3, tip_w: Vector3) -> Array:
 
 
 
-func _pull_shaft_into_spaced_reach(butt_w: Vector3, tip_w: Vector3) -> Array:
-	## Keep both spaced stations inside forearm reach after a face-side slide.
+func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
+	## Place the charged mid chord in front of both shoulders so spaced
+	## grip stations stay inside forearm reach. Axis comes from the swing keys.
 	if locomotion == null:
 		return [butt_w, tip_w]
-	var torso := locomotion.get_joint("torso") as Node3D
-	var face := Vector3(0.0, 0.0, -1.0)
-	if torso:
-		face = -torso.global_transform.basis.z
-		if face.length_squared() > 0.0001:
-			face = face.normalized()
+	var right_arm := locomotion.get_joint("right_arm") as Node3D
+	var left_arm := locomotion.get_joint("left_arm") as Node3D
+	if right_arm == null or left_arm == null:
+		return [butt_w, tip_w]
 	var axis := tip_w - butt_w
 	if axis.length_squared() < 0.0001:
 		return [butt_w, tip_w]
 	axis = axis.normalized()
-	# Stations match _grip_shaft_at_y (goad Y 0 ≈ butt+0.255 along axis).
-	var right_pt: Vector3 = butt_w + axis * (0.255 + 0.12)
-	var left_pt: Vector3 = butt_w + axis * (0.255 + 0.48)
-	var pull := Vector3.ZERO
-	var n := 0
-	for pair in [["right_arm", right_pt, 0.50], ["left_arm", left_pt, 0.50]]:
-		var arm := locomotion.get_joint(String(pair[0])) as Node3D
-		if arm == null:
-			continue
-		var shoulder: Vector3 = arm.global_position
-		var target: Vector3 = pair[1]
-		var lim: float = float(pair[2])
-		var d := shoulder.distance_to(target)
-		if d <= lim:
-			continue
-		var step := (shoulder - target).normalized() * minf(d - lim, 0.72)
-		# Never yank the wood back through the cloak.
-		var into := -step.dot(face)
-		if into > 0.0:
-			step += face * into
-		pull += step
-		n += 1
-	if n > 0:
-		butt_w += pull / float(n)
-		tip_w += pull / float(n)
-		axis = tip_w - butt_w
-		if axis.length_squared() > 0.0001:
-			tip_w = butt_w + axis.normalized() * 1.30
+	var face := -_swing_frame.basis.z
+	face.y = 0.0
+	if face.length_squared() < 0.0001:
+		face = Vector3(0.0, 0.0, -1.0)
+	else:
+		face = face.normalized()
+	var r_sh: Vector3 = right_arm.global_position
+	var l_sh: Vector3 = left_arm.global_position
+	var mid_sh: Vector3 = (r_sh + l_sh) * 0.5
+	var swing_mid_y := (butt_w.y + tip_w.y) * 0.5
+	# Hold the wood just ahead of the chest — close enough for both palms.
+	var grip_mid: Vector3 = mid_sh + face * 0.40
+	grip_mid.y = clampf(swing_mid_y, mid_sh.y - 0.10, mid_sh.y + 0.40)
+	# ~38cm of shaft between palms (readable two-hand swing).
+	var spacing := 0.38
+	var right_pt: Vector3 = grip_mid - axis * (spacing * 0.5)
+	# right station is goad Y 0.14 ⇒ world = butt + axis * (0.255 + 0.14)
+	butt_w = right_pt - axis * (0.255 + 0.14)
+	tip_w = butt_w + axis * 1.30
 	return [butt_w, tip_w]
 
 
@@ -2631,7 +2625,7 @@ func _grip_shaft_at_y(shaft: Node3D, arm_name: String, fore_name: String, shaft_
 	var shoulder: Vector3 = arm.global_position
 	var best: Vector3 = shaft.to_global(Vector3(0.0, shaft_y, 0.0))
 	var best_d := shoulder.distance_to(best)
-	if best_d > 1.35:
+	if best_d > 0.85:
 		return
 	var l1 := 0.30
 	var palm := 0.22
