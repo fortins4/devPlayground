@@ -143,6 +143,10 @@ var _shaft_xf_u: float = 0.0
 ## Non-jab swings. The jab leaves this clear so its blend is not retuned.
 var _swing_arc_live: bool = false
 var _swing_arc_aim: Vector2 = Vector2.ZERO
+## Jab thrust rides the LEFT flank (mirrored) when the live start holds the
+## butt on the left — e.g. the low guard. Flipping it end-over-end to the
+## right flank cut through the chest.
+var _jab_mirror: bool = false
 var _swing_from_slide: float = 0.0
 var _swing_to_slide: float = 0.0
 ## Body sample only. The shaft arc is solved after the spine has turned.
@@ -1453,6 +1457,7 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 	# Pure top aim (high face) keeps the overhead bar; do not face-lift it away.
 	var overhead_start := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
 	var jab_start := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y > 0.5
+	_jab_mirror = jab_start and live_butt.x < 0.0
 	var bar_high := minf(live_butt.y, live_tip.y) > 1.55 and absf(live_butt.y - live_tip.y) < 0.20
 	# Jab keeps the live chamber; a face-lift turned the thrust into a side sweep.
 	if not (overhead_start or bar_high or jab_start):
@@ -1521,13 +1526,23 @@ func _continuous_swing_keys(aim: Vector2) -> Array:
 		_swing_line(Vector3(0.26, 1.36, -0.62), Vector3(0.10, -0.85, -0.68)),
 		_swing_line(Vector3(0.18, 1.26, -0.52), Vector3(0.06, -0.98, -0.40)),
 	]
-	# Uncharged / look-down jab: chamber → mid-thrust → extend → recover. Face −Z.
+	# Uncharged / look-down jab: chamber → mid-thrust → extend → recover.
+	# Spear thrust: the butt rides OUTSIDE the right flank and the tip finishes
+	# on the centre line. The chest turns right (_jab_chest_yaw) so the left
+	# palm reaches the wood. The old keys ran the wood straight down the body
+	# centreline, out of reach of both palms (~0.53 m arms): grips skipped,
+	# hands stayed at the body and the shaft read as threading the tunic.
+	var jab_dir := Vector3(-0.35, -0.10, -0.93)
 	var bottom: Array = [
-		_swing_line(Vector3(0.10, 1.08, -0.32), Vector3(0.06, 0.20, -0.95)),
-		_swing_line(Vector3(0.08, 0.98, -0.58), Vector3(0.04, 0.08, -1.18)),
-		_swing_line(Vector3(0.06, 0.90, -0.78), Vector3(0.03, 0.02, -1.28)),
-		_swing_line(Vector3(0.08, 0.96, -0.48), Vector3(0.04, 0.10, -1.00)),
+		_swing_line(Vector3(0.53, 1.30, 0.36), jab_dir),
+		_swing_line(Vector3(0.48, 1.28, 0.25), jab_dir),
+		_swing_line(Vector3(0.45, 1.27, 0.18), jab_dir),
+		_swing_line(Vector3(0.40, 1.00, -0.36), Vector3(-0.92, 0.20, -0.33)),
 	]
+	if _jab_mirror:
+		var flip := Vector3(-1.0, 1.0, 1.0)
+		for k in bottom.size():
+			bottom[k] = [(bottom[k][0] as Vector3) * flip, (bottom[k][1] as Vector3) * flip]
 	var out: Array = []
 	for i in 4:
 		var butt: Vector3 = (left[i][0] as Vector3) * w_left + (right[i][0] as Vector3) * w_right + (top[i][0] as Vector3) * w_top + (bottom[i][0] as Vector3) * w_bot
@@ -1581,9 +1596,12 @@ func _sample_continuous_goad_swing(u: float) -> void:
 		else:
 			butt_w = held[0]
 			tip_w = held[1]
-	var cleared: Array = _slide_line_off_body(butt_w, tip_w)
-	butt_w = cleared[0]
-	tip_w = cleared[1]
+	# Jab keys are authored clear of the flank (see _continuous_swing_keys).
+	# The generic slide's neck zone caught the flank line and shoved it wide.
+	if not jabbing:
+		var cleared: Array = _slide_line_off_body(butt_w, tip_w)
+		butt_w = cleared[0]
+		tip_w = cleared[1]
 	# Side: seat at shoulders. Top: high seat LAST along the clear-key axis —
 	# a follow-up body slide shoved stations back out of reach.
 	if overhead:
@@ -1606,18 +1624,22 @@ func _sample_continuous_goad_swing(u: float) -> void:
 				butt_w += face_h * minf(need, 0.08)
 				tip_w += face_h * minf(need, 0.08)
 	elif jabbing:
-		# Keep the thrust on the face line; side shoulder seat bent it into a sweep.
-		var cleared_j: Array = _slide_line_off_body(butt_w, tip_w)
-		butt_w = cleared_j[0]
-		tip_w = cleared_j[1]
+		# No shoulder seat (bent it into a sweep) and no body slide (shoved it
+		# wide). The authored flank line already clears the tunic.
+		pass
 	else:
 		var seated: Array = _seat_charged_shaft_at_shoulders(butt_w, tip_w)
 		butt_w = seated[0]
 		tip_w = seated[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
-		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.14)
-		_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.46)
+		if jabbing and _jab_mirror:
+			# Mirrored thrust: the left hand is the rear (butt) hand.
+			_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.14)
+			_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.46)
+		else:
+			_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.14)
+			_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.46)
 
 
 func _continuous_line_at(u: float) -> Array:
@@ -1635,6 +1657,16 @@ func _continuous_line_at(u: float) -> Array:
 	if overhead:
 		butt = _overhead_clear_quad(_swing_keys_butt[i], _swing_keys_butt[i + 1], t)
 		tip = _overhead_clear_quad(_swing_keys_tip[i], _swing_keys_tip[i + 1], t)
+	elif absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y > 0.5:
+		# Jab: straight travel along the thrust. The face-quad bowed the butt
+		# toward the centre line and back into the tunic.
+		var s := t * t * (3.0 - 2.0 * t)
+		butt = _swing_keys_butt[i].lerp(_swing_keys_butt[i + 1], s)
+		# Turn the wood (slerp) instead of sliding the tip — a tip lerp
+		# shortened the chord and let the palm stations drift off the hands.
+		var d0: Vector3 = (_swing_keys_tip[i] - _swing_keys_butt[i]).normalized()
+		var d1: Vector3 = (_swing_keys_tip[i + 1] - _swing_keys_butt[i + 1]).normalized()
+		tip = butt + d0.slerp(d1, s) * 1.30
 	else:
 		butt = _face_quad(_swing_keys_butt[i], _swing_keys_butt[i + 1], t)
 		tip = _face_quad(_swing_keys_tip[i], _swing_keys_tip[i + 1], t)
@@ -1693,6 +1725,17 @@ func _swing_yaw(u: float) -> float:
 	return (b - a) * 0.55 * clampf(u, 0.0, 1.0)
 
 
+func _jab_chest_yaw(u: float) -> float:
+	## Degrees. Chest turns right into the thrust so the left shoulder comes
+	## forward and both palms stay on the wood beside the flank. Eases in
+	## over the chamber and out through the settle.
+	const JAB_CHEST_YAW_DEG := -32.0
+	var e_in := clampf(u / 0.18, 0.0, 1.0)
+	var e_out := clampf((1.0 - u) / 0.30, 0.0, 1.0)
+	var env := minf(e_in * e_in * (3.0 - 2.0 * e_in), e_out * e_out * (3.0 - 2.0 * e_out))
+	return JAB_CHEST_YAW_DEG * env * (-1.0 if _jab_mirror else 1.0)
+
+
 func _swing_body_at(u: float) -> Dictionary:
 	## Hips, spine, and the step share the shaft's parameter. Arms are
 	## overwritten by the two-hand grip. Shin pitch stays negative.
@@ -1725,6 +1768,11 @@ func _swing_body_at(u: float) -> Dictionary:
 		elif key == "hips" or key == "torso" or key == "head":
 			var v := a
 			v.y = a.y + _swing_yaw(turn)
+			if jabbing and key == "torso":
+				v.y += _jab_chest_yaw(u)
+			elif jabbing and key == "head":
+				# Eyes stay on the target while the chest turns.
+				v.y -= _jab_chest_yaw(u)
 			if key != "head":
 				var dive := -0.04 * lean if overhead else -0.16 * lean
 				v.x = lerpf(a.x, b.x, 0.35 * turn) + dive
