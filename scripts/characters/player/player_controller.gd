@@ -929,12 +929,53 @@ func _apply_goad_charge_pose(ratio: float, _direction: StringName) -> void:
 	var blend := ToolStrikePoses._charge_blend(ratio)
 	_shaft_from_xf = _charge_from_xf
 	_shaft_to_xf = _peek_shaft_xf(full)
+	# Top hold is a bar over the head in the committed pose. The authored
+	# cock reads as the right chamber. Left and right charges keep the peek.
+	# Measure after the body is in that pose, or the bar is built on the old head.
+	if _is_top_goad_charge(aim):
+		_apply_tool_pose(full)
+		_shaft_to_xf = _overhead_charge_xf()
 	_shaft_xf_u = blend
 	_shaft_xf_blend = true
 	_apply_blended_pose(_charge_from_pose, full, blend, false)
 	_shaft_xf_blend = false
 	if locomotion:
 		locomotion.lock_attack(0.08)
+
+
+func _is_top_goad_charge(aim: Vector2) -> bool:
+	## Overhead only. A side aim, including a diagonal, keeps its own chamber.
+	return absf(aim.x) < 0.35 and aim.y <= 0.05
+
+
+func _overhead_charge_xf() -> Transform3D:
+	## Full top charge. The wood is a bar over the skull, off the face,
+	## so a strike from above meets the shaft. Not the right-side cock.
+	if weapon_visual == null or locomotion == null:
+		return Transform3D.IDENTITY
+	var head := locomotion.get_joint("head") as Node3D
+	if head == null:
+		return weapon_visual.global_transform
+	var right_pt := head.to_global(Vector3(0.20, 0.32, 0.02))
+	var left_pt := head.to_global(Vector3(-0.20, 0.32, 0.02))
+	var axis := left_pt - right_pt
+	if axis.length_squared() < 0.0001:
+		return weapon_visual.global_transform
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	var saved_xf := weapon_visual.global_transform
+	var saved_pos := goad.position if goad else Vector3.ZERO
+	var saved_rot := goad.rotation if goad else Vector3.ZERO
+	weapon_visual.global_position = right_pt
+	ToolStrikePoses._aim_weapon_y(weapon_visual, axis.normalized())
+	if goad:
+		goad.position = Vector3.ZERO
+		goad.rotation = Vector3.ZERO
+	var xf := weapon_visual.global_transform
+	weapon_visual.global_transform = saved_xf
+	if goad:
+		goad.position = saved_pos
+		goad.rotation = saved_rot
+	return xf
 
 
 func _shaft_aim_axes() -> Vector2:
@@ -1264,8 +1305,10 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	_tool_pose_active = true
-	# Same phase lengths. The jab still visits its own poses.
-	# Left, top, and right are one arc, not three poses plus a settle snap.
+	# The jab still visits its own poses at the table times, holds included.
+	# Left, top, and right are one arc. Their cock and contact holds are
+	# dropped, and the remaining travel is halved, so the stick arrives as
+	# a strike. Settle stays GOAD_SETTLE_SEC.
 	var windup_move := float(phases["windup_move"]) + float(phases["windup_hold"])
 	var to_contact := float(phases["to_contact"]) + float(phases["contact_hold"])
 	var follow_move := float(phases["follow"])
@@ -1278,6 +1321,9 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 		_arm_tween.tween_method(_slerp_goad_settle.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		_arm_tween.tween_callback(_finish_goad_return)
 		return
+	windup_move = float(phases["windup_move"]) * 0.5
+	to_contact = float(phases["to_contact"]) * 0.5
+	follow_move = float(phases["follow"]) * 0.5
 	_arm_continuous_goad_swing(start_pose, pose_follow, windup_move, to_contact, follow_move)
 
 
@@ -2081,6 +2127,9 @@ func _sync_weapon_to_hand() -> void:
 			_plant_shaft_between(_guard_from_xf, _guard_to_xf, _guard_blend_u)
 		elif _shaft_xf_blend:
 			_plant_shaft_between(_shaft_from_xf, _shaft_to_xf, _shaft_xf_u)
+		elif combat.is_charging and _charge_from_ready and _is_top_goad_charge(_shaft_aim_axes()):
+			# The generic seat pulls this hold out beside the right ear.
+			_plant_shaft_between(_charge_from_xf, _shaft_to_xf, ToolStrikePoses._charge_blend(combat.charge_ratio))
 		else:
 			ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
 	# Keep combat idle rest in sync while not charging so recovery returns to grip.
