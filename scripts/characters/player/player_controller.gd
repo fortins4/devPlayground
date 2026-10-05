@@ -1538,7 +1538,7 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	if goad:
 		# Fixed stations along the wood — nearest-to-shoulder piled both hands on the butt.
 		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.14)
-		_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.52)
+		_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.48)
 
 
 func _continuous_line_at(u: float) -> Array:
@@ -1804,39 +1804,35 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 		face = face.normalized()
 	var r_sh: Vector3 = right_arm.global_position
 	var l_sh: Vector3 = left_arm.global_position
+	# Each palm sits just ahead of its own shoulder — reach + torso clear.
+	var right_pt: Vector3 = r_sh + face * 0.32
+	var left_pt: Vector3 = l_sh + face * 0.32
+	# Keep swing-key axis for tip travel; space palms along that axis.
+	var spacing := 0.34
+	var mid: Vector3 = (right_pt + left_pt) * 0.5
+	right_pt = mid - axis * (spacing * 0.5)
+	left_pt = mid + axis * (spacing * 0.5)
+	# Blend mid back toward face-held shoulder mid so wood stays off the chest.
 	var mid_sh: Vector3 = (r_sh + l_sh) * 0.5
+	var held: Vector3 = mid_sh + face * 0.36
+	var blend := mid.lerp(held, 0.70)
+	var delta: Vector3 = blend - mid
+	right_pt += delta
+	left_pt += delta
 	var swing_mid_y := (butt_w.y + tip_w.y) * 0.5
-	# Hold the wood just ahead of the chest — close enough for both palms.
-	var grip_mid: Vector3 = mid_sh + face * 0.30
-	grip_mid.y = clampf(swing_mid_y, mid_sh.y - 0.10, mid_sh.y + 0.40)
-	# ~42cm of shaft between palms (readable two-hand swing).
-	var spacing := 0.42
-	var right_pt: Vector3 = grip_mid - axis * (spacing * 0.5)
+	right_pt.y = clampf(right_pt.y, swing_mid_y - 0.25, swing_mid_y + 0.25)
+	left_pt.y = right_pt.y + axis.y * spacing
 	# right station is goad Y 0.14 ⇒ world = butt + axis * (0.255 + 0.14)
 	butt_w = right_pt - axis * (0.255 + 0.14)
 	tip_w = butt_w + axis * 1.30
-	# Nudge so the forward (left) station stays inside left-arm reach.
-	var left_pt: Vector3 = butt_w + axis * (0.255 + 0.52)
-	var left_d := l_sh.distance_to(left_pt)
-	if left_d > 0.50:
-		var step := l_sh - left_pt
-		var into := -step.dot(face)
-		if into > 0.0:
-			step += face * into
-		if step.length_squared() > 0.0001:
-			step = step.normalized() * minf(left_d - 0.48, 0.28)
-			butt_w += step
-			tip_w += step
-	# Keep the whole chord on the face side of the torso origin.
-	# Full slide after seat killed reach; a uniform face push preserves grips.
 	var torso := locomotion.get_joint("torso") as Node3D
 	if torso:
 		var min_ahead := 99.0
-		for i in 14:
-			var p: Vector3 = butt_w.lerp(tip_w, float(i) / 13.0)
+		for i in 12:
+			var p: Vector3 = butt_w.lerp(tip_w, float(i) / 11.0)
 			min_ahead = minf(min_ahead, (p - torso.global_position).dot(face))
-		if min_ahead < 0.28:
-			var bump := minf(0.28 - min_ahead, 0.28)
+		if min_ahead < 0.20:
+			var bump := minf(0.20 - min_ahead, 0.10)
 			butt_w += face * bump
 			tip_w += face * bump
 	return [butt_w, tip_w]
@@ -2647,7 +2643,7 @@ func _grip_shaft_at_y(shaft: Node3D, arm_name: String, fore_name: String, shaft_
 	var shoulder: Vector3 = arm.global_position
 	var best: Vector3 = shaft.to_global(Vector3(0.0, shaft_y, 0.0))
 	var best_d := shoulder.distance_to(best)
-	if best_d > 0.78:
+	if best_d > 0.70:
 		return
 	var l1 := 0.30
 	var palm := 0.22
