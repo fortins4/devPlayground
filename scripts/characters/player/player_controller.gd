@@ -1451,16 +1451,16 @@ func _continuous_swing_keys(aim: Vector2) -> Array:
 	# Side arcs stay in front of the torso (−Z). Mid keys used to park the
 	# butt on the centerline so the tip chord cut through the chest.
 	var left: Array = [
-		_swing_line(Vector3(-0.24, 1.32, -0.52), Vector3(-0.70, 0.52, -0.58)),
-		_swing_line(Vector3(-0.16, 1.22, -0.78), Vector3(0.55, 0.18, -0.98)),
-		_swing_line(Vector3(-0.06, 1.14, -0.72), Vector3(0.60, -0.30, -0.88)),
-		_swing_line(Vector3(0.02, 1.14, -0.58), Vector3(0.50, -0.48, -0.68)),
+		_swing_line(Vector3(-0.28, 1.34, -0.58), Vector3(-0.72, 0.58, -0.70)),
+		_swing_line(Vector3(-0.18, 1.24, -0.92), Vector3(0.48, 0.22, -1.18)),
+		_swing_line(Vector3(-0.08, 1.14, -0.86), Vector3(0.58, -0.28, -1.05)),
+		_swing_line(Vector3(0.00, 1.12, -0.68), Vector3(0.50, -0.50, -0.78)),
 	]
 	var right: Array = [
-		_swing_line(Vector3(0.24, 1.32, -0.52), Vector3(0.70, 0.52, -0.58)),
-		_swing_line(Vector3(0.16, 1.22, -0.78), Vector3(-0.55, 0.18, -0.98)),
-		_swing_line(Vector3(0.06, 1.14, -0.72), Vector3(-0.60, -0.30, -0.88)),
-		_swing_line(Vector3(-0.02, 1.14, -0.58), Vector3(-0.50, -0.48, -0.68)),
+		_swing_line(Vector3(0.28, 1.34, -0.58), Vector3(0.72, 0.58, -0.70)),
+		_swing_line(Vector3(0.18, 1.24, -0.92), Vector3(-0.48, 0.22, -1.18)),
+		_swing_line(Vector3(0.08, 1.14, -0.86), Vector3(-0.58, -0.28, -1.05)),
+		_swing_line(Vector3(0.00, 1.12, -0.68), Vector3(-0.50, -0.50, -0.78)),
 	]
 	# Overhead chop. Key 0 is the live bar over the head. These keep the
 	# hands high and drop the tip straight down the face side — not the
@@ -1529,8 +1529,8 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
 		# Fixed stations along the wood — nearest-to-shoulder piled both hands on the butt.
-		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.14)
-		_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.52)
+		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.10)
+		_grip_shaft_at_y(goad, "left_arm", "left_forearm", 0.58)
 
 
 func _continuous_line_at(u: float) -> Array:
@@ -1564,8 +1564,8 @@ func _face_quad(a: Vector3, b: Vector3, t: float) -> Vector3:
 	if mid.z > -0.36:
 		mid.z = -0.55
 	# Side mid-arc: keep the bezier in front of the chest, not through it.
-	if absf(_swing_arc_aim.x) > 0.35 and mid.y > 0.75 and mid.y < 1.48:
-		mid.z = minf(mid.z, -0.78)
+	if absf(_swing_arc_aim.x) > 0.35 and mid.y > 0.70 and mid.y < 1.50:
+		mid.z = minf(mid.z, -0.92)
 	# Do not crest the skull. Overhead stays in front; a side swing stays wide.
 	if mid.y > 1.42 and absf(mid.x) < 0.34:
 		mid.z = minf(mid.z, -0.64)
@@ -1716,7 +1716,7 @@ func _slide_line_off_body(butt_w: Vector3, tip_w: Vector3) -> Array:
 				along_c = maxf(dir.dot(chest_face.normalized()), 0.35)
 			push = maxf(push, (tp.z + 0.40) / along_c)
 	if push > 0.001:
-		var push_cap := 0.78 if absf(_swing_arc_aim.x) > 0.35 else 0.55
+		var push_cap := 0.95 if absf(_swing_arc_aim.x) > 0.35 else 0.55
 		var delta := dir * minf(push, push_cap)
 		butt_w += delta
 		tip_w += delta
@@ -2579,7 +2579,7 @@ func _grip_shaft_at_y(shaft: Node3D, arm_name: String, fore_name: String, shaft_
 	var shoulder: Vector3 = arm.global_position
 	var best: Vector3 = shaft.to_global(Vector3(0.0, shaft_y, 0.0))
 	var best_d := shoulder.distance_to(best)
-	if best_d > 0.85:
+	if best_d > 1.15:
 		return
 	var l1 := 0.30
 	var palm := 0.22
