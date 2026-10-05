@@ -70,13 +70,14 @@ func _check_faces_selected(player: Node) -> bool:
 		push_error("SMOKE_FAIL look down")
 		return false
 	player._tool_aim_delta = Vector2.ZERO
-	player.pivot.rotation.x = deg_to_rad(18.0)
-	if player._resolve_shaft_guard_face() != &"low":
-		push_error("SMOKE_FAIL camera down was not low")
-		return false
+	# Camera: negative X aims at the ground → low; positive X aims at the sky → high.
 	player.pivot.rotation.x = deg_to_rad(-18.0)
+	if player._resolve_shaft_guard_face() != &"low":
+		push_error("SMOKE_FAIL camera at ground was not low")
+		return false
+	player.pivot.rotation.x = deg_to_rad(18.0)
 	if player._resolve_shaft_guard_face() != &"high":
-		push_error("SMOKE_FAIL camera up was not high")
+		push_error("SMOKE_FAIL camera at sky was not high")
 		return false
 	player.pivot.rotation.x = 0.0
 	return true

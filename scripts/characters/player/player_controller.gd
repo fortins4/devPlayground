@@ -79,8 +79,9 @@ var _hatchet_charge_armed: bool = false
 ## Shared look deadzone for guard + charge/swing (px). Outside it, equal 90°
 ## axis-dominant quadrants: left | right | high(top) | low(down). Ties → horizontal.
 const LOOK_AIM_DEADZONE := 10.0
-const LOOK_PITCH_UP := -10.0 ## deg: camera pitch counts as top quadrant
-const LOOK_PITCH_DOWN := 12.0 ## deg: camera pitch counts as low quadrant
+## Camera pitch (probed): negative X aims at the ground; positive X aims at the sky.
+const LOOK_PITCH_GROUND := -10.0 ## deg: at/below this → low quadrant
+const LOOK_PITCH_SKY := 12.0 ## deg: at/above this → high quadrant
 ## Goad aim stick span (legacy normalize). Cardinal faces snap aim axes directly.
 const GOAD_AIM_SPAN := 18.0
 ## Follow-through eases back to the ready pose. Not a hard zero, not a victory hold.
@@ -700,14 +701,20 @@ func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) ->
 
 
 ## Look stick with camera pitch folded in. Mouse left (−X) = player left.
+## Pitch signs follow the camera: negative X = ground → low; positive X = sky → high.
 func _look_stick_from(delta: Vector2) -> Vector2:
 	var mx := delta.x
 	var my := delta.y
 	if pivot:
-		if pivot.rotation.x <= deg_to_rad(LOOK_PITCH_UP):
-			my = minf(my, -LOOK_AIM_DEADZONE)
-		elif pivot.rotation.x >= deg_to_rad(LOOK_PITCH_DOWN):
-			my = maxf(my, LOOK_AIM_DEADZONE)
+		var pitch_deg := rad_to_deg(pivot.rotation.x)
+		if pitch_deg <= LOOK_PITCH_GROUND:
+			# Looking at the ground. Keep mouse-down (+my); deepen so residual mx
+			# cannot steal right/left while the camera is aimed at the dirt.
+			var depth := clampf((-pitch_deg + LOOK_PITCH_GROUND) / 50.0, 0.0, 1.0)
+			my = maxf(my, lerpf(LOOK_AIM_DEADZONE, 56.0, depth))
+		elif pitch_deg >= LOOK_PITCH_SKY:
+			var depth_up := clampf((pitch_deg - LOOK_PITCH_SKY) / 33.0, 0.0, 1.0)
+			my = minf(my, -lerpf(LOOK_AIM_DEADZONE, 56.0, depth_up))
 	return Vector2(mx, my)
 
 
