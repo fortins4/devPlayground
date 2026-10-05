@@ -696,8 +696,13 @@ func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) ->
 		_bow_swing_off_the_chest(shaft)
 		_pull_shaft_into_reach(shaft)
 		_bow_swing_clear_of_body(shaft)
-	_grip_shaft_with(shaft, "right_arm", "right_forearm", 0.30)
-	_grip_shaft_with(shaft, "left_arm", "left_forearm", 0.24)
+	# Charged wind-up: spaced palms. Guard look keeps nearest-point grip.
+	if combat and combat.is_charging and not combat.is_attacking:
+		_grip_shaft_at_y(shaft, "right_arm", "right_forearm", 0.14)
+		_grip_shaft_at_y(shaft, "left_arm", "left_forearm", 0.46)
+	else:
+		_grip_shaft_with(shaft, "right_arm", "right_forearm", 0.30)
+		_grip_shaft_with(shaft, "left_arm", "left_forearm", 0.24)
 
 
 ## Look stick with camera pitch folded in. Mouse left (−X) = player left.
@@ -1011,9 +1016,9 @@ func _overhead_charge_xf() -> Transform3D:
 	side.y = 0.0
 	side = side.normalized() if side.length_squared() > 0.0001 else Vector3(1.0, 0.0, 0.0)
 	var mid := r_arm.global_position.lerp(l_arm.global_position, 0.5)
-	var bar := mid + Vector3.UP * 0.56 + face * 0.08
+	var bar := mid + Vector3.UP * 0.62 + face * 0.18
 	# Never closer than a hand over the skull.
-	var crown_clear := head.global_position.y + 0.36
+	var crown_clear := head.global_position.y + 0.48
 	if bar.y < crown_clear:
 		bar.y = crown_clear
 	var right_pt := bar + side * 0.20
@@ -1526,12 +1531,19 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	var cleared: Array = _slide_line_off_body(butt_w, tip_w)
 	butt_w = cleared[0]
 	tip_w = cleared[1]
-	# Charged side release: seat at the shoulders so spaced palms reach.
-	# Top keeps the key/slide line (overhead clear already).
-	if not overhead:
-		var seated: Array = _seat_charged_shaft_at_shoulders(butt_w, tip_w)
-		butt_w = seated[0]
-		tip_w = seated[1]
+	# Seat so spaced palms reach. Overhead restores its high end after seat.
+	var high_keep := maxf(butt_w.y, tip_w.y)
+	var seated: Array = _seat_charged_shaft_at_shoulders(butt_w, tip_w)
+	butt_w = seated[0]
+	tip_w = seated[1]
+	if overhead:
+		var drop := high_keep - maxf(butt_w.y, tip_w.y)
+		if drop > 0.0:
+			butt_w.y += drop
+			tip_w.y += drop
+		cleared = _slide_line_off_body(butt_w, tip_w)
+		butt_w = cleared[0]
+		tip_w = cleared[1]
 	var goad := _place_continuous_shaft(butt_w, tip_w)
 	if goad:
 		_grip_shaft_at_y(goad, "right_arm", "right_forearm", 0.14)
@@ -1705,11 +1717,12 @@ func _slide_line_off_body(butt_w: Vector3, tip_w: Vector3) -> Array:
 		var p: Vector3 = butt_w.lerp(tip_w, float(i) / 17.0)
 		var hp: Vector3 = head.to_local(p)
 		var along := maxf(dir.dot(face), 0.35)
-		var head_r := 0.40 if absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y < -0.5 else 0.36
+		var overhead_slide := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y < -0.5
+		var head_r := 0.46 if overhead_slide else 0.36
 		if hp.length() < head_r:
-			push = maxf(push, (head_r + 0.06 - hp.length()) / 0.40)
-		if hp.z > -0.22 and hp.length() < 0.58 and absf(hp.y) < 0.48:
-			push = maxf(push, (hp.z + 0.38) / along)
+			push = maxf(push, (head_r + 0.08 - hp.length()) / 0.40)
+		if hp.z > -0.28 and hp.length() < 0.62 and absf(hp.y) < 0.52:
+			push = maxf(push, (hp.z + 0.42) / along)
 		if hp.y < 0.14 and hp.y > -0.52 and hp.z > -0.16 and Vector2(hp.x, hp.z).length() < 0.30:
 			push = maxf(push, (hp.z + 0.30) / along)
 		var tp: Vector3 = torso.to_local(p)
@@ -1836,17 +1849,34 @@ func _place_continuous_shaft(butt_w: Vector3, tip_w: Vector3) -> Node3D:
 
 func _finish_goad_return() -> void:
 	## Jab and continuous shaft swings settle to the ready pose.
-	## Clearing held/tool_pose_active stops post-tween seat_goad_off_hand desync.
+	## Continuous placement zeros Goad local + leaves full-body lean additives.
+	## Always clear those before re-entering guard/charge, or the body stays
+	## folded and the stick seats behind the waist.
 	_swing_arc_live = false
 	_goad_swing_held = false
+	_swing_arc_interior = false
+	_shaft_xf_blend = false
+	_tool_root_drop = 0.0
+	_goad_grip_slide = 0.0
+	if locomotion:
+		locomotion.clear_combat_additives()
+		locomotion.set_root_drop(0.0)
+	if weapon_visual:
+		var goad_reset := weapon_visual.get_node_or_null("Goad") as Node3D
+		if goad_reset:
+			goad_reset.rotation = Vector3.ZERO
+			goad_reset.position = Vector3.ZERO
 	if combat and (combat.is_charging or combat.is_shaft_blocking):
 		_tool_pose_active = false
+		_sync_weapon_to_hand()
 		return
 	if combat == null or locomotion == null:
 		_tool_pose_active = false
+		_sync_weapon_to_hand()
 		return
 	_apply_tool_pose(ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD))
 	_tool_pose_active = false
+	_sync_weapon_to_hand()
 
 
 func _lerp_tool_pose(t: float, from_pose: Dictionary, to_pose: Dictionary) -> void:
