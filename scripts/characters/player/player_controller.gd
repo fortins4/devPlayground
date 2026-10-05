@@ -479,6 +479,8 @@ func _apply_shaft_block_pose() -> void:
 		face = combat.shaft_guard_face
 	# The draw owns the body until the shaft is in the hands.
 	if _goad_draw_u < 0.999:
+		if _goad_release_live or _swing_arc_live:
+			return
 		if _arm_tween and _arm_tween.is_valid():
 			_arm_tween.kill()
 		_guard_blend_active = false
@@ -511,6 +513,9 @@ func _release_guard_to_idle() -> void:
 
 
 func _begin_guard_blend(start_pose: Dictionary, target_pose: Dictionary) -> void:
+	# Guard blend must not cut a charged continuous swing or jab settle short.
+	if _goad_release_live or _swing_arc_live:
+		return
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
@@ -767,6 +772,20 @@ func _aim_axes_for_look_face(face: StringName) -> Vector2:
 			return Vector2.ZERO
 
 
+## Continuous release axes from the strike that was actually committed.
+## Ignores live look so a pitch fold cannot zero a left/top shaft swing.
+func _aim_axes_for_strike(direction: CombatSystem.StrikeDirection) -> Vector2:
+	match direction:
+		CombatSystem.StrikeDirection.LEFT:
+			return Vector2(-1.0, 0.0)
+		CombatSystem.StrikeDirection.RIGHT:
+			return Vector2(1.0, 0.0)
+		CombatSystem.StrikeDirection.BOTTOM:
+			return Vector2(0.0, 1.0)
+		_:
+			return Vector2(0.0, -1.0)
+
+
 func _strike_direction_for_look_face(face: StringName) -> CombatSystem.StrikeDirection:
 	match face:
 		&"left":
@@ -963,6 +982,13 @@ func _on_charge_updated(ratio: float, direction: StringName) -> void:
 
 
 func _apply_goad_charge_pose(ratio: float, _direction: StringName) -> void:
+	# Release owns the body. Killing the arc tween here left _swing_arc_live /
+	# _goad_release_live set, so the wind-up froze and sync skipped seating
+	# (shaft clipped on move). Charge updates must not interrupt a swing.
+	if _goad_release_live or _swing_arc_live:
+		return
+	if combat and combat.is_attacking:
+		return
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
 	if _torso_tween and _torso_tween.is_valid():
@@ -1345,21 +1371,19 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	_guard_face_held = &""
 	_charge_from_ready = false
 	_goad_release_live = true
-	# Same equal look face as the guard (high → pure overhead axes / top keys).
-	var face := _resolve_look_face_from(_charge_aim_delta)
-	var aim := _aim_axes_for_look_face(face)
-	aim.y = minf(aim.y, 0.0)
-	# The jab is the point, at any look. It is not the shaft swing he was aiming.
+	# Committed strike owns the arc. Re-resolving look on release let camera
+	# pitch fold left/top into low, clamp aim to (0,0), and drop the swing.
 	var jab := combat.last_strike_direction() == CombatSystem.StrikeDirection.BOTTOM
+	var aim := _aim_axes_for_strike(combat.last_strike_direction())
 	if jab:
 		aim = Vector2(0.0, 1.0)
-	_swing_arc_live = not jab
 	_swing_arc_aim = aim
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
 	var pose_windup: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"windup")
 	var pose_contact: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"contact")
 	var pose_follow: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"follow")
 	var start_pose: Dictionary = _current_tool_pose(pose_windup)
+	# Peeks need seating. Raise the continuous flag after peeks so sync is live.
 	var start_xf := weapon_visual.global_transform if weapon_visual else Transform3D.IDENTITY
 	var windup_xf := _peek_shaft_xf(pose_windup)
 	var contact_xf := _peek_shaft_xf(pose_contact)
@@ -1370,6 +1394,7 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	_tool_pose_active = true
+	_swing_arc_live = not jab
 	# The jab still visits its own poses at the table times, holds included.
 	# Left, top, and right are one arc. Their cock and contact holds are
 	# dropped, and the remaining travel is halved, so the stick arrives as
