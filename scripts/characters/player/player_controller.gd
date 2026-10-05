@@ -1827,20 +1827,18 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 			step = step.normalized() * minf(left_d - 0.48, 0.28)
 			butt_w += step
 			tip_w += step
-	# Micro face clear only — full slide after seat killed reach.
+	# Keep the whole chord on the face side of the torso origin.
+	# Full slide after seat killed reach; a uniform face push preserves grips.
 	var torso := locomotion.get_joint("torso") as Node3D
 	if torso:
-		var need := 0.0
+		var min_ahead := 99.0
 		for i in 14:
 			var p: Vector3 = butt_w.lerp(tip_w, float(i) / 13.0)
-			var rel: Vector3 = p - torso.global_position
-			var ahead := rel.dot(face)
-			var side := rel - face * ahead
-			if side.length() < 0.50 and absf(rel.y) < 0.55 and ahead < 0.28:
-				need = maxf(need, 0.28 - ahead)
-		if need > 0.001:
-			butt_w += face * minf(need, 0.16)
-			tip_w += face * minf(need, 0.16)
+			min_ahead = minf(min_ahead, (p - torso.global_position).dot(face))
+		if min_ahead < 0.28:
+			var bump := minf(0.28 - min_ahead, 0.28)
+			butt_w += face * bump
+			tip_w += face * bump
 	return [butt_w, tip_w]
 
 
@@ -2649,7 +2647,7 @@ func _grip_shaft_at_y(shaft: Node3D, arm_name: String, fore_name: String, shaft_
 	var shoulder: Vector3 = arm.global_position
 	var best: Vector3 = shaft.to_global(Vector3(0.0, shaft_y, 0.0))
 	var best_d := shoulder.distance_to(best)
-	if best_d > 0.70:
+	if best_d > 0.78:
 		return
 	var l1 := 0.30
 	var palm := 0.22
