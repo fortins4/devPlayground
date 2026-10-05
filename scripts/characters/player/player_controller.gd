@@ -1328,7 +1328,8 @@ func _apply_back_goad_carry(u: float) -> void:
 	var seat_xf := _back_seat_global()
 	back.visible = true
 	# Unarmed stow is the draw reversed: the eased hand owns the moving end.
-	# Leaving for the knife keeps the straight carry so the knife pose is left alone.
+	# The knife keeps its own hand. Both still finish on the short seat, and
+	# both bow off the skull on the way there.
 	if combat and combat.current_weapon == CombatSystem.Weapon.UNARMED and weapon_visual:
 		var s := _goad_draw_smooth()
 		back.global_transform = seat_xf.interpolate_with(weapon_visual.global_transform, s)
@@ -1338,7 +1339,10 @@ func _apply_back_goad_carry(u: float) -> void:
 		_bow_stow_off_the_head(back)
 		_guide_stow_hand(back, s)
 	else:
-		back.global_transform = seat_xf.interpolate_with(_goad_stow_from, clampf(u, 0.0, 1.0))
+		var ku := clampf(u, 0.0, 1.0)
+		back.global_transform = seat_xf.interpolate_with(_goad_stow_from, ku)
+		# Same bow as the unarmed stow. The knife hand is not pulled onto the shaft.
+		_bow_stow_off_the_head(back)
 
 
 func _bow_stow_off_the_head(back: Node3D) -> void:
