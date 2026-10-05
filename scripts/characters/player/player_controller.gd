@@ -1367,11 +1367,15 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 	if goad:
 		live_butt = _swing_frame.affine_inverse() * goad.to_global(Vector3(0.0, -0.255, 0.0))
 		live_tip = _swing_frame.affine_inverse() * goad.to_global(Vector3(0.0, 1.045, 0.0))
-	# The guard may sit behind the ear. The swing does not. The first sample
-	# is already on the face side, so the lift cannot rise behind the hair.
-	var faced: Array = _lift_line_onto_the_face(live_butt, live_tip)
-	live_butt = faced[0]
-	live_tip = faced[1]
+	# The guard may sit behind the ear. Side swings lift onto the face side.
+	# A top charge is already a bar over the skull — that lift shoved it
+	# forward of the hands and the first sample fell to chest height.
+	var overhead_start := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05
+	var bar_high := minf(live_butt.y, live_tip.y) > 1.55 and absf(live_butt.y - live_tip.y) < 0.20
+	if not (overhead_start and bar_high):
+		var faced: Array = _lift_line_onto_the_face(live_butt, live_tip)
+		live_butt = faced[0]
+		live_tip = faced[1]
 	_swing_keys_butt = PackedVector3Array()
 	_swing_keys_tip = PackedVector3Array()
 	_swing_key_u = PackedFloat32Array()
@@ -1462,12 +1466,23 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	_swing_pose_only = true
 	_apply_tool_pose(_swing_body_at(u))
 	_swing_pose_only = false
-	# Top chop starts on the overhead bar. Pull the wood into both palms from
-	# the first sample so the tip does not leave the hands on the way down.
-	if u > 0.02 or (absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05):
+	# Side swings pull the wood into reach after they leave the guard.
+	# Top keeps the overhead bar up at the first samples — a pull toward the
+	# shoulders was dropping it onto the chest. Later samples may pull, but
+	# only sideways / forward, never lowering the high end of the shaft.
+	var overhead := absf(_swing_arc_aim.x) < 0.35 and _swing_arc_aim.y <= 0.05
+	if u > 0.02:
+		var high_before := maxf(butt_w.y, tip_w.y)
 		var held: Array = _bring_shaft_to_both_hands(butt_w, tip_w)
-		butt_w = held[0]
-		tip_w = held[1]
+		if overhead:
+			var high_after := maxf((held[0] as Vector3).y, (held[1] as Vector3).y)
+			if high_after + 0.04 >= high_before:
+				butt_w = held[0]
+				tip_w = held[1]
+			# else keep the high line; grip still reaches for it
+		else:
+			butt_w = held[0]
+			tip_w = held[1]
 	var cleared: Array = _slide_line_off_body(butt_w, tip_w)
 	butt_w = cleared[0]
 	tip_w = cleared[1]
