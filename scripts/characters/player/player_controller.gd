@@ -406,6 +406,8 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		and not combat.is_charging
 		and not combat.is_attacking
 		and not combat.is_shaft_blocking
+		and not _goad_release_live
+		and not _swing_arc_live
 		and not _hurt_reacting
 		and horiz_speed < 0.25
 		and not is_mounted
@@ -417,11 +419,15 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		and not combat.is_attacking
 		and not combat.is_charging
 		and not combat.is_shaft_blocking
+		and not _goad_release_live
+		and not _swing_arc_live
 		and not _hurt_reacting
 		and combat.current_weapon != CombatSystem.Weapon.HATCHET
 		and horiz_speed >= 0.25
 	):
 		# Drop full-body tool additives so the walk cycle can move the legs.
+		# Never while a goad release/settle still owns the shaft — clearing here
+		# left the follow-through stick frozen while the body sprinted.
 		_tool_pose_active = false
 		_goad_swing_held = false
 		if locomotion.has_combat_additive("left_thigh") or locomotion.has_combat_additive("hips"):
@@ -1311,7 +1317,11 @@ func _play_tool_body_strike(kind: StringName, _weapon: StringName) -> void:
 	var windup: float = float(timings.get("windup", 0.2))
 	var active: float = float(timings.get("active", 0.14))
 	var recovery: float = float(timings.get("recovery", 0.3))
-	locomotion.lock_attack(windup + active + recovery)
+	# Goad settle is visual past combat recovery — keep the plant through it.
+	var goad_lock := windup + active + recovery
+	if combat.current_weapon == CombatSystem.Weapon.GOAD:
+		goad_lock += GOAD_SETTLE_SEC
+	locomotion.lock_attack(goad_lock)
 	var heavy := kind == &"heavy"
 	var direction := combat.last_strike_direction()
 	var weapon_id := combat.current_weapon
@@ -1370,6 +1380,11 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	_guard_blend_active = false
 	_guard_face_held = &""
 	_charge_from_ready = false
+	# Abort any prior release BEFORE arming live flags (abort clears them).
+	if _arm_tween and _arm_tween.is_valid():
+		_abort_goad_release_tween()
+	if _torso_tween and _torso_tween.is_valid():
+		_torso_tween.kill()
 	_goad_release_live = true
 	# Committed strike owns the arc. Re-resolving look on release let camera
 	# pitch fold left/top into low, clamp aim to (0,0), and drop the swing.
@@ -1380,40 +1395,33 @@ func _play_goad_release(kind: StringName, windup: float, active: float, _from_ch
 	_swing_arc_aim = aim
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
 	var pose_windup: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"windup")
-	var pose_contact: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"contact")
 	var pose_follow: Dictionary = ToolStrikePoses.tool_aim_phase_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, &"follow")
-	var start_pose: Dictionary = _current_tool_pose(pose_windup)
-	# Peeks need seating. Raise the continuous flag after peeks so sync is live.
-	var start_xf := weapon_visual.global_transform if weapon_visual else Transform3D.IDENTITY
-	var windup_xf := _peek_shaft_xf(pose_windup)
-	var contact_xf := _peek_shaft_xf(pose_contact)
-	var follow_xf := _peek_shaft_xf(pose_follow)
-	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, GOAD_SETTLE_SEC)
-	if _arm_tween and _arm_tween.is_valid():
-		_arm_tween.kill()
-	if _torso_tween and _torso_tween.is_valid():
-		_torso_tween.kill()
-	_tool_pose_active = true
-	_swing_arc_live = not jab
-	# The jab still visits its own poses at the table times, holds included.
-	# Left, top, and right are one arc. Their cock and contact holds are
-	# dropped, and the remaining travel is halved, so the stick arrives as
-	# a strike. Settle stays GOAD_SETTLE_SEC.
-	var windup_move := float(phases["windup_move"]) + float(phases["windup_hold"])
-	var to_contact := float(phases["to_contact"]) + float(phases["contact_hold"])
-	var follow_move := float(phases["follow"])
+	# Uncharged taps start from the live ready/guard, not a cocked pose — that
+	# cock is what made the first continuous sample look like a teleport.
+	var start_pose: Dictionary = _current_tool_pose(pose_idle if kind == &"light" and not jab else pose_windup)
 	if jab:
-		_goad_swing_held = false
-		_arm_tween = create_tween()
-		_arm_tween.tween_method(_lerp_goad_shaft.bind(start_pose, pose_windup, start_xf, windup_xf), 0.0, 1.0, windup_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_windup, pose_contact, windup_xf, contact_xf), 0.0, 1.0, to_contact).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		_arm_tween.tween_method(_lerp_goad_shaft.bind(pose_contact, pose_follow, contact_xf, follow_xf), 0.0, 1.0, follow_move).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		_arm_tween.tween_method(_slerp_goad_settle.bind(pose_follow, pose_idle), 0.0, 1.0, GOAD_SETTLE_SEC).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		_arm_tween.tween_callback(_finish_goad_return)
-		return
-	windup_move = float(phases["windup_move"]) * 0.5
-	to_contact = float(phases["to_contact"]) * 0.5
-	follow_move = float(phases["follow"]) * 0.5
+		start_pose = _current_tool_pose(pose_idle)
+	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, GOAD_SETTLE_SEC)
+	_tool_pose_active = true
+	# Every goad strike — charged, uncharged L/R/top, and jab — rides one
+	# continuous shaft curve so mid-arc / mid-thrust reads. Charged stays snappy
+	# (half phases). Light/jab keep readable travel floors so they do not snap.
+	_swing_arc_live = true
+	var windup_move: float
+	var to_contact: float
+	var follow_move: float
+	if kind == &"heavy":
+		windup_move = float(phases["windup_move"]) * 0.5
+		to_contact = float(phases["to_contact"]) * 0.5
+		follow_move = float(phases["follow"]) * 0.5
+	else:
+		windup_move = maxf(0.14, float(phases["windup_move"]) + float(phases["windup_hold"]) * 0.35)
+		to_contact = maxf(0.14, float(phases["to_contact"]) + float(phases["contact_hold"]) * 0.35)
+		follow_move = maxf(0.12, float(phases["follow"]))
+		if jab:
+			windup_move = maxf(0.12, windup_move)
+			to_contact = maxf(0.16, to_contact)
+			follow_move = maxf(0.12, follow_move)
 	_arm_continuous_goad_swing(start_pose, pose_follow, windup_move, to_contact, follow_move)
 
 
@@ -1444,8 +1452,10 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 	# forward of the hands and the first sample fell to chest height.
 	# Pure top aim (high face) keeps the overhead bar; do not face-lift it away.
 	var overhead_start := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
+	var jab_start := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y > 0.5
 	var bar_high := minf(live_butt.y, live_tip.y) > 1.55 and absf(live_butt.y - live_tip.y) < 0.20
-	if not (overhead_start or bar_high):
+	# Jab keeps the live chamber; a face-lift turned the thrust into a side sweep.
+	if not (overhead_start or bar_high or jab_start):
 		var faced: Array = _lift_line_onto_the_face(live_butt, live_tip)
 		live_butt = faced[0]
 		live_tip = faced[1]
@@ -1465,6 +1475,8 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
 	_arm_tween = create_tween()
+	# Survive process-mode blips while sprinting out of the swing.
+	_arm_tween.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_arm_tween.tween_method(_sample_continuous_goad_swing, 0.0, 1.0, total)
 	_arm_tween.tween_callback(_finish_goad_return)
 
@@ -1472,17 +1484,20 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 func _continuous_swing_keys(aim: Vector2) -> Array:
 	## Later samples of one face-side arc. The live guard is the first sample.
 	## Left sweeps to the player's right, right sweeps to the player's left,
-	## top chops straight down from the overhead bar. A diagonal is the blend.
+	## top chops straight down from the overhead bar. Look-down jab is a forward
+	## point thrust (bottom weight). A diagonal is the blend.
 	var w_left := clampf(-aim.x, 0.0, 1.0)
 	var w_right := clampf(aim.x, 0.0, 1.0)
 	var w_top := clampf(-aim.y, 0.0, 1.0)
-	var sum := w_left + w_right + w_top
+	var w_bot := clampf(aim.y, 0.0, 1.0)
+	var sum := w_left + w_right + w_top + w_bot
 	if sum < 0.001:
 		w_top = 1.0
 		sum = 1.0
 	w_left /= sum
 	w_right /= sum
 	w_top /= sum
+	w_bot /= sum
 	# Side arcs stay in front of the torso (−Z). Mid keys used to park the
 	# butt on the centerline so the tip chord cut through the chest.
 	var left: Array = [
@@ -1506,10 +1521,17 @@ func _continuous_swing_keys(aim: Vector2) -> Array:
 		_swing_line(Vector3(0.26, 1.36, -0.62), Vector3(0.10, -0.85, -0.68)),
 		_swing_line(Vector3(0.18, 1.26, -0.52), Vector3(0.06, -0.98, -0.40)),
 	]
+	# Uncharged / look-down jab: chamber → mid-thrust → extend → recover. Face −Z.
+	var bottom: Array = [
+		_swing_line(Vector3(0.10, 1.08, -0.32), Vector3(0.06, 0.20, -0.95)),
+		_swing_line(Vector3(0.08, 0.98, -0.58), Vector3(0.04, 0.08, -1.18)),
+		_swing_line(Vector3(0.06, 0.90, -0.78), Vector3(0.03, 0.02, -1.28)),
+		_swing_line(Vector3(0.08, 0.96, -0.48), Vector3(0.04, 0.10, -1.00)),
+	]
 	var out: Array = []
 	for i in 4:
-		var butt: Vector3 = (left[i][0] as Vector3) * w_left + (right[i][0] as Vector3) * w_right + (top[i][0] as Vector3) * w_top
-		var tip: Vector3 = (left[i][1] as Vector3) * w_left + (right[i][1] as Vector3) * w_right + (top[i][1] as Vector3) * w_top
+		var butt: Vector3 = (left[i][0] as Vector3) * w_left + (right[i][0] as Vector3) * w_right + (top[i][0] as Vector3) * w_top + (bottom[i][0] as Vector3) * w_bot
+		var tip: Vector3 = (left[i][1] as Vector3) * w_left + (right[i][1] as Vector3) * w_right + (top[i][1] as Vector3) * w_top + (bottom[i][1] as Vector3) * w_bot
 		var axis := tip - butt
 		if axis.length_squared() < 0.0001:
 			axis = Vector3(0.0, 0.2, -1.0)
@@ -1546,7 +1568,8 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	# shoulders was dropping it onto the chest. Later samples may pull, but
 	# only sideways / forward, never lowering the high end of the shaft.
 	var overhead := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
-	if u > 0.02:
+	var jabbing := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y > 0.5
+	if u > 0.02 and not jabbing:
 		var high_before := maxf(butt_w.y, tip_w.y)
 		var held: Array = _bring_shaft_to_both_hands(butt_w, tip_w)
 		if overhead:
@@ -1582,6 +1605,11 @@ func _sample_continuous_goad_swing(u: float) -> void:
 			if need > 0.001:
 				butt_w += face_h * minf(need, 0.08)
 				tip_w += face_h * minf(need, 0.08)
+	elif jabbing:
+		# Keep the thrust on the face line; side shoulder seat bent it into a sweep.
+		var cleared_j: Array = _slide_line_off_body(butt_w, tip_w)
+		butt_w = cleared_j[0]
+		tip_w = cleared_j[1]
 	else:
 		var seated: Array = _seat_charged_shaft_at_shoulders(butt_w, tip_w)
 		butt_w = seated[0]
@@ -1653,6 +1681,9 @@ func _face_quad(a: Vector3, b: Vector3, t: float) -> Vector3:
 func _swing_yaw(u: float) -> float:
 	## How far the chest has turned from the pose the swing left.
 	## The shaft uses the same angle, so the wood stays in the hands.
+	# Jab is a point thrust — hip yaw spun it into a side sweep.
+	if absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y > 0.5:
+		return 0.0
 	var a := 0.0
 	var b := 0.0
 	if _swing_start_pose.has("hips"):
@@ -1672,9 +1703,13 @@ func _swing_body_at(u: float) -> Dictionary:
 	var turn := clampf(u, 0.0, 1.0)
 	var lean := sin(turn * PI)
 	var overhead := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
+	var jabbing := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y > 0.5
 	if overhead:
 		step_u *= 0.18
 		lean *= 0.20
+	elif jabbing:
+		step_u *= 0.35
+		lean *= 0.25
 	for k in _swing_start_pose.keys():
 		var key := String(k)
 		if key == "root_drop" or key == "grip_slide":
@@ -1939,11 +1974,21 @@ func _place_continuous_shaft(butt_w: Vector3, tip_w: Vector3) -> Node3D:
 	return goad
 
 
+func _abort_goad_release_tween() -> void:
+	## Kill the arc tween and always clear release flags / lean additives.
+	## A bare kill left _swing_arc_live set so sync skipped and the stick froze.
+	if _arm_tween and _arm_tween.is_valid():
+		_arm_tween.kill()
+	if _goad_release_live or _swing_arc_live or _goad_swing_held:
+		_finish_goad_return()
+
+
 func _finish_goad_return() -> void:
 	## Jab and continuous shaft swings settle to the ready pose.
 	## Continuous placement zeros Goad local + leaves full-body lean additives.
 	## Always clear those before re-entering guard/charge, or the body stays
-	## folded and the stick seats behind the waist.
+	## folded and the stick seats behind the waist — including if the player
+	## already started moving or sprinting during the settle tail.
 	_swing_arc_live = false
 	_goad_swing_held = false
 	_swing_arc_interior = false
@@ -1959,11 +2004,13 @@ func _finish_goad_return() -> void:
 		if goad_reset:
 			goad_reset.rotation = Vector3.ZERO
 			goad_reset.position = Vector3.ZERO
-	if combat and (combat.is_charging or combat.is_shaft_blocking):
+	# Always reseat to a ready hold. Do not early-out on shaft_blocking/charge
+	# without syncing — that left the follow-through stick out while sprinting.
+	if combat == null or locomotion == null:
 		_tool_pose_active = false
 		_sync_weapon_to_hand()
 		return
-	if combat == null or locomotion == null:
+	if combat.is_charging or combat.is_shaft_blocking:
 		_tool_pose_active = false
 		_sync_weapon_to_hand()
 		return

@@ -42,7 +42,10 @@ func _run() -> void:
 	if not _check_mouse_lock(player, combat):
 		quit(1)
 		return
-	print("SMOKE_OK goad-guard-faces low-stops-stab high-does-not chest-still-frontal")
+	if not _check_release_settle_flags(player, combat):
+		quit(1)
+		return
+	print("SMOKE_OK goad-guard-faces low-stops-stab high-does-not chest-still-frontal release-settle-flags")
 	quit(0)
 
 
@@ -364,6 +367,87 @@ func _check_mouse_lock(player: Node, combat: CombatSystem) -> bool:
 		return false
 	if not combat.is_shaft_blocking:
 		push_error("SMOKE_FAIL low guard dropped on the jab it stopped")
+		return false
+	return true
+
+
+
+func _check_release_settle_flags(player: Node, combat: CombatSystem) -> bool:
+	## Charged and uncharged continuous finishes must clear release flags.
+	_reset(combat)
+	player._sprinting = false
+	player._goad_draw_u = 1.0
+	player._charge_aim_delta = Vector2(80.0, 0.0)
+	player._charge_from_ready = false
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL could not begin charge for settle flags")
+		return false
+	player._apply_charge_direction_from_input()
+	player._apply_goad_charge_pose(1.0, &"right")
+	combat.charge_time = combat.charge_full_secs
+	combat.charge_ratio = 1.0
+	if not combat.release_charged_attack():
+		push_error("SMOKE_FAIL charged release failed for settle flags")
+		return false
+	if not player._goad_release_live or not player._swing_arc_live:
+		push_error("SMOKE_FAIL charged release did not arm continuous flags")
+		return false
+	# Drive the settle to the end without wall-clock waits.
+	var guard := 0
+	while player._goad_release_live and guard < 80:
+		if player._arm_tween and player._arm_tween.is_valid():
+			player._arm_tween.custom_step(0.05)
+		else:
+			player._finish_goad_return()
+			break
+		guard += 1
+	if player._goad_release_live or player._swing_arc_live or player._goad_swing_held:
+		push_error("SMOKE_FAIL charged settle left release flags set")
+		return false
+	# Uncharged light + jab also clear.
+	_reset(combat)
+	player._charge_from_ready = false
+	player._charge_aim_delta = Vector2(-80.0, 0.0)
+	if not combat.begin_charge():
+		push_error("SMOKE_FAIL could not begin light charge")
+		return false
+	player._apply_charge_direction_from_input()
+	combat.charge_time = 0.04
+	combat.charge_ratio = 0.04
+	if not combat.release_charged_attack():
+		push_error("SMOKE_FAIL light release failed")
+		return false
+	if not player._swing_arc_live:
+		push_error("SMOKE_FAIL light release was not continuous")
+		return false
+	guard = 0
+	while player._goad_release_live and guard < 80:
+		if player._arm_tween and player._arm_tween.is_valid():
+			player._arm_tween.custom_step(0.05)
+		else:
+			player._finish_goad_return()
+			break
+		guard += 1
+	if player._goad_release_live or player._swing_arc_live:
+		push_error("SMOKE_FAIL light settle left release flags set")
+		return false
+	_reset(combat)
+	player._tool_aim_delta = Vector2(0.0, 40.0)
+	player.pivot.rotation.x = deg_to_rad(-35.0)
+	player._fire_goad_jab()
+	if not combat.is_attacking or not player._goad_release_live or not player._swing_arc_live:
+		push_error("SMOKE_FAIL jab did not arm continuous release")
+		return false
+	guard = 0
+	while player._goad_release_live and guard < 80:
+		if player._arm_tween and player._arm_tween.is_valid():
+			player._arm_tween.custom_step(0.05)
+		else:
+			player._finish_goad_return()
+			break
+		guard += 1
+	if player._goad_release_live or player._swing_arc_live:
+		push_error("SMOKE_FAIL jab settle left release flags set")
 		return false
 	return true
 
