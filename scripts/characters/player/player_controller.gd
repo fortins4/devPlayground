@@ -358,8 +358,18 @@ func _process(_delta: float) -> void:
 func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked: bool) -> void:
 	if locomotion == null:
 		return
-	# Charge locks walk-arm swing so aim cock reads cleanly; swing uses same path.
-	var attacking := combat != null and (combat.is_attacking or combat.is_charging or combat.is_shaft_blocking or _hurt_reacting)
+	# Charge and a strike plant the feet. A guard does not: walking keeps the
+	# walk cycle on the legs while the arms and the shaft stay in the seat.
+	var guard_step := _guard_wants_steps(horiz_speed)
+	if guard_step:
+		locomotion.release_attack_lock()
+		_forget_guard_legs()
+	var attacking := combat != null and (
+		combat.is_attacking
+		or combat.is_charging
+		or _hurt_reacting
+		or (combat.is_shaft_blocking and not guard_step)
+	)
 	var local_dir := Vector3.ZERO
 	var input_dir := _move_vector()
 	if not locked:
@@ -429,7 +439,11 @@ func _tick_shaft_block() -> void:
 func _apply_shaft_block_pose() -> void:
 	if locomotion == null:
 		return
-	locomotion.lock_attack(0.12)
+	var stepping := _guard_wants_steps(Vector2(velocity.x, velocity.z).length())
+	if stepping:
+		locomotion.release_attack_lock()
+	else:
+		locomotion.lock_attack(0.12)
 	var face: StringName = &"chest"
 	if combat:
 		face = combat.shaft_guard_face
@@ -439,16 +453,20 @@ func _apply_shaft_block_pose() -> void:
 			_arm_tween.kill()
 		_guard_blend_active = false
 		_apply_tool_pose(ToolStrikePoses.tool_shaft_guard_pose(face))
+		_replay_guard_walk_legs()
 		return
 	if _guard_blend_active and face == _guard_face_held:
+		_replay_guard_walk_legs()
 		return
 	if not _guard_blend_active and face == _guard_face_held:
 		_apply_tool_pose(ToolStrikePoses.tool_shaft_guard_pose(face))
+		_replay_guard_walk_legs()
 		return
 	var target: Dictionary = ToolStrikePoses.tool_shaft_guard_pose(face)
 	var start: Dictionary = _current_tool_pose(target)
 	_guard_face_held = face
 	_begin_guard_blend(start, target)
+	_replay_guard_walk_legs()
 
 
 func _release_guard_to_idle() -> void:
@@ -485,6 +503,33 @@ func _begin_guard_blend(start_pose: Dictionary, target_pose: Dictionary) -> void
 func _step_guard_blend(t: float) -> void:
 	_guard_blend_u = clampf(t, 0.0, 1.0)
 	_apply_blended_pose(_guard_from_pose, _guard_to_pose, _guard_blend_u, true)
+	_replay_guard_walk_legs()
+
+
+func _guard_wants_steps(horiz_speed: float) -> bool:
+	## Walking in a guard steps. A charge, a swing, and standing still do not.
+	if combat == null or locomotion == null or not combat.is_shaft_blocking:
+		return false
+	if combat.is_attacking or combat.is_charging or _hurt_reacting or _sprinting:
+		return false
+	return horiz_speed > 0.22
+
+
+func _forget_guard_legs() -> void:
+	for joint in ["left_thigh", "left_shin", "right_thigh", "right_shin"]:
+		locomotion.forget_combat_additive(joint)
+
+
+func _replay_guard_walk_legs() -> void:
+	## The guard pose just wrote the planted legs. Put the walk cycle back
+	## on those four joints without touching the seat on the arms or the shaft.
+	var speed := Vector2(velocity.x, velocity.z).length()
+	if not _guard_wants_steps(speed):
+		return
+	locomotion.release_attack_lock()
+	_forget_guard_legs()
+	var input := _move_vector()
+	locomotion.tick(0.0, speed, false, is_crouching, false, Vector3(input.x, 0.0, input.y))
 
 
 func _finish_guard_blend() -> void:

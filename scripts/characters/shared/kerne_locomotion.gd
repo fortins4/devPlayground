@@ -74,6 +74,15 @@ func lock_attack(duration: float) -> void:
 	_attack_lock = maxf(_attack_lock, duration)
 
 
+func release_attack_lock() -> void:
+	_attack_lock = 0.0
+
+
+func forget_combat_additive(joint: String) -> void:
+	## Drop one override without snapping the joint. The next tick can play a walk on it.
+	_combat_overrides.erase(joint)
+
+
 func set_combat_additive(joint: String, euler: Vector3) -> void:
 	_combat_overrides[joint] = euler
 	# Apply immediately so charge/aim reads without waiting for the next loco tick.
