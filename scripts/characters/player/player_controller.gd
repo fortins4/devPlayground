@@ -673,9 +673,11 @@ func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) ->
 		shaft = goad
 	_bow_stow_off_the_head(shaft)
 	if _swing_arc_live and _swing_arc_interior:
+		# Face side, not the cloak. The sideways stow push leaves a
+		# horizontal shaft through the skull. This one walks it clear.
 		_bow_swing_off_the_chest(shaft)
 		_pull_shaft_into_reach(shaft)
-		_bow_stow_off_the_head(shaft)
+		_bow_swing_clear_of_body(shaft)
 	_grip_shaft_with(shaft, "right_arm", "right_forearm", 0.30)
 	_grip_shaft_with(shaft, "left_arm", "left_forearm", 0.24)
 
@@ -1295,7 +1297,9 @@ func _lerp_goad_shaft(t: float, from_pose: Dictionary, to_pose: Dictionary, from
 		else:
 			_apply_blended_pose(from_pose, to_pose, u, false)
 		_swing_pose_only = false
-		_swing_arc_interior = u > 0.02 and u < 0.98
+		# The whole swing, including the seat it arrives on. The guard
+		# the player is holding is not this path. Pose tables stay put.
+		_swing_arc_interior = true
 		var shaft_xf := _swing_shaft_on_arc(from_xf, to_xf, u)
 		_shaft_from_xf = shaft_xf
 		_shaft_to_xf = shaft_xf
@@ -1848,6 +1852,63 @@ func _pull_shaft_into_reach(shaft: Node3D) -> void:
 			n += 1
 	if n > 0:
 		shaft.global_position += pull / float(n)
+
+
+func _bow_swing_clear_of_body(shaft: Node3D) -> void:
+	## Left, top, and right. Slide the wood off the skull, the neck, and the
+	## inside of the torso, toward the face and across the shaft, not along it.
+	## A push along the shaft leaves a horizontal stick through the head.
+	## Pose tables stay put. The jab never sets the swing arc.
+	if locomotion == null:
+		return
+	var head := locomotion.get_joint("head") as Node3D
+	var torso := locomotion.get_joint("torso") as Node3D
+	if head == null or torso == null:
+		return
+	for _pass in 6:
+		var axis := shaft.global_transform.basis.y
+		if axis.length_squared() < 0.0001:
+			return
+		axis = axis.normalized()
+		var face := -head.global_transform.basis.z
+		if face.length_squared() < 0.0001:
+			return
+		face = face.normalized()
+		var dir := face - axis * axis.dot(face)
+		if dir.length() < 0.28:
+			var side := head.global_transform.basis.x
+			dir = side - axis * axis.dot(side)
+		if dir.length_squared() < 0.0001:
+			return
+		dir = dir.normalized()
+		var push := 0.0
+		for i in 24:
+			var along := lerpf(-0.22, 1.08, float(i) / 23.0)
+			var p: Vector3 = shaft.to_global(Vector3(0.0, along, 0.0))
+			var hp: Vector3 = head.to_local(p)
+			var dist := hp.length()
+			if dist < 0.36:
+				var away := 0.35
+				if dist > 0.02:
+					away = maxf(dir.dot((p - head.global_position).normalized()), 0.35)
+				push = maxf(push, (0.40 - dist) / away)
+			# Cloak side of the skull, even when the centerline is just outside the sphere.
+			if hp.z > -0.06 and dist < 0.50 and absf(hp.y) < 0.38:
+				var along_face := maxf(dir.dot(face), 0.35)
+				push = maxf(push, (hp.z + 0.28) / along_face)
+			if hp.y < 0.12 and hp.y > -0.52 and hp.z > -0.16 and Vector2(hp.x, hp.z).length() < 0.30:
+				var along_face_n := maxf(dir.dot(face), 0.35)
+				push = maxf(push, (hp.z + 0.24) / along_face_n)
+			var tp: Vector3 = torso.to_local(p)
+			if absf(tp.x) < 0.34 and tp.y > -0.06 and tp.y < 0.58 and tp.z > -0.05:
+				var chest_face := -torso.global_transform.basis.z
+				var along_c := 0.35
+				if chest_face.length_squared() > 0.0001:
+					along_c = maxf(dir.dot(chest_face.normalized()), 0.35)
+				push = maxf(push, (tp.z + 0.18) / along_c)
+		if push <= 0.004:
+			return
+		shaft.global_position += dir * minf(push, 0.40)
 
 
 func _bow_swing_off_the_chest(shaft: Node3D) -> void:
