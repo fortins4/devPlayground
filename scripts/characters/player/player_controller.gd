@@ -1240,6 +1240,9 @@ func _sync_weapon_to_hand() -> void:
 		# the shaft back into reach, then bow it off the skull.
 		_keep_draw_in_right_reach(weapon_visual)
 		_bow_stow_off_the_head(weapon_visual)
+		# The slide still crosses the cloak when the left hand arrives.
+		_clear_draw_off_the_cloak(weapon_visual, s)
+		_bow_stow_off_the_head(weapon_visual)
 		_guide_draw_hands(weapon_visual, s)
 	elif _goad_stowing:
 		_apply_back_goad_carry(_goad_draw_u)
@@ -1394,6 +1397,37 @@ func _bow_stow_off_the_head(back: Node3D) -> void:
 	if push <= 0.001:
 		return
 	back.global_position += side * push
+
+
+
+func _clear_draw_off_the_cloak(shaft: Node3D, s: float) -> void:
+	# Once the shaft has left the seat, the straight path still runs through the
+	# cloak. Bring it forward of that slab while the left hand is on it. The
+	# back seat and the landed idle are outside this window.
+	if s < 0.55 or s > 0.91 or locomotion == null:
+		return
+	var torso := locomotion.get_joint("torso") as Node3D
+	if torso == null:
+		return
+	var face := torso.global_transform.basis.z
+	if face.length_squared() < 0.001:
+		return
+	face = face.normalized()
+	var push := 0.0
+	for i in 21:
+		var along := lerpf(-0.255, 1.07, float(i) / 20.0)
+		var lp: Vector3 = torso.to_local(shaft.to_global(Vector3(0.0, along, 0.0)))
+		if absf(lp.x) > 0.32:
+			continue
+		var through_cloak := absf(lp.y - 0.34) < 0.28 and lp.z < 0.26 and lp.z > -0.02
+		var through_torso := lp.y > -0.05 and lp.y < 0.56 and absf(lp.z) < 0.20
+		if not through_cloak and not through_torso:
+			continue
+		var need := 0.30 - lp.z
+		if need > push:
+			push = need
+	if push > 0.001:
+		shaft.global_position += face * push
 
 
 func _keep_draw_in_right_reach(shaft: Node3D) -> void:
