@@ -65,19 +65,19 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 0, 37)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18, 0, 54)
 
 [node name="Bend4" type="Marker3D" parent="PathMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 68)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0, 70)
 
 [node name="Bend5" type="Marker3D" parent="PathMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 88)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 92)
 
 [node name="Bend6" type="Marker3D" parent="PathMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 114)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0, 118)
 
 [node name="Bend7" type="Marker3D" parent="PathMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 140)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 142)
 
 [node name="Bend8" type="Marker3D" parent="PathMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0, 162)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -16, 0, 164)
 
 [node name="PastureMouth" type="Marker3D" parent="PathMarkers"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -28, 0, 178)

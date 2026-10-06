@@ -245,7 +245,7 @@ func _build_bog() -> void:
 		var pz := rng.randf_range(box.position.z, box.end.z)
 		_mesh_sphere(_gen, Vector3(px, 0.35, pz), 0.12, C_STAKE_TOP)
 	# Extra visual bog patches kept west of the winding lane (no Area3D — LOS + pastoral read).
-	_build_bog_patch(Vector3(-20.0, 0.0, 108.0), Vector3(20.0, 2.0, 16.0), 5521)
+	_build_bog_patch(Vector3(-22.0, 0.0, 108.0), Vector3(20.0, 2.0, 16.0), 5521)
 	_build_bog_patch(Vector3(-42.0, 0.0, 154.0), Vector3(20.0, 2.0, 16.0), 7733)
 
 
@@ -274,16 +274,16 @@ func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
 func _build_secluding_hills() -> void:
 	## Low rolling knolls between farmhouse and secluded pasture, spaced so the lane can
 	## snake through clear saddles. Each hill has walk collision so you cannot phase through.
-	# Near ridge: west + east knolls with a saddle near x≈0–6 at z≈88.
-	_hill(Vector3(-24.0, 0.0, 88.0), 20.0, Vector3(1.35, 0.48, 1.15), C_BANK.lightened(0.08))
-	_hill(Vector3(28.0, 0.0, 96.0), 18.0, Vector3(1.35, 0.46, 1.1), C_GRASS.darkened(0.06))
+	# Near ridge: west + east knolls with a wide saddle (~x 0–12 at z≈90).
+	_hill(Vector3(-28.0, 0.0, 86.0), 18.0, Vector3(1.35, 0.48, 1.15), C_BANK.lightened(0.08))
+	_hill(Vector3(30.0, 0.0, 98.0), 18.0, Vector3(1.3, 0.46, 1.1), C_GRASS.darkened(0.06))
 	# Soft mid-west knoll (deepens seclusion; sits west of the lane).
-	_hill(Vector3(-40.0, 0.0, 112.0), 16.0, Vector3(1.25, 0.4, 1.1), C_BANK)
-	# Mid ridge: west + east knolls with a saddle near x≈2–6 at z≈130–140.
-	_hill(Vector3(-32.0, 0.0, 140.0), 20.0, Vector3(1.35, 0.5, 1.15), C_GRASS.darkened(0.05))
-	_hill(Vector3(30.0, 0.0, 130.0), 18.0, Vector3(1.3, 0.46, 1.1), C_BANK.lightened(0.05))
+	_hill(Vector3(-42.0, 0.0, 114.0), 16.0, Vector3(1.25, 0.4, 1.1), C_BANK)
+	# Mid ridge: west + east knolls with a saddle near x≈4–12 at z≈130–142.
+	_hill(Vector3(-34.0, 0.0, 142.0), 20.0, Vector3(1.3, 0.5, 1.15), C_GRASS.darkened(0.05))
+	_hill(Vector3(32.0, 0.0, 128.0), 18.0, Vector3(1.3, 0.46, 1.1), C_BANK.lightened(0.05))
 	# Flanking knolls tuck the pasture hollow; mouth approach stays clear.
-	_hill(Vector3(14.0, 0.0, 174.0), 16.0, Vector3(1.25, 0.42, 1.2), C_BANK)
+	_hill(Vector3(16.0, 0.0, 176.0), 16.0, Vector3(1.25, 0.42, 1.2), C_BANK)
 	_hill(Vector3(-50.0, 0.0, 188.0), 18.0, Vector3(1.35, 0.4, 1.15), C_GRASS.darkened(0.04))
 	# Soft bank lips so the pasture floor reads as a hollow.
 	_mesh_box(_gen, Vector3(-25.0, 0.55, 176.0), Vector3(36.0, 1.1, 2.4), C_BANK)
@@ -300,7 +300,7 @@ func _hill(center: Vector3, radius: float, scl: Vector3, color: Color) -> void:
 	# Walk collision on the mound bulk (cylinder) so players/cattle cannot phase through.
 	# Undersized vs the visual skirt so the lane can graze soft toes without snagging.
 	var body := StaticBody3D.new()
-	body.name = "HillCollide"
+	body.name = "HillCollide_%d_%d" % [int(center.x), int(center.z)]
 	body.collision_layer = 1
 	body.collision_mask = 0
 	var coll_h := maxf(2.2, radius * scl.y * 0.75)
