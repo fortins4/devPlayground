@@ -9,15 +9,13 @@ extends Node
 ## Knife is a tap: left/right cuts, top thrust. No knife charge, no bottom stab.
 ## Attach as child of a CharacterBody3D (player or NPC). Expects optional siblings:
 ## Hitbox (Area3D), Hurtbox (Area3D), WeaponVisual (Node3D with mesh children).
+## No stamina. Attacks, charges, guards and sprint have no meter, drain or gate.
 
-const StaminaEconomy := preload("res://systems/combat/stamina_economy.gd")
 const HatchetAttackTable := preload("res://systems/combat/hatchet_attack_table.gd")
-const ChargeStaminaTable := preload("res://systems/combat/charge_stamina_table.gd")
 
 signal attack_performed(attacker: Node, kind: StringName, weapon: StringName)
 signal hit_landed(attacker: Node, target: Node, damage: float, kind: StringName)
 signal damage_taken(amount: float, from: Node)
-signal stamina_changed(current: float, maximum: float)
 signal health_changed(current: float, maximum: float)
 signal blocked(defender: Node, attacker: Node, mitigated: float)
 ## Posture pool emptied — CombatTags stagger applied (Godot feel / sparring AI hook).
@@ -47,10 +45,6 @@ const WEAPON_NAMES := {
 }
 
 @export var max_health: float = 100.0
-## Defaults seed from StaminaEconomy (systems/combat/stamina_economy.gd).
-@export var max_stamina: float = StaminaEconomy.MAX_STAMINA
-@export var stamina_regen_per_sec: float = StaminaEconomy.REGEN_PER_SEC
-@export var sprint_stamina_per_sec: float = StaminaEconomy.SPRINT_DRAIN_PER_SEC
 @export var team: int = 0 ## 0 = player allies, 1 = hostiles
 @export var starting_weapon: Weapon = Weapon.HATCHET
 @export var enable_block: bool = false ## Shield later; off for cattle-farm starter kit
@@ -69,7 +63,6 @@ const WEAPON_NAMES := {
 @export var enable_directional_hatchet: bool = true
 
 var health: float = 100.0
-var stamina: float = StaminaEconomy.MAX_STAMINA
 var current_weapon: Weapon = Weapon.HATCHET
 var is_dead: bool = false
 var is_blocking: bool = false
@@ -93,7 +86,6 @@ var is_attacking: bool = false
 var attack_recovery_left: float = 0.0
 var hitbox_active_left: float = 0.0
 ## Countdown before passive regen after spend / after attack recovery ends.
-var stamina_regen_delay_left: float = 0.0
 
 var _hit_this_swing: Dictionary = {} ## instance_id -> true
 var _owner_body: Node3D
@@ -113,9 +105,6 @@ var _last_attack_reach: float = -1.0
 ## Power passed into the last committed strike. -1 = discrete light/heavy.
 ## 0 = tap release, 1 = full 0.75s hold. Mid values sit between.
 var last_attack_power: float = -1.0
-## Last hatchet charge↔STA spend (ChargeStaminaTable; set on release commit).
-var _last_charge_spend_tier: StringName = &""
-var _last_charge_spend_cost: float = -1.0
 ## Last CombatTags applied on a successful hit (attacker-side probe).
 var _last_hit_tags: Array[StringName] = []
 var _last_hit_tags_weapon: StringName = &""
@@ -141,8 +130,7 @@ var _charge_pose_tween: Tween
 # Per-weapon feel timings. Knife/goad: damage+reach live here.
 # Hatchet damage/reach: HatchetAttackTable (direction × charge tier). PROFILES
 # hatchet damage/reach kept as fallback when table unavailable.
-# Stamina cost + recovery: StaminaEconomy.ATTACK for knife/goad light/heavy.
-# Hatchet charge-tier STA: ChargeStaminaTable (tap/charged/max) on release commit.
+# Recovery seconds: ATTACK_RECOVERY below (moved from the removed StaminaEconomy).
 const PROFILES := {
 	Weapon.HATCHET: {
 		# Timing polish: clearer windup telegraph, readable contact, non-spam recover.
@@ -170,10 +158,22 @@ const HATCHET_DIR_TIMING := {
 	StrikeDirection.RIGHT: {"windup": 0.85, "active": 1.15, "recovery": 0.92},
 }
 
+## Post-strike recovery seconds per weapon / kind. Moved verbatim from the
+## removed StaminaEconomy.ATTACK table (only the recovery half survives).
+const ATTACK_RECOVERY := {
+	&"hatchet": {&"light": 0.34, &"heavy": 0.58},
+	&"knife": {&"light": 0.16, &"heavy": 0.28},
+	&"goad": {&"light": 0.26, &"heavy": 0.40},
+}
+
+
+static func attack_recovery(weapon: StringName, kind: StringName) -> float:
+	var kit: Dictionary = ATTACK_RECOVERY.get(weapon, ATTACK_RECOVERY[&"hatchet"])
+	return float(kit.get(kind, kit[&"light"]))
+
 
 func _ready() -> void:
 	health = max_health
-	stamina = max_stamina
 	posture = BlockPostureTable.MAX_POSTURE
 	guard_face = BlockPostureTable.DEFAULT_FACE
 	current_weapon = starting_weapon
@@ -197,7 +197,6 @@ func _ready() -> void:
 	if _weapon_visual:
 		_weapon_rest_transform = _weapon_visual.transform
 	_apply_weapon_visual()
-	stamina_changed.emit(stamina, max_stamina)
 	health_changed.emit(health, max_health)
 	weapon_changed.emit(WEAPON_NAMES[current_weapon])
 
@@ -224,34 +223,11 @@ func _physics_process(delta: float) -> void:
 		attack_recovery_left = maxf(0.0, attack_recovery_left - delta)
 		if attack_recovery_left <= 0.0:
 			is_attacking = false
-			# Recover window closed — gate regen so the recovery beat matters.
-			_arm_stamina_regen_delay()
 
 	if hitbox_active_left > 0.0:
 		hitbox_active_left = maxf(0.0, hitbox_active_left - delta)
 		if hitbox_active_left <= 0.0 and _hitbox:
 			_hitbox.monitoring = false
-
-	if stamina_regen_delay_left > 0.0:
-		stamina_regen_delay_left = maxf(0.0, stamina_regen_delay_left - delta)
-
-	var regenerating := (
-		not is_attacking
-		and not is_blocking
-		and not is_shaft_blocking
-		and not is_charging
-		and stamina_regen_delay_left <= 0.0
-	)
-	if regenerating and stamina < max_stamina:
-		stamina = minf(max_stamina, stamina + stamina_regen_per_sec * delta)
-		stamina_changed.emit(stamina, max_stamina)
-
-	if is_blocking and enable_block:
-		var block_drain := StaminaEconomy.BLOCK_DRAIN_PER_SEC * delta
-		if stamina >= block_drain:
-			_spend_stamina(block_drain)
-		else:
-			is_blocking = false
 
 	_tick_face_guard_posture(delta)
 
@@ -294,19 +270,15 @@ func cycle_weapon(direction: int = 1) -> void:
 	set_weapon(values[idx])
 
 
-func try_sprint_drain(delta: float) -> bool:
+func try_sprint() -> bool:
+	## Sprint has no meter. It is refused only while dead or mid-attack.
+	## A sprint drops a charge and the shaft guard (no attack / guard while sprinting).
 	if is_dead or is_attacking:
-		return false
-	# Stamina gate first: a failed sprint must do nothing (no clear-then-re-raise).
-	var cost := sprint_stamina_per_sec * delta
-	if stamina < cost * 0.5:
 		return false
 	if is_charging:
 		cancel_charge()
-	# Successful sprint drops a held shaft guard the same way it drops a charge.
 	is_shaft_blocking = false
-	_spend_stamina(cost)
-	return stamina > 0.0
+	return true
 
 
 func direction_name(direction: StrikeDirection = charge_direction) -> StringName:
@@ -338,11 +310,11 @@ func last_attack_timings() -> Dictionary:
 
 
 func resolved_hatchet_timings(kind: StringName, direction: StrikeDirection) -> Dictionary:
-	## Preview timings without spending stamina (smoke / capture / HUD helpers).
+	## Preview timings without committing a swing (smoke / capture / HUD helpers).
 	var profile: Dictionary = PROFILES[Weapon.HATCHET].get(kind, PROFILES[Weapon.HATCHET][&"light"])
 	var windup := float(profile["windup"])
 	var active := float(profile["active"])
-	var recovery := StaminaEconomy.attack_recovery(&"hatchet", kind)
+	var recovery := attack_recovery(&"hatchet", kind)
 	var scales: Dictionary = HATCHET_DIR_TIMING.get(direction, HATCHET_DIR_TIMING[StrikeDirection.TOP])
 	windup *= float(scales.get("windup", 1.0))
 	active *= float(scales.get("active", 1.0))
@@ -401,7 +373,7 @@ func cancel_charge() -> void:
 
 func release_charged_attack() -> bool:
 	## Release hold: power scales with charge_ratio. Tap (~min secs) = light; full hold = heavy.
-	## STA spend fires inside try_attack via ChargeStaminaTable (on commit only).
+	## A release always swings. Only death / no weapon can refuse it.
 	if not is_charging:
 		return false
 	var held := charge_time
@@ -417,13 +389,13 @@ func release_charged_attack() -> bool:
 	if _charge_pose_tween and _charge_pose_tween.is_valid():
 		_charge_pose_tween.kill()
 	var kind: StringName = &"light" if held < charge_min_release_secs or ratio < 0.22 else &"heavy"
-	# Blend: short hold still light; mid/full uses heavy profile with scaled damage/cost.
+	# Blend: short hold still light; mid/full uses heavy profile with scaled damage.
 	# Near-full charge maps to HatchetAttackTable &"max" tier via power >= 0.95.
 	var power := 0.0 if kind == &"light" else clampf(ratio, 0.22, 1.0)
 	charge_released.emit(power if kind == &"heavy" else 0.0, DIRECTION_NAMES[direction], kind)
 	var committed := try_attack(kind, direction, power)
 	if not committed:
-		# Release with no stamina must not freeze the windup pose.
+		# Dead / unarmed only. Do not freeze the windup pose.
 		_clear_charge_pose()
 		charge_cancelled.emit(WEAPON_NAMES[current_weapon])
 	return committed
@@ -467,47 +439,35 @@ func try_attack(
 	var light_p: Dictionary = PROFILES[current_weapon][&"light"]
 	var heavy_p: Dictionary = PROFILES[current_weapon][&"heavy"]
 	# power < 0 → discrete light/heavy; else lerp light→heavy by power (0..1).
-	# Knife/goad cost+recovery: StaminaEconomy. Hatchet charge STA: ChargeStaminaTable
-	# on release commit (after tier resolve below). Feel timings from PROFILES.
-	var cost: float
+	# Feel timings from PROFILES; recovery from ATTACK_RECOVERY. No stamina cost.
 	var damage: float
 	var windup: float
 	var active: float
 	var recovery: float
 	var reach: float
 	if power < 0.0:
-		cost = StaminaEconomy.attack_cost(wname, kind)
 		damage = float(profile["damage"])
 		windup = float(profile["windup"])
 		active = float(profile["active"])
-		recovery = StaminaEconomy.attack_recovery(wname, kind)
+		recovery = attack_recovery(wname, kind)
 		reach = float(profile["reach"])
 	else:
 		var t := clampf(power, 0.0, 1.0)
-		cost = lerpf(
-			StaminaEconomy.attack_cost(wname, &"light"),
-			StaminaEconomy.attack_cost(wname, &"heavy"),
-			t,
-		)
 		damage = lerpf(float(light_p["damage"]), float(heavy_p["damage"]), t)
 		windup = lerpf(float(light_p["windup"]), float(heavy_p["windup"]), t)
 		active = lerpf(float(light_p["active"]), float(heavy_p["active"]), t)
-		recovery = lerpf(
-			StaminaEconomy.attack_recovery(wname, &"light"),
-			StaminaEconomy.attack_recovery(wname, &"heavy"),
-			t,
-		)
+		recovery = lerpf(attack_recovery(wname, &"light"), attack_recovery(wname, &"heavy"), t)
 		reach = lerpf(float(light_p["reach"]), float(heavy_p["reach"]), t)
 		kind = &"heavy" if t >= 0.55 else &"light"
-	# Hatchet: Systems tables own damage/reach + charge-tier STA; dir scales feel.
+	# Hatchet: Systems table owns damage/reach per charge tier; dir scales feel.
 	var resolved_dir: StringName = &""
 	var resolved_tier: StringName = &""
 	if current_weapon == Weapon.HATCHET:
 		var dir_name: StringName = DIRECTION_NAMES.get(direction, &"top")
 		var tier: StringName = HatchetAttackTable.tier_from_kind(kind)
-		if power >= ChargeStaminaTable.RATIO_MAX_MIN:
+		if power >= HatchetAttackTable.RATIO_MAX_MIN:
 			tier = &"max"
-		elif power >= ChargeStaminaTable.RATIO_CHARGED_MIN:
+		elif power >= HatchetAttackTable.RATIO_CHARGED_MIN:
 			tier = &"charged"
 		elif power >= 0.0:
 			tier = &"tap"
@@ -516,14 +476,12 @@ func try_attack(
 		resolved_tier = cell["tier"]
 		damage = float(cell["damage"])
 		reach = float(cell["reach"])
-		# Discrete charge↔STA cost (replaces light↔heavy lerp for hatchet).
-		cost = ChargeStaminaTable.cost_for_tier(resolved_tier)
 		if enable_directional_hatchet:
-			if power >= 0.0 and power < ChargeStaminaTable.RATIO_CHARGED_MIN:
+			if power >= 0.0 and power < HatchetAttackTable.RATIO_CHARGED_MIN:
 				# Blend tap→charged for partial charge holds (damage/reach only).
 				var tap: Dictionary = HatchetAttackTable.entry(dir_name, &"tap")
 				var ch: Dictionary = HatchetAttackTable.entry(dir_name, &"charged")
-				var bt := clampf(power / ChargeStaminaTable.RATIO_CHARGED_MIN, 0.0, 1.0)
+				var bt := clampf(power / HatchetAttackTable.RATIO_CHARGED_MIN, 0.0, 1.0)
 				damage = lerpf(float(tap["damage"]), float(ch["damage"]), bt)
 				reach = lerpf(float(tap["reach"]), float(ch["reach"]), bt)
 			var scales: Dictionary = HATCHET_DIR_TIMING.get(direction, HATCHET_DIR_TIMING[StrikeDirection.TOP])
@@ -540,14 +498,6 @@ func try_attack(
 		windup *= 0.82
 		active *= 0.9
 		reach += 0.16
-	# Spend fires here on strike commit (release path). Refuse if insufficient.
-	if current_weapon == Weapon.HATCHET and resolved_tier != &"":
-		if not spend_for_charge(resolved_tier):
-			return false
-	else:
-		if stamina < cost:
-			return false
-		_spend_stamina(cost)
 	is_attacking = true
 	is_blocking = false
 	is_shaft_blocking = false
@@ -574,7 +524,7 @@ func set_blocking(holding: bool) -> void:
 	if not enable_block or is_dead or is_attacking:
 		is_blocking = false
 		return
-	is_blocking = holding and stamina > StaminaEconomy.BLOCK_MIN_STAMINA
+	is_blocking = holding
 
 
 ## Hold the cattle goad. Goad only — knife and hatchet refuse.
@@ -589,7 +539,6 @@ func set_shaft_block(holding: bool) -> bool:
 		or is_dead
 		or is_attacking
 		or is_charging
-		or stamina <= StaminaEconomy.BLOCK_MIN_STAMINA
 	):
 		is_shaft_blocking = false
 		shaft_guard_face = &"chest"
@@ -715,13 +664,9 @@ func apply_guard_hit_cost(attack_dir: StringName, incoming_damage: float) -> Dic
 		resolved["mitigation"] = 0.0
 		resolved["mitigated_amount"] = 0.0
 		resolved["remaining_damage"] = float(resolved.get("incoming_damage", incoming_damage))
-		resolved["stamina_cost"] = 0.0
 		resolved["posture_chip"] = 0.0
 		_last_guard_resolve = resolved
 		return resolved
-	var sta_cost := float(resolved.get("stamina_cost", 0.0))
-	if sta_cost > 0.0:
-		_spend_stamina(sta_cost)
 	var chip := float(resolved.get("posture_chip", 0.0))
 	if chip > 0.0:
 		posture = maxf(0.0, posture - chip)
@@ -791,11 +736,7 @@ func apply_damage(
 		and shaft_face_stops_direction(strike_direction)
 	):
 		var caught := amount
-		_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
 		blocked.emit(_owner_body, from, caught)
-		if stamina <= StaminaEconomy.BLOCK_MIN_STAMINA:
-			is_shaft_blocking = false
-			shaft_guard_face = &"chest"
 		return 0.0
 	# Hit-stun: drop any in-progress charge.
 	if is_charging:
@@ -833,12 +774,11 @@ func apply_damage(
 		else:
 			_last_flank_resolve = {}
 	# Directional face-block (Godot sparring / enable_block): guarded face only.
-	elif enable_block and is_blocking and stamina > 0.0:
+	elif enable_block and is_blocking:
 		var face_match := strike_direction == guard_direction
 		if face_match:
 			mitigated = amount * 0.85
 			amount -= mitigated
-			_spend_stamina(StaminaEconomy.BLOCK_HIT_COST)
 			blocked.emit(_owner_body, from, mitigated)
 			if amount <= 0.01:
 				return 0.0
@@ -1367,51 +1307,11 @@ func _clear_charge_pose() -> void:
 
 
 
-func _spend_stamina(amount: float) -> void:
-	if amount <= 0.0:
-		return
-	stamina = maxf(0.0, stamina - amount)
-	_arm_stamina_regen_delay()
-	stamina_changed.emit(stamina, max_stamina)
-
-
-func _arm_stamina_regen_delay() -> void:
-	stamina_regen_delay_left = maxf(
-		stamina_regen_delay_left, StaminaEconomy.REGEN_DELAY_SEC
-	)
-
-
-## True if current STA covers the charge-tier cost (no spend).
-func can_afford_charge(tier: StringName) -> bool:
-	return ChargeStaminaTable.can_afford(stamina, tier)
-
-
-## Spend STA for a hatchet charge tier. Call on release / strike commit only —
-## never while holding, never on cancel. Returns false if insufficient (Godot
-## must refuse the strike). Updates last-spend probe fields on success.
-func spend_for_charge(tier: StringName) -> bool:
-	var preview: Dictionary = ChargeStaminaTable.try_spend_preview(stamina, tier)
-	if not bool(preview["ok"]):
-		return false
-	var cost := float(preview["cost"])
-	var resolved: StringName = preview["tier"]
-	_spend_stamina(cost)
-	_last_charge_spend_tier = resolved
-	_last_charge_spend_cost = cost
-	return true
-
-
-## Alias of spend_for_charge — try semantics for Godot hold-release callers.
-func try_spend_for_charge(tier: StringName) -> bool:
-	return spend_for_charge(tier)
-
-
 func get_attack_profile(kind: StringName = &"light", direction: StringName = &"top") -> Dictionary:
-	## Merged feel profile + stamina cost/recovery. Hatchet overlays table damage/reach + charge STA.
+	## Merged feel profile + recovery. Hatchet overlays table damage/reach.
 	var base: Dictionary = PROFILES[current_weapon].get(kind, PROFILES[current_weapon][&"light"]).duplicate()
 	var wname: StringName = WEAPON_NAMES[current_weapon]
-	base["cost"] = StaminaEconomy.attack_cost(wname, kind)
-	base["recovery"] = StaminaEconomy.attack_recovery(wname, kind)
+	base["recovery"] = attack_recovery(wname, kind)
 	if current_weapon == Weapon.HATCHET:
 		var tier := HatchetAttackTable.tier_from_kind(kind)
 		var cell: Dictionary = HatchetAttackTable.entry(direction, tier)
@@ -1419,18 +1319,7 @@ func get_attack_profile(kind: StringName = &"light", direction: StringName = &"t
 		base["reach"] = cell["reach"]
 		base["direction"] = cell["direction"]
 		base["tier"] = cell["tier"]
-		base["cost"] = ChargeStaminaTable.cost_for_tier(tier)
-		base["spend_fires"] = &"on_release_commit"
 	return base
-
-
-func get_stamina_economy_debug_text() -> String:
-	return StaminaEconomy.get_debug_text(stamina)
-
-
-func dump_stamina_economy() -> void:
-	## Cheap F5 probe — print economy constants + current STA.
-	print(get_stamina_economy_debug_text())
 
 
 func get_hatchet_attack_table_debug_text() -> String:
@@ -1442,17 +1331,6 @@ func get_hatchet_attack_table_debug_text() -> String:
 func dump_hatchet_attack_table() -> void:
 	## Cheap F5 probe — print hatchet direction×tier table + last resolved cell.
 	print(get_hatchet_attack_table_debug_text())
-
-
-func get_charge_stamina_debug_text() -> String:
-	return ChargeStaminaTable.get_debug_text(
-		stamina, _last_charge_spend_tier, _last_charge_spend_cost
-	)
-
-
-func dump_charge_stamina_table() -> void:
-	## Cheap F5 probe — print charge↔STA spend table + last release spend.
-	print(get_charge_stamina_debug_text())
 
 
 ## Resolve CharacterHealth autoload without a bare global (keeps -s smokes / check-only compiling).

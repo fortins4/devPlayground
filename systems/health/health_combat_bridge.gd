@@ -2,7 +2,7 @@ class_name HealthCombatBridge
 extends Node
 ## Optional glue: player CombatSystem ↔ CharacterHealth (session vitals).
 ##
-## Attach on the **player only**. NPCs keep independent CombatSystem HP/STA —
+## Attach on the **player only**. NPCs keep independent CombatSystem HP —
 ## do not add this node to dummy / sentry / band scenes.
 ##
 ## Default: combat melee damage/heal mirrors into CharacterHealth for HUD/feel.
@@ -10,16 +10,15 @@ extends Node
 ## the bound CombatSystem without rewriting either system.
 
 signal bound_changed(is_bound: bool)
-signal synced(direction: StringName, hp: float, stamina: float)
+signal synced(direction: StringName, hp: float)
 
 ## Empty = auto-resolve sibling/parent `CombatSystem` (player layout).
 @export var combat_path: NodePath = NodePath("")
 @export var auto_bind_on_ready: bool = true
-## CombatSystem HP/STA changes → CharacterHealth (autoload).
+## CombatSystem HP changes → CharacterHealth (autoload). (No stamina: removed.)
 @export var sync_combat_to_session: bool = true
 ## CharacterHealth changes → bound CombatSystem (optional reverse).
 @export var sync_session_to_combat: bool = true
-@export var sync_stamina: bool = true
 ## On bind, copy combat max/current into CharacterHealth (session seeds from greybox).
 @export var seed_session_from_combat_on_bind: bool = true
 
@@ -124,7 +123,7 @@ func apply_heal(amount: float) -> float:
 		if _combat.health > 0.0 and (CharacterHealth.is_downed or CharacterHealth.is_dead):
 			CharacterHealth.revive(false)
 	_echo = false
-	synced.emit(&"heal", _combat.health, _combat.stamina if sync_stamina else -1.0)
+	synced.emit(&"heal", _combat.health)
 	return dealt
 
 
@@ -136,13 +135,10 @@ func push_combat_to_session() -> void:
 	if sync_combat_to_session:
 		CharacterHealth.set_max_hp(_combat.max_health, false)
 		CharacterHealth.set_hp(_combat.health)
-		if sync_stamina:
-			CharacterHealth.set_max_stamina(_combat.max_stamina, false)
-			CharacterHealth.set_stamina(_combat.stamina)
 		if _combat.is_dead or _combat.health <= 0.0:
 			CharacterHealth.set_downed(true, true)
 	_echo = false
-	synced.emit(&"combat_to_session", _combat.health, _combat.stamina)
+	synced.emit(&"combat_to_session", _combat.health)
 
 
 ## Push CharacterHealth vitals into the bound CombatSystem (one-shot).
@@ -153,17 +149,13 @@ func push_session_to_combat() -> void:
 	if sync_session_to_combat:
 		_combat.max_health = CharacterHealth.get_max_hp()
 		_combat.health = CharacterHealth.get_hp()
-		if sync_stamina:
-			_combat.max_stamina = CharacterHealth.get_max_stamina()
-			_combat.stamina = CharacterHealth.get_stamina()
 		if CharacterHealth.get_is_dead() or CharacterHealth.get_hp() <= 0.0:
 			_combat.is_dead = true
 		elif _combat.health > 0.0:
 			_combat.is_dead = false
 		_combat.health_changed.emit(_combat.health, _combat.max_health)
-		_combat.stamina_changed.emit(_combat.stamina, _combat.max_stamina)
 	_echo = false
-	synced.emit(&"session_to_combat", _combat.health, _combat.stamina)
+	synced.emit(&"session_to_combat", _combat.health)
 
 
 # --- Debug --------------------------------------------------------------------
@@ -173,14 +165,10 @@ func to_debug_dict() -> Dictionary:
 		"bound": is_bound(),
 		"sync_combat_to_session": sync_combat_to_session,
 		"sync_session_to_combat": sync_session_to_combat,
-		"sync_stamina": sync_stamina,
 		"combat_hp": _combat.health if is_bound() else -1.0,
 		"combat_max_hp": _combat.max_health if is_bound() else -1.0,
-		"combat_sta": _combat.stamina if is_bound() else -1.0,
 		"session_hp": CharacterHealth.hp if CharacterHealth else -1.0,
-		"session_sta": CharacterHealth.stamina if CharacterHealth else -1.0,
 		"hp_match": _hp_match(),
-		"sta_match": _sta_match(),
 	}
 
 
@@ -189,23 +177,20 @@ func get_debug_text() -> String:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("=== HealthCombatBridge ===")
 	lines.append(
-		"bound=%s  combat→session=%s  session→combat=%s  stamina=%s" % [
+		"bound=%s  combat→session=%s  session→combat=%s" % [
 			str(d["bound"]),
 			str(d["sync_combat_to_session"]),
 			str(d["sync_session_to_combat"]),
-			str(d["sync_stamina"]),
 		]
 	)
 	if bool(d["bound"]):
 		lines.append(
-			"Combat HP %.0f/%.0f  STA %.0f   Session HP %.0f  STA %.0f" % [
-				float(d["combat_hp"]), float(d["combat_max_hp"]), float(d["combat_sta"]),
-				float(d["session_hp"]), float(d["session_sta"]),
+			"Combat HP %.0f/%.0f   Session HP %.0f" % [
+				float(d["combat_hp"]), float(d["combat_max_hp"]),
+				float(d["session_hp"]),
 			]
 		)
-		lines.append(
-			"match hp=%s sta=%s" % [str(d["hp_match"]), str(d["sta_match"])]
-		)
+		lines.append("match hp=%s" % str(d["hp_match"]))
 	else:
 		lines.append("(unbound — NPCs stay on CombatSystem only)")
 	return "\n".join(lines)
@@ -243,8 +228,6 @@ func _find_combat_under(node: Node) -> CombatSystem:
 func _connect_combat(combat: CombatSystem) -> void:
 	if not combat.health_changed.is_connected(_on_combat_health):
 		combat.health_changed.connect(_on_combat_health)
-	if not combat.stamina_changed.is_connected(_on_combat_stamina):
-		combat.stamina_changed.connect(_on_combat_stamina)
 	if not combat.died.is_connected(_on_combat_died):
 		combat.died.connect(_on_combat_died)
 
@@ -252,8 +235,6 @@ func _connect_combat(combat: CombatSystem) -> void:
 func _disconnect_combat(combat: CombatSystem) -> void:
 	if combat.health_changed.is_connected(_on_combat_health):
 		combat.health_changed.disconnect(_on_combat_health)
-	if combat.stamina_changed.is_connected(_on_combat_stamina):
-		combat.stamina_changed.disconnect(_on_combat_stamina)
 	if combat.died.is_connected(_on_combat_died):
 		combat.died.disconnect(_on_combat_died)
 
@@ -263,8 +244,6 @@ func _connect_session() -> void:
 		return
 	if not CharacterHealth.health_changed.is_connected(_on_session_health):
 		CharacterHealth.health_changed.connect(_on_session_health)
-	if sync_stamina and not CharacterHealth.stamina_changed.is_connected(_on_session_stamina):
-		CharacterHealth.stamina_changed.connect(_on_session_stamina)
 
 
 func _disconnect_session() -> void:
@@ -272,8 +251,6 @@ func _disconnect_session() -> void:
 		return
 	if CharacterHealth.health_changed.is_connected(_on_session_health):
 		CharacterHealth.health_changed.disconnect(_on_session_health)
-	if CharacterHealth.stamina_changed.is_connected(_on_session_stamina):
-		CharacterHealth.stamina_changed.disconnect(_on_session_stamina)
 
 
 func _on_combat_health(current: float, maximum: float) -> void:
@@ -284,17 +261,7 @@ func _on_combat_health(current: float, maximum: float) -> void:
 		CharacterHealth.set_max_hp(maximum, false)
 	CharacterHealth.set_hp(current)
 	_echo = false
-	synced.emit(&"combat_to_session", current, CharacterHealth.stamina if CharacterHealth else -1.0)
-
-
-func _on_combat_stamina(current: float, maximum: float) -> void:
-	if _echo or not sync_combat_to_session or not sync_stamina or CharacterHealth == null:
-		return
-	_echo = true
-	if not is_equal_approx(CharacterHealth.get_max_stamina(), maximum):
-		CharacterHealth.set_max_stamina(maximum, false)
-	CharacterHealth.set_stamina(current)
-	_echo = false
+	synced.emit(&"combat_to_session", current)
 
 
 func _on_combat_died(_victim: Node) -> void:
@@ -319,26 +286,10 @@ func _on_session_health(current: float, maximum: float) -> void:
 		_combat.is_dead = false
 	_combat.health_changed.emit(_combat.health, _combat.max_health)
 	_echo = false
-	synced.emit(&"session_to_combat", current, _combat.stamina)
-
-
-func _on_session_stamina(current: float, maximum: float) -> void:
-	if _echo or not sync_session_to_combat or not sync_stamina or not is_bound():
-		return
-	_echo = true
-	_combat.max_stamina = maximum
-	_combat.stamina = current
-	_combat.stamina_changed.emit(_combat.stamina, _combat.max_stamina)
-	_echo = false
+	synced.emit(&"session_to_combat", current)
 
 
 func _hp_match() -> bool:
 	if not is_bound() or CharacterHealth == null:
 		return false
 	return is_equal_approx(_combat.health, CharacterHealth.hp)
-
-
-func _sta_match() -> bool:
-	if not sync_stamina or not is_bound() or CharacterHealth == null:
-		return not sync_stamina
-	return is_equal_approx(_combat.stamina, CharacterHealth.stamina)

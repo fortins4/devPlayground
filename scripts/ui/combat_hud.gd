@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Minimal stamina / HP / weapon readout for the greybox slice.
+## Minimal HP / weapon readout for the greybox slice. No stamina (removed).
 
 @onready var label: Label = $Margin/Label
 
@@ -18,7 +18,6 @@ func _bind_player() -> void:
 	_combat = player.get_node_or_null("CombatSystem") as CombatSystem
 	if _combat == null:
 		return
-	_combat.stamina_changed.connect(_on_stats)
 	_combat.health_changed.connect(_on_stats)
 	_combat.weapon_changed.connect(func(_w): _refresh())
 	_combat.died.connect(func(_v): _refresh())
@@ -30,7 +29,7 @@ func _on_stats(_a = null, _b = null) -> void:
 
 
 func _process(_delta: float) -> void:
-	# Keep drag stamina + charge readout live.
+	# Keep drag + charge readout live.
 	var player := get_tree().get_first_node_in_group("player") if is_inside_tree() else null
 	var dragging := player and player.has_method("is_dragging") and bool(player.call("is_dragging"))
 	if dragging or (_combat and (_combat.is_charging or _combat.is_shaft_blocking)):
@@ -54,9 +53,8 @@ func _refresh() -> void:
 	elif _combat.is_shaft_blocking:
 		var face := String(_combat.shaft_guard_face)
 		charge_line = "\nGUARD %s  (look L/R/up/down, neutral = chest)" % face.to_upper()
-	label.text = "HP %d/%d   STA %d/%d   [%s]%s%s\nGoad: look is the guard. LMB hold = shaft (L/R/up). Look-down + LMB, or RMB, = one jab. Knife: tap LMB (look L/R = CUT, neutral/look-up = THRUST, no stab)  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
+	label.text = "HP %d/%d   [%s]%s%s\nGoad: look is the guard. LMB hold = shaft (L/R/up). Look-down + LMB, or RMB, = one jab. Knife: tap LMB (look L/R = CUT, neutral/look-up = THRUST, no stab)  RMB heavy  Q cycle  1 hatchet hold-charge  2 knife  3 goad" % [
 		int(_combat.health), int(_combat.max_health),
-		int(_combat.stamina), int(_combat.max_stamina),
 		w,
 		extra,
 		charge_line,

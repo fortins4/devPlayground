@@ -5,17 +5,14 @@ extends CanvasLayer
 ## Travel bottom-right).
 ##
 ## Keys (when this node is in the tree):
-##   V — show / hide panel (includes StaminaEconomy fight numbers)
-##   ` (backtick / QuoteLeft) — print StaminaEconomy dump to Output
+##   V — show / hide panel
 ##   F6 — print HatchetAttackTable dump + last resolved dir/tier/dmg/reach
 ##   F7 — print CombatTags catalog + last applied stagger/wound tags
 ##   F8 — print BlockPostureTable dump + current posture / last resolve
 ##   F9 — print FlankBonusTable dump + last open-side resolve
 ##   F10 — print WoundDecayTable dump + CharacterHealth live bleed/soft accum
 ##   F11 — print posture-break → CombatTags stagger link + live timers
-##   F12 — print ChargeStaminaTable dump + last release spend
 ##   9 / 0 — HP −10 / +10
-##   7 / 8 — stamina −10 / +10
 ##   6 — add wound
 ##   5 — restore_full()
 ##   4 — set_downed(true, true) stub
@@ -34,8 +31,6 @@ func _ready() -> void:
 	if CharacterHealth:
 		if not CharacterHealth.health_changed.is_connected(_on_vitals):
 			CharacterHealth.health_changed.connect(_on_vitals)
-		if not CharacterHealth.stamina_changed.is_connected(_on_vitals):
-			CharacterHealth.stamina_changed.connect(_on_vitals)
 		if not CharacterHealth.wounds_changed.is_connected(_on_wounds):
 			CharacterHealth.wounds_changed.connect(_on_wounds)
 		if not CharacterHealth.downed_changed.is_connected(_on_downed):
@@ -64,9 +59,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_V:
 				_toggle()
 				get_viewport().set_input_as_handled()
-			KEY_QUOTELEFT:
-				_dump_stamina_economy()
-				get_viewport().set_input_as_handled()
 			KEY_F6:
 				_dump_hatchet_attack_table()
 				get_viewport().set_input_as_handled()
@@ -85,9 +77,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_F11:
 				_dump_posture_break_stagger()
 				get_viewport().set_input_as_handled()
-			KEY_F12:
-				_dump_charge_stamina_table()
-				get_viewport().set_input_as_handled()
 			KEY_9:
 				if CharacterHealth:
 					CharacterHealth.modify_hp(-10.0)
@@ -96,16 +85,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_0:
 				if CharacterHealth:
 					CharacterHealth.modify_hp(10.0)
-					_refresh()
-				get_viewport().set_input_as_handled()
-			KEY_7:
-				if CharacterHealth:
-					CharacterHealth.modify_stamina(-10.0)
-					_refresh()
-				get_viewport().set_input_as_handled()
-			KEY_8:
-				if CharacterHealth:
-					CharacterHealth.modify_stamina(10.0)
 					_refresh()
 				get_viewport().set_input_as_handled()
 			KEY_6:
@@ -157,16 +136,6 @@ func _on_died() -> void:
 
 
 func _on_companion(_active: bool, _id: StringName) -> void:
-	_refresh()
-
-
-func _dump_stamina_economy() -> void:
-	var combat := _find_player_combat()
-	if combat and combat.has_method("dump_stamina_economy"):
-		combat.dump_stamina_economy()
-	else:
-		var cur := CharacterHealth.stamina if CharacterHealth else -1.0
-		print(StaminaEconomy.get_debug_text(cur))
 	_refresh()
 
 
@@ -230,16 +199,6 @@ func _dump_posture_break_stagger() -> void:
 	_refresh()
 
 
-func _dump_charge_stamina_table() -> void:
-	var combat := _find_player_combat()
-	if combat and combat.has_method("dump_charge_stamina_table"):
-		combat.dump_charge_stamina_table()
-	else:
-		var cur := CharacterHealth.stamina if CharacterHealth else -1.0
-		print(ChargeStaminaTable.get_debug_text(cur))
-	_refresh()
-
-
 func _refresh() -> void:
 	if label == null:
 		return
@@ -252,11 +211,6 @@ func _refresh() -> void:
 	if bridge:
 		text += "\n" + bridge.get_debug_text()
 	var combat := _find_player_combat()
-	if combat and combat.has_method("get_stamina_economy_debug_text"):
-		text += "\n" + combat.get_stamina_economy_debug_text()
-	else:
-		var cur := CharacterHealth.stamina if CharacterHealth else -1.0
-		text += "\n" + StaminaEconomy.get_debug_text(cur)
 	if combat and combat.has_method("get_hatchet_attack_table_debug_text"):
 		text += "\n" + combat.get_hatchet_attack_table_debug_text()
 	else:
@@ -279,11 +233,6 @@ func _refresh() -> void:
 		text += "\n" + WoundDecayTable.get_debug_text()
 	if combat and combat.has_method("get_posture_break_stagger_debug_text"):
 		text += "\n" + combat.get_posture_break_stagger_debug_text()
-	if combat and combat.has_method("get_charge_stamina_debug_text"):
-		text += "\n" + combat.get_charge_stamina_debug_text()
-	else:
-		var cur2 := CharacterHealth.stamina if CharacterHealth else -1.0
-		text += "\n" + ChargeStaminaTable.get_debug_text(cur2)
 	label.text = text
 
 

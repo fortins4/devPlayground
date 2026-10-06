@@ -1,7 +1,6 @@
 extends SceneTree
 ## Smoke: hatchet hold-to-charge + top/left/right strike directions + power scaling.
 
-const StaminaEconomy := preload("res://systems/combat/stamina_economy.gd")
 const HatchetAttackTable := preload("res://systems/combat/hatchet_attack_table.gd")
 
 
@@ -99,7 +98,6 @@ func _run() -> void:
 		quit(1)
 		return
 
-	var sta_before := combat.stamina
 	if not combat.release_charged_attack():
 		push_error("SMOKE_FAIL release_charged_attack failed")
 		quit(1)
@@ -116,11 +114,7 @@ func _run() -> void:
 		push_error("SMOKE_FAIL last direction not TOP")
 		quit(1)
 		return
-	if combat.stamina >= sta_before:
-		push_error("SMOKE_FAIL stamina not spent on charged strike")
-		quit(1)
-		return
-	print("SMOKE charged_top_release ok sta=", combat.stamina)
+	print("SMOKE charged_top_release ok (no stamina)")
 
 	# Wait out recovery (charged top ~1.1s total @ 60Hz ≈ 66 frames; pad heavily)
 	for _i in 120:
@@ -198,23 +192,13 @@ func _run() -> void:
 	for _i in 100:
 		await physics_frame
 
-	# Power scaling: damage meta via profile lerp — compare costs by attempting mid vs full
-	combat.stamina = combat.max_stamina
-	var light_cost: float = StaminaEconomy.attack_cost(&"hatchet", &"light")
-	var heavy_cost: float = StaminaEconomy.attack_cost(&"hatchet", &"heavy")
+	# Power scaling: a mid-power commit always goes through (no stamina cost).
 	var mid_power := 0.5
-	var expected_mid := lerpf(light_cost, heavy_cost, mid_power)
-	var sta0 := combat.stamina
 	if not combat.try_attack(&"heavy", CombatSystem.StrikeDirection.RIGHT, mid_power):
 		push_error("SMOKE_FAIL mid power attack failed")
 		quit(1)
 		return
-	var spent := sta0 - combat.stamina
-	print("SMOKE mid_power_cost spent=", spent, " expected~", expected_mid)
-	if absf(spent - expected_mid) > 0.6:
-		push_error("SMOKE_FAIL power cost mismatch spent=%.2f expected=%.2f" % [spent, expected_mid])
-		quit(1)
-		return
+	print("SMOKE mid_power ok power=", combat.last_attack_power)
 	if combat.last_strike_direction() != CombatSystem.StrikeDirection.RIGHT:
 		push_error("SMOKE_FAIL mid power dir not RIGHT")
 		quit(1)
@@ -223,7 +207,6 @@ func _run() -> void:
 	# Cancel charge path
 	for _i in 120:
 		await physics_frame
-	combat.stamina = combat.max_stamina
 	if not combat.begin_charge():
 		push_error("SMOKE_FAIL begin_charge for cancel")
 		quit(1)
@@ -248,14 +231,13 @@ func _run() -> void:
 	print("SMOKE hitstun_cancel ok")
 
 	# Sprint cancels charge
-	combat.stamina = combat.max_stamina
 	if not combat.begin_charge():
 		push_error("SMOKE_FAIL begin_charge for sprint")
 		quit(1)
 		return
-	var sprinted := combat.try_sprint_drain(0.05)
+	var sprinted := combat.try_sprint()
 	if not sprinted:
-		push_error("SMOKE_FAIL sprint drain failed")
+		push_error("SMOKE_FAIL sprint refused")
 		quit(1)
 		return
 	if combat.is_charging:

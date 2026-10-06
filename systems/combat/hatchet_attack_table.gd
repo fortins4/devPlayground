@@ -9,8 +9,8 @@ extends RefCounted
 ##
 ## Input stub mapping (CombatSystem):
 ##   LMB hold-release → tier &"tap" / &"charged" / &"max" from charge ratio
-##   STA costs: ChargeStaminaTable (tap 12 / charged 28 / max 34) on release commit
-##   Recovery still StaminaEconomy light/heavy via kind_from_tier
+##   (thresholds below; moved here from the removed ChargeStaminaTable).
+##   No stamina cost. Recovery: CombatSystem.ATTACK_RECOVERY via kind_from_tier.
 ## Default direction when aim unknown: &"top".
 
 ## Overhead chop / left sideswing / right sideswing.
@@ -18,6 +18,14 @@ const DIRECTIONS: Array[StringName] = [&"top", &"left", &"right"]
 
 ## Tap = light; charged = heavy; max = optional full-charge bump.
 const TIERS: Array[StringName] = [&"tap", &"charged", &"max"]
+
+## Charge-ratio tier thresholds (CombatSystem.release_charged_attack / try_attack).
+## Ratio below this → tap.
+const RATIO_TAP_MAX: float = 0.22
+## Ratio at/above this → charged mid tier.
+const RATIO_CHARGED_MIN: float = 0.55
+## Ratio at/above this → max / full tier.
+const RATIO_MAX_MIN: float = 0.95
 
 ## Baseline: prior PROFILES hatchet light 14/1.35, heavy 28/1.5.
 ## Top: slightly higher damage, shorter lateral reach (overhead).
@@ -61,8 +69,7 @@ static func tier_from_kind(kind: StringName) -> StringName:
 			return &"tap"
 
 
-## Map charge tier → StaminaEconomy recovery / PROFILES kind (light|heavy).
-## Discrete STA cost for hatchet hold-release: ChargeStaminaTable.cost_for_tier.
+## Map charge tier → recovery / PROFILES kind (light|heavy).
 static func kind_from_tier(tier: StringName) -> StringName:
 	match tier:
 		&"charged", &"max", &"heavy":
@@ -119,8 +126,7 @@ static func to_debug_dict() -> Dictionary:
 		"input_map": {
 			"light": &"tap",
 			"heavy": &"charged",
-			"max_stamina_kind": &"heavy",
-			"charge_sta": "ChargeStaminaTable",
+			"max": &"heavy",
 		},
 		"table": cells,
 	}
@@ -143,7 +149,7 @@ static func get_debug_text(
 					String(d), String(t), float(e["damage"]), float(e["reach"]),
 				]
 			)
-	lines.append("map: hold-release→tap/charged/max · STA ChargeStaminaTable · default dir top")
+	lines.append("map: hold-release→tap/charged/max · default dir top")
 	if last_direction != &"" and last_tier != &"":
 		lines.append(
 			"last resolved: dir=%s tier=%s dmg=%.1f reach=%.2f" % [

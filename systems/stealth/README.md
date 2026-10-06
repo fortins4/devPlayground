@@ -7,7 +7,7 @@ First-class pillar alongside combat (VISION / SCOPE): **crouch, cover, detection
 | | **Prototype** (`gameplay/bog-body-hide-prototype`) | **FULL** (`gameplay/bog-body-drag-full`) |
 |---|---|---|
 | Grab | Tap **E** toggle drag / drop | **Hold E** to drag; **release** to drop (or hide in bog) |
-| Cost | Speed only (~1.75) | Speed + **stamina drain** (−11/s); exhausted → crawl-drag |
+| Cost | Speed only (~1.75) | Slower drag speed (stamina drain removed with stamina game-wide) |
 | Bodies | Spoof corpse in stealth lane | Spoof **+ combat kill → CorpseSpawner** (dummy death) |
 | Discovery | Once-only heat bump on LOS | **Investigation delay** then bump; **rediscovery** bumps while still seen |
 | Bog VFX | Shallow sink / fade | Deeper sink + **splash/ripple stub** |
@@ -46,7 +46,7 @@ Combat inputs unchanged (LMB/RMB hatchet, Q cycle, etc.) — blocked while dragg
 
 | Path | Role |
 |---|---|
-| `scripts/characters/player/player_controller.gd` | Crouch + drag slowdown + **drag stamina** |
+| `scripts/characters/player/player_controller.gd` | Crouch + drag slowdown |
 | `systems/stealth/detection_sensor.gd` | Vision cone + LOS + hearing → UNAWARE / SUSPICIOUS / ALERT |
 | `scenes/characters/npcs/sentry.tscn` | Watchman with sensor; **walk-to-body** on investigate |
 | `systems/stealth/bog_zone.gd` | Wetland Area3D — hide, deep sink, splash/ripple stub |
@@ -58,7 +58,7 @@ Combat inputs unchanged (LMB/RMB hatchet, Q cycle, etc.) — blocked while dragg
 ## FULL bog body-drag loop
 
 1. **Kill** the combat-lane dummy (−Z) → tip-over → **draggable corpse** spawns (or use the spoof body in the stealth lane).
-2. Approach → **hold E** to drag (slow move, stamina drains; Combat HUD shows drag line).
+2. Approach → **hold E** to drag (slow move; Combat HUD shows drag line).
 3. Drag into the **bog pocket** (+X of stealth lane) → **release E** to hide.
 4. Splash/ripple stub + deep peat sink → `[CONCEALED]`; heat relief + tiny Honor bump.
 5. **Investigation:** sentry LOS on unhidden body → **walk-to-body + [? INVESTIGATING]** window (~2.0 s) → heat bump + `[DISCOVERED]` + Honor hit.

@@ -6,7 +6,7 @@ single companion slot. Runtime API: `scripts/autoload/character_health.gd`
 
 | Piece | Role |
 |---|---|
-| `scripts/autoload/character_health.gd` | HP / stamina / wounds + downed/death stub + companion slot |
+| `scripts/autoload/character_health.gd` | HP / wounds + downed/death stub + companion slot (no stamina — removed game-wide) |
 | `systems/health/health_combat_bridge.gd` | Optional player-only bridge: `CombatSystem` ↔ `CharacterHealth` |
 | `scenes/ui/health_debug_hud.tscn` | F5 greybox panel (instanced on `scenes/main/main.tscn`) |
 
@@ -31,7 +31,6 @@ mirrors into this autoload (NPCs stay on independent `CombatSystem` vitals).
 | `get_hp()` / `get_max_hp()` | Current / max HP |
 | `set_hp(value)` / `modify_hp(delta)` | Set or delta; clamp 0..max; returns applied delta |
 | `set_max_hp(value, fill := false)` | Raise / lower ceiling |
-| `get_stamina()` / `modify_stamina(delta)` / `set_stamina(value)` | Same pattern for stamina |
 | `get_wounds()` / `add_wound()` / `modify_wounds(delta)` / `clear_wounds()` | Soft injury counter 0..`MAX_WOUNDS` (5); `clear_wounds` also clears named tags |
 | `apply_wound_tag(tag)` / `apply_stagger_tag(tag)` / `apply_combat_tags(tags)` | CombatTags hooks — soft-counter delta + signals; see combat README |
 | `get_wound_tags()` / `clear_wound_tags()` | Recent named wound-tag list (stub, max 8); clear also wipes decay timers |
@@ -39,7 +38,7 @@ mirrors into this autoload (NPCs stay on independent `CombatSystem` vitals).
 | `is_alive()` / `get_is_downed()` / `get_is_dead()` | Stub flags for HUD |
 | `set_downed(downed, mark_dead := false)` | Scripted downed / dead without fancy scene |
 | `revive(fill_vitals := true)` | Clear dead/downed; optional full refill |
-| `restore_full()` | Full HP/STA, clear wounds; revive if needed |
+| `restore_full()` | Full HP, clear wounds; revive if needed |
 
 Clamp is always applied. HP ≤ 0 sets **downed** + **dead** stub and emits
 `died` (no death scene / load flow yet). Use `revive()` to stand back up.
@@ -59,11 +58,10 @@ Band warriors stay in `BandUpkeep` — this slot is for a named companion beat
 
 ```gdscript
 CharacterHealth.health_changed.connect(func(cur, mx): ...)
-CharacterHealth.stamina_changed.connect(func(cur, mx): ...)
 CharacterHealth.wounds_changed.connect(func(count): ...)
 CharacterHealth.wound_tag_applied.connect(func(tag, delta): ...)
 CharacterHealth.stagger_applied.connect(func(tag, dur, strength): ...)
-CharacterHealth.vital_depleted.connect(func(vital): ...)   # &"hp" | &"stamina"
+CharacterHealth.vital_depleted.connect(func(vital): ...)   # &"hp"
 CharacterHealth.vital_restored.connect(func(vital): ...)
 CharacterHealth.downed_changed.connect(func(is_downed): ...)
 CharacterHealth.died.connect(func(): ...)                  # stub — no scene
@@ -76,7 +74,6 @@ CharacterHealth.companion_health_changed.connect(func(cur, mx): ...)
 ```gdscript
 func _ready() -> void:
 	CharacterHealth.health_changed.connect(_on_hp)
-	CharacterHealth.stamina_changed.connect(_on_sta)
 	CharacterHealth.downed_changed.connect(_on_downed)
 	_on_hp(CharacterHealth.hp, CharacterHealth.max_hp)
 
@@ -85,7 +82,6 @@ func _on_hp(cur: float, mx: float) -> void:
 
 # Damage / heal from gameplay:
 CharacterHealth.modify_hp(-14.0)
-CharacterHealth.modify_stamina(-22.0)
 CharacterHealth.add_wound()
 ```
 
@@ -108,9 +104,8 @@ Exports (defaults on for player stub):
 
 | Flag | Default | Role |
 |---|---|---|
-| `sync_combat_to_session` | `true` | Melee / combat HP·STA → `CharacterHealth` |
+| `sync_combat_to_session` | `true` | Melee / combat HP → `CharacterHealth` |
 | `sync_session_to_combat` | `true` | Session (V-panel keys, heals) → bound combat |
-| `sync_stamina` | `true` | Include stamina in both directions |
 | `seed_session_from_combat_on_bind` | `true` | Seed autoload from combat on bind |
 | `auto_bind_on_ready` | `true` | Resolve sibling `CombatSystem` and bind |
 
@@ -122,7 +117,7 @@ bridge.apply_heal(10.0)     # both surfaces
 print(bridge.get_debug_text())
 ```
 
-Signals: `bound_changed(is_bound)`, `synced(direction, hp, stamina)` where
+Signals: `bound_changed(is_bound)`, `synced(direction, hp)` where
 `direction` is `&"combat_to_session"`, `&"session_to_combat"`, or `&"heal"`.
 
 
@@ -156,16 +151,15 @@ Full numbers + F10 probe: [`systems/combat/README.md`](../combat/README.md#bleed
 
 1. Open `project.godot` in **Godot 4.4+** and press **F5** (main scene).
 2. Press **V** — CharacterHealth panel (mid-left). Confirm seed:
-   - `HP 100/100   STA 100/100   Wounds 0/5`
+   - `HP 100/100   Wounds 0/5`
    - `Flags: downed=false  dead=false  alive=true`
    - `Companion: (none)`
 3. Press **9** — HP −10. Panel updates; `health_changed` fires (watch Remote if needed).
 4. Press **9** repeatedly until HP hits 0 — panel shows `downed=true dead=true alive=false`.
 5. Press **5** — `restore_full()` / revive path; flags clear, vitals full.
-6. Press **7** / **8** — stamina ±10; at 0, `vital_depleted("stamina")`.
-7. Press **6** — add a wound (caps at 5).
-8. Press **4** — force downed stub without necessarily zeroing HP first (toggle-style force); **5** clears via restore.
-9. Remote / Debugger alternatives (no HUD):
+6. Press **6** — add a wound (caps at 5).
+7. Press **4** — force downed stub without necessarily zeroing HP first (toggle-style force); **5** clears via restore.
+8. Remote / Debugger alternatives (no HUD):
    ```gdscript
    print(CharacterHealth.to_debug_dict())
    print(CharacterHealth.get_debug_text())
@@ -174,21 +168,19 @@ Full numbers + F10 probe: [`systems/combat/README.md`](../combat/README.md#bleed
    CharacterHealth.modify_companion_hp(-20.0)
    CharacterHealth.revive()
    ```
-10. Press **V** again to hide the panel.
+9. Press **V** again to hide the panel.
 
-Keys: **V** toggle (includes `StaminaEconomy` / hatchet / CombatTags / wound decay) · **backtick** stamina dump ·
+Keys: **V** toggle (includes hatchet / CombatTags / wound decay) ·
 **F6** hatchet table · **F7** stagger/wound tags dump · **F8** block/posture · **F9** flank · **F10** wound decay ·
-**9** / **0** HP −10 / +10 · **7** / **8** STA −10 / +10 ·
+**9** / **0** HP −10 / +10 ·
 **6** wound+ · **5** restore full · **4** force downed stub.
 
 Named stagger/wound tags (CombatTags) are documented in [`systems/combat/README.md`](../combat/README.md#stagger--wound-tags-combat-support-data). `restore_full` / `clear_wounds` clear the tagged-wound stub list.
 
-Session `max_stamina` defaults from `StaminaEconomy.MAX_STAMINA` (see [`systems/combat/README.md`](../combat/README.md#stamina-economy-fight-numbers)).
-
 Layout: Honor **H** top-left · Timeline **T** top-right · Rumors **N** bottom-left ·
 Travel **G** bottom-right · **CharacterHealth V** mid-left (below Honor).
 
-Combat HUD (always-on HP/STA from `CombatSystem`) stays wired to the component;
+Combat HUD (always-on HP from `CombatSystem`; no stamina readout) stays wired to the component;
 with the bridge on the player, those values should stay in lockstep with this
 panel when you take a hit or press **9** / **0**.
 

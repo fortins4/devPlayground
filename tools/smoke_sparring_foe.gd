@@ -137,7 +137,6 @@ func _check_goad_jab() -> bool:
 		push_error("SMOKE_FAIL stopped jab flinched the foe")
 		return false
 	pc.health = pc.max_health
-	pc.stamina = pc.max_stamina
 	if not pc.set_shaft_block(true):
 		push_error("SMOKE_FAIL could not raise guard for a high face")
 		return false

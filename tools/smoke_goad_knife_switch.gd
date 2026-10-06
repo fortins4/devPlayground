@@ -224,7 +224,6 @@ func _run() -> void:
 
 
 func _check_goad_charge(combat: CombatSystem) -> bool:
-	combat.stamina = combat.max_stamina
 	if absf(combat.charge_full_secs - 0.75) > 0.001:
 		push_error("SMOKE_FAIL charge_full_secs is not 0.75")
 		return false
@@ -316,7 +315,7 @@ func _check_goad_charge(combat: CombatSystem) -> bool:
 	if not combat.begin_charge():
 		push_error("SMOKE_FAIL charge before sprint failed")
 		return false
-	if not combat.try_sprint_drain(0.05):
+	if not combat.try_sprint():
 		push_error("SMOKE_FAIL sprint drain failed")
 		return false
 	if combat.is_charging:
@@ -553,11 +552,10 @@ func _check_shaft_block(combat: CombatSystem) -> bool:
 		push_error("SMOKE_FAIL rear hit left the guard up")
 		return false
 	combat.health = combat.max_health
-	combat.stamina = combat.max_stamina
 	if not combat.set_shaft_block(true):
 		push_error("SMOKE_FAIL could not re-raise shaft block")
 		return false
-	if not combat.try_sprint_drain(0.05):
+	if not combat.try_sprint():
 		push_error("SMOKE_FAIL sprint drain during block")
 		return false
 	if combat.is_shaft_blocking:
@@ -569,7 +567,6 @@ func _check_shaft_block(combat: CombatSystem) -> bool:
 		push_error("SMOKE_FAIL open goad negated damage")
 		return false
 	combat.health = combat.max_health
-	combat.stamina = combat.max_stamina
 	if not combat.begin_charge():
 		push_error("SMOKE_FAIL charge missing after shaft block")
 		return false
@@ -580,7 +577,6 @@ func _check_shaft_block(combat: CombatSystem) -> bool:
 func _reset_attack(combat: CombatSystem) -> void:
 	combat.is_attacking = false
 	combat.attack_recovery_left = 0.0
-	combat.stamina = combat.max_stamina
 
 
 func _dir(name: String) -> int:

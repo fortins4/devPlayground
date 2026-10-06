@@ -51,7 +51,7 @@ Docs: https://terrain3d.readthedocs.io/en/stable/docs/installation.html
 | `scenes/world/regions/leinster/` | Starting open-world greybox |
 | `scenes/world/ringfort/` | Home túath / upgradeable base |
 | `scenes/characters/` | Player + NPCs |
-| `systems/combat/` | Stamina / directional combat |
+| `systems/combat/` | Directional combat (no stamina) |
 | `systems/honor/` | Enech reputation (autoload: `Honor`) |
 | `systems/factions/` | Faction AI & attitudes (autoload: `Factions`) |
 | `systems/timeline/` | Living history / Bannow Bay (autoload: `WorldClock`) |

@@ -1,6 +1,6 @@
 # Combat (greybox slice)
 
-Stamina-based, **directional** melee for Ríocht’s cattle-farm starter kit.
+**Directional** melee (no stamina — removed game-wide) for Ríocht’s cattle-farm starter kit.
 
 ## Starting kit (Cian)
 
@@ -28,7 +28,7 @@ No starting sword or shield. `CombatSystem.enable_block` stays off until shield 
 | RMB | Heavy for **knife/goad only** — hatchet has **no** instant full-power (hold-release only) |
 | Sprint / hit-stun | **Cancels** an in-progress goad or hatchet charge |
 | Space | Jump |
-| Shift | Sprint (drains stamina) |
+| Shift | Sprint (no meter; look-guard drops and no attack / charge while held) |
 | Q | Cycle weapon (goad → knife → hatchet) |
 | 1 / 2 / 3 | Select hatchet / knife / goad |
 | Esc | Capture / release mouse |
@@ -55,66 +55,29 @@ Procedural pose phases: windup cock + brief hold telegraph → strike → contac
 
 `CombatSystem` (`systems/combat/combat_system.gd`) is a reusable child node for player and NPCs.
 
-- **Stamina** from `StaminaEconomy` — regen when idle after delay (not attacking / charging / blocking); costs on light/heavy/sprint (see table below)
+- **No stamina.** Attacks, charges, guards and sprint have no meter, drain or gate. A charged release always swings.
 - **Charge** (`begin_charge` / `release_charged_attack`): power lerps light→heavy profiles
 - **StrikeDirection** `TOP` / `LEFT` / `RIGHT` — hatchet swing poses + hitbox bias
 - **Health** + `died` signal
 - **Hit detection** via sibling `Hitbox` Area3D (short-lived monitoring during active frames)
 - **Teams** (`team` export): same team does not hurt each other
-- Signals: `attack_performed`, `hit_landed`, `damage_taken`, `stamina_changed`, `health_changed`, `weapon_changed`, `charge_started`, `charge_updated`, `charge_released`, `charge_cancelled`, `died` (`blocked` reserved for later shield)
+- Signals: `attack_performed`, `hit_landed`, `damage_taken`, `health_changed`, `weapon_changed`, `charge_started`, `charge_updated`, `charge_released`, `charge_cancelled`, `died` (`blocked` reserved for later shield)
 - **Hit feedback** (greybox): hurt-mesh flash, knockback impulse (`consume_knockback()`), floating damage numbers, brief hit-stop on connect. Player also gets a light screen punch.
 
 Wire under a `CharacterBody3D` with optional `Hitbox`, `Hurtbox`, and `WeaponVisual` (children named `Hatchet`, `Knife`, `Goad`).
 
 
-## Stamina economy (fight numbers)
+## Recovery timings (no stamina)
 
-Tunable greybox pool — **data only** in `systems/combat/stamina_economy.gd`
-(`class_name StaminaEconomy`). `CombatSystem` reads max / regen / delay / sprint /
-attack **cost + recovery** / block stubs from that table. Knife/goad damage,
-windup, active, and reach stay on `CombatSystem.PROFILES`. **Hatchet** damage/reach
-come from `HatchetAttackTable` (direction × charge tier); windup/active stay on
-PROFILES. Feel (anims, hitstop, telegraph) stays Godot-owned.
+Stamina was removed (no meter, regen, drain or cost anywhere). The recovery half
+of the old `StaminaEconomy.ATTACK` table survives as `CombatSystem.ATTACK_RECOVERY`
+(`CombatSystem.attack_recovery(weapon, kind)`):
 
-| Knob | Value | Notes |
+| Weapon | Light recover | Heavy recover |
 |---|---|---|
-| **Max stamina** | `100` | CombatSystem + CharacterHealth session default |
-| **Regen /s** | `18` | Only when not attacking / not blocking **and** regen delay elapsed |
-| **Regen delay** | `0.35 s` | Armed on stamina spend **and** when attack recovery ends |
-| **Sprint drain /s** | `22` | Shift sprint |
-| **Block drain /s** | `8` | Stub — `enable_block` stays **off** |
-| **Block hit cost** | `12` | Stub on successful frontal block |
-| **Block min hold** | `5` | Drop block below this |
-
-### Attack cost + recover (source of truth)
-
-| Weapon | Light cost | Light recover | Heavy cost | Heavy recover |
-|---|---|---|---|---|
-| Hatchet | 12 | 0.34 s | 28 | 0.58 s |
-| Knife | 8 | 0.16 s | 18 | 0.28 s |
-| Goad | 10 | 0.26 s | 22 | 0.40 s |
-
-Design notes (hatchet-first):
-
-- **~8 light hatchet swings** to empty (`floor(100/12)`).
-- **Empty → full ~5.6 s** at 18/s (plus regen delay after last spend / recover).
-- **Recover gates the next swing** — light hatchet total busy ≈ windup 0.16 + active 0.12 + recover 0.34 ≈ **0.62 s** (before dir scales), then **0.35 s** regen delay before passive refill.
-- Heavies cost more than two lights and leave a longer recover window — commit tools, not spam.
-
-Edit numbers in `StaminaEconomy` only; do not scatter magic floats back into
-`CombatSystem` attack / sprint / block paths.
-
-### F5 probe (stamina economy)
-
-1. Open `scenes/main/main.tscn` and press **F5**.
-2. Press **V** — CharacterHealth panel (mid-left) now appends the
-   `StaminaEconomy` table + current STA (and bridge lines when bound).
-3. Press **backtick** (`Key.QUOTELEFT`) — prints the same dump to the Output
-   panel (`CombatSystem.dump_stamina_economy()` / `StaminaEconomy.get_debug_text()`).
-4. Swing / sprint and confirm STA drops; after recover + delay, regen resumes at 18/s.
-
-Key map (no collision with Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**, hatchet **F6**, tags **F7**, block **F8**, flank **F9**, wound decay **F10**, break→stagger **F11**, charge STA **F12**):
-**V** show table · **backtick** print stamina dump.
+| Hatchet | 0.34 s | 0.58 s |
+| Knife | 0.16 s | 0.28 s |
+| Goad | 0.26 s | 0.40 s |
 
 ## Hatchet damage / reach table (directional + charge)
 
@@ -136,22 +99,20 @@ to **`&"top"`** so existing LMB/RMB keep working without aim selection.
 
 ### Charge tiers + input mapping stub
 
-| Tier | Alias | Maps from (~0.75 s hold-release) | STA cost | Recovery kind |
-|---|---|---|---|---|
-| `&"tap"` | light | short release (held < ~0.08 s or ratio < 0.22) | **12** (`ChargeStaminaTable`) | `light` |
-| `&"charged"` | mid | mid hold (ratio ≥ 0.55, < 0.95) | **28** | `heavy` |
-| `&"max"` | full | full hold (ratio ≥ 0.95 / ~0.75 s) | **34** | `heavy` |
+| Tier | Alias | Maps from (~0.75 s hold-release) | Recovery kind |
+|---|---|---|---|
+| `&"tap"` | light | short release (held < ~0.08 s or ratio < 0.22) | `light` |
+| `&"charged"` | mid | mid hold (ratio ≥ 0.55, < 0.95) | `heavy` |
+| `&"max"` | full | full hold (ratio ≥ 0.95 / ~0.75 s) | `heavy` |
 
-Discrete charge STA lives in **`ChargeStaminaTable`** (spend on release commit).
-Recovery still comes from `StaminaEconomy` via `kind_from_tier`.
+Ratio thresholds live on `HatchetAttackTable` (`RATIO_TAP_MAX` / `RATIO_CHARGED_MIN` /
+`RATIO_MAX_MIN`). No stamina cost. Recovery from `CombatSystem.ATTACK_RECOVERY` via `kind_from_tier`.
 
 API:
 
 - `CombatSystem.try_attack(kind, direction = &"top")` — legacy light/heavy; maps
   kind → tier, optional direction.
 - `CombatSystem.try_attack_directional(direction, tier)` — explicit direction×tier.
-- `CombatSystem.spend_for_charge(tier)` / `try_spend_for_charge(tier)` — STA spend
-  on release commit; returns `false` if insufficient (refuse strike).
 - Knife / goad ignore the table and keep `PROFILES` damage/reach.
 
 ### Full table (greybox defaults)
@@ -175,7 +136,7 @@ charged > tap; max = modest bump.
 Helpers: `entry(direction, tier)`, `damage(...)`, `reach(...)`, `to_debug_dict()`,
 `tier_from_kind` / `kind_from_tier`.
 
-Edit numbers in `HatchetAttackTable.TABLE` only — do not retune `StaminaEconomy`
+Edit numbers in `HatchetAttackTable.TABLE` only — do not retune `CombatSystem.ATTACK_RECOVERY`
 costs here (queue #1 owns those).
 
 ### F5 probe (hatchet table)
@@ -189,7 +150,7 @@ costs here (queue #1 owns those).
 4. Swing LMB/RMB with hatchet equipped; confirm last resolved shows
    `dir=top tier=tap|charged` with matching dmg/reach.
 
-Key map (no collision with stamina **V** / **backtick**, tags **F7**, block
+Key map (no collision with vitals **V**, tags **F7**, block
 **F8**, flank **F9**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F6** print hatchet table dump.
 
@@ -237,7 +198,7 @@ Knife / goad simple defaults: knife → `cut` + `stagger_light`; goad light →
 API: `tags_for_hit(weapon, kind, direction, tier)`, `hatchet_tags(dir, tier)`,
 `stagger_entry` / `wound_entry`, `to_debug_dict()`, `get_debug_text(...)`.
 
-Edit catalog / mapping in `CombatTags` only — do not retune `StaminaEconomy` or
+Edit catalog / mapping in `CombatTags` only — do not retune
 `HatchetAttackTable` numbers here.
 
 ### F5 probe (combat tags)
@@ -249,18 +210,17 @@ Edit catalog / mapping in `CombatTags` only — do not retune `StaminaEconomy` o
 4. Swing hatchet into the dummy (or take a hit); confirm last applied shows
    expected tags; player soft wounds tick on `cut` / `deep` when *you* are hit.
 
-Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, block
+Key map (no collision with vitals **V**, hatchet **F6**, block
 **F8**, flank **F9**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F7** print combat tags dump.
 
 ## Block / posture face-guard numbers (sparring)
 
 Tunable greybox data — **`systems/combat/block_posture_table.gd`**
-(`class_name BlockPostureTable`). Face guards ≠ full shield block. Shield stubs
-stay on `StaminaEconomy` (`BLOCK_DRAIN_PER_SEC` 8 / `BLOCK_HIT_COST` 12 /
-`BLOCK_MIN_STAMINA` 5) with `CombatSystem.enable_block` **off** for the player
-kit. This table is the **sparring** resource: hold a face aligned with hatchet
-dirs; matching attack → mitigate + chip posture + stamina cost; mismatch /
+(`class_name BlockPostureTable`). Face guards ≠ full shield block
+(`CombatSystem.enable_block` stays **off** for the player kit; no stamina).
+This table is the **sparring** resource: hold a face aligned with hatchet
+dirs; matching attack → mitigate + chip posture; mismatch /
 `&"open"` → full damage.
 
 Feel (anims, dummy face-switch AI) stays Godot-owned. Systems owns table +
@@ -281,29 +241,29 @@ Default face: **`&"open"`**.
 
 | Knob | Value | Notes |
 |---|---|---|
-| **Max posture** | `100` | Separate from stamina |
+| **Max posture** | `100` | Posture pool (there is no stamina) |
 | **Regen /s** | `12` | × per-face `recover_rate` |
 | **Break stun** | `0.75 s` | After posture hits 0 — forced open; **aligned to** `CombatTags.stagger_heavy` |
 | **Break stagger** | `&"stagger_heavy"` | Existing CombatTags tag applied on break (no parallel CC) |
 
 ### Per-face numbers
 
-| Face | Mitigation | STA cost on hit | Posture chip | Recover rate | Window sec |
-|---|---|---|---|---|---|
-| top | 0.60 | 8 | 22 | 1.00 | 1.40 |
-| left | 0.55 | 6 | 18 | 1.05 | 1.20 |
-| right | 0.55 | 6 | 18 | 1.05 | 1.20 |
-| open | 0.00 | 0 | 0 | 1.15 | 0.00 |
+| Face | Mitigation | Posture chip | Recover rate | Window sec |
+|---|---|---|---|---|
+| top | 0.60 | 22 | 1.00 | 1.40 |
+| left | 0.55 | 18 | 1.05 | 1.20 |
+| right | 0.55 | 18 | 1.05 | 1.20 |
+| open | 0.00 | 0 | 1.15 | 0.00 |
 
 Design notes:
 
 - **Face match**: `guard_face == attack_dir` (both `top`/`left`/`right`) →
-  strip `damage_mitigation` fraction, spend STA, chip posture.
+  strip `damage_mitigation` fraction, chip posture.
 - **Open / mismatch**: full damage, then **FlankBonusTable** multiplier (see
   flank section below). Matched face absorb → no flank bonus.
 - **~4 matched top absorbs** to break (`floor(100/22)`). Empty → full ~8.3 s at
   12/s (before face recover_rate / break stun).
-- Lighter than full shield stub (~0.75 mitigate / hit cost 12) — face covers one
+- Lighter than full shield stub (~0.75 mitigate) — face covers one
   line, not the whole front.
 
 ### CombatSystem wire (opt-in)
@@ -338,7 +298,7 @@ Helpers: `faces_match`, `is_open_side`, `face_entry`, `resolve_guard_hit`,
 `to_debug_dict()`, `get_debug_text(...)`.
 
 Edit numbers in `BlockPostureTable` / `CombatTags.STAGGER` only — do not retune
-`StaminaEconomy` shield stubs or `HatchetAttackTable` here.
+`HatchetAttackTable` here.
 
 ### Sparring foe defaults API (Godot)
 
@@ -375,7 +335,7 @@ What `apply_sparring_foe_guard_defaults` does:
 | `posture_break_left` | `0` |
 | `guard_face` / `guard_direction` | starting **`top`** / `StrikeDirection.TOP` |
 
-Per-face soak (mitigation / STA cost / posture chip / recover / window) stays on
+Per-face soak (mitigation / posture chip / recover / window) stays on
 `BlockPostureTable.FACE_TABLE` — apply does not copy magic floats into the foe.
 
 `scripts/characters/npcs/dummy_fighter.gd` calls this in `_ready`. While holding
@@ -400,7 +360,7 @@ resolve (`CombatSystem.dump_block_posture_table()`).
    face, swing matching dirs until posture breaks; confirm `stagger_heavy`
    applied, `can_move()` gated, and F11 shows last break.
 
-Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
+Key map (no collision with vitals **V**, hatchet **F6**, tags
 **F7**, flank **F9**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F8** print block/posture dump · **F11** posture-break→stagger link.
 
@@ -442,7 +402,7 @@ API: `bonus_for(guard_face, attack_dir, is_rear := false) -> float`,
 `classify(...)`, `resolve(...)`, `to_debug_dict()`, `get_debug_text(...)`.
 
 Edit numbers in `FlankBonusTable` only — do not retune `BlockPostureTable` /
-`StaminaEconomy` / `HatchetAttackTable` here.
+`HatchetAttackTable` here.
 
 ### F5 probe (flank bonus)
 
@@ -455,7 +415,7 @@ Edit numbers in `FlankBonusTable` only — do not retune `BlockPostureTable` /
    matching / mismatching / from behind; confirm matched = no flank, open /
    wrong-face / rear multiply remaining damage.
 
-Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
+Key map (no collision with vitals **V**, hatchet **F6**, tags
 **F7**, block **F8**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F9** print flank bonus dump.
 
@@ -495,7 +455,7 @@ wipe tags, ages, and bleed/soft accumulators.
 - `_process` → `_tick_wound_decay` when `enable_wound_decay` (default true) and not dead
 - Ages parallel `wound_tags`; expired tags drop off the list
 - `get_wound_decay_debug_text()` / `dump_wound_decay_table()` for F5
-- CombatTags `wound_entry` optionally surfaces `bleed_hp_per_sec` / `decay_sec` from this table (link only — do not retune flank/posture/stamina/hatchet numbers here)
+- CombatTags `wound_entry` optionally surfaces `bleed_hp_per_sec` / `decay_sec` from this table (link only — do not retune flank/posture/hatchet numbers here)
 
 API: `entry(tag)`, `bleed_hp_per_sec`, `decay_sec`, `total_bleed_hp_per_sec(tags)`,
 `resolve_tick_interval(tags)`, `to_debug_dict()`, `get_debug_text(...)`.
@@ -514,68 +474,9 @@ Edit numbers in `WoundDecayTable` only.
    ticks down; wait / Remote advance soft_accum toward 30 s for −1 wound;
    **5** restore wipes state.
 
-Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
+Key map (no collision with vitals **V**, hatchet **F6**, tags
 **F7**, block **F8**, flank **F9**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
 **F10** print wound decay dump.
-
-## Charge ↔ stamina spend (hatchet hold-release)
-
-Tunable greybox data — **`systems/combat/charge_stamina_table.gd`**
-(`class_name ChargeStaminaTable`). Discrete STA cost per hatchet charge tier,
-aligned with the existing **~0.75 s** hold-release window and
-`HatchetAttackTable` tier names (`tap` / `charged` / `max`). Godot owns feel /
-input timing; Systems owns this table + the spend-on-release API.
-
-### Costs (greybox defaults)
-
-| Tier | Alias | STA cost | ~Swings to empty (100 STA) |
-|---|---|---|---|
-| `&"tap"` | light | **12** | ~8 |
-| `&"charged"` | mid | **28** | ~3 |
-| `&"max"` | full | **34** | ~2 |
-
-`tap` / `charged` match `StaminaEconomy` hatchet light/heavy; `max` bumps above
-charged so a full 0.75 s commit costs more than a mid release.
-
-### When spend fires (Godot contract)
-
-| Moment | Spend? |
-|---|---|
-| `begin_charge` / while holding | **No** — no continuous drain |
-| `cancel_charge` (sprint / hit-stun) | **No** |
-| `release_charged_attack` → `try_attack` commit | **Yes** — discrete tier cost |
-| Explicit `spend_for_charge` / `try_spend_for_charge` | **Yes** — same path |
-
-Insufficient STA → API returns **`false`**; Godot must **refuse the strike**
-(no swing, no recovery lock). Do not call spend while the button is held.
-
-Thresholds (match `CombatSystem` defaults / `ChargeStaminaTable` constants):
-
-- tap: held < `0.08` s **or** ratio < `0.22`
-- charged (mid): ratio ≥ `0.55` and < `0.95`
-- max (full): ratio ≥ `0.95` (~full `charge_full_secs` 0.75 s)
-
-API: `cost_for_tier`, `tier_from_charge(ratio, held_secs)`, `can_afford`,
-`try_spend_preview`, `CombatSystem.can_afford_charge` /
-`spend_for_charge` / `try_spend_for_charge`, `to_debug_dict()`,
-`get_debug_text(...)`.
-
-Edit numbers in `ChargeStaminaTable` only — do not retune knife/goad
-`StaminaEconomy.ATTACK` or `HatchetAttackTable` damage/reach here.
-
-### F5 probe (charge ↔ stamina)
-
-1. Open `scenes/main/main.tscn` and press **F5**.
-2. Press **V** — panel appends the ChargeStaminaTable + last release spend.
-3. Press **F12** — prints the same dump to the Output panel
-   (`CombatSystem.dump_charge_stamina_table()` /
-   `ChargeStaminaTable.get_debug_text()`).
-4. Hold-release tap / mid / full; confirm STA drops by 12 / 28 / 34 only on
-   release. Drain STA below cost and confirm strike refuses (`false`).
-
-Key map (no collision with stamina **V** / **backtick**, hatchet **F6**, tags
-**F7**, block **F8**, flank **F9**, wound decay **F10**, break→stagger **F11**, Honor **H**, Timeline **T**/**U**, Rumors **N**, Travel **G**, Crowd **\\**):
-**F12** print charge↔stamina spend dump.
 
 ## Dummy counter
 
@@ -604,8 +505,8 @@ godot --headless --path . -s res://tools/capture_hatchet_timing_screenshots.gd
 
 ## Session vitals bridge (player only)
 
-Player greybox adds `HealthCombatBridge` beside `CombatSystem` so melee HP/STA
-mirror into the `CharacterHealth` autoload (HUD / feel). **NPCs are unchanged** —
+Player greybox adds `HealthCombatBridge` beside `CombatSystem` so melee HP
+mirrors into the `CharacterHealth` autoload (HUD / feel). **NPCs are unchanged** —
 do not attach the bridge to dummy / sentry / band scenes. See
 [`systems/health/README.md`](../health/README.md#healthcombatbridge-player--session).
 
@@ -616,8 +517,7 @@ Locomotion / body swing driving for the kerne silhouette: [`docs/CHARACTER_ANIMS
 ## Systems data hooks
 
 - **Damage / reach (hatchet):** `HatchetAttackTable` (direction × tap/charged/max)
-- **Stamina cost + recovery:** `StaminaEconomy` (knife/goad + hatchet recovery 0.34 / 0.58)
-- **Charge ↔ STA spend (hatchet):** `ChargeStaminaTable` (tap 12 / charged 28 / max 34; spend on release)
+- **Recovery:** `CombatSystem.ATTACK_RECOVERY` (no stamina; StaminaEconomy / ChargeStaminaTable removed)
 - **Face-guard / posture:** `BlockPostureTable` (sparring; `enable_face_guard`; `apply_sparring_foe_guard_defaults`)
 - **Posture break → stagger:** `BREAK_STAGGER_TAG` = `stagger_heavy` via `apply_stagger_tag` (F11)
 - **Open-side flank mult:** `FlankBonusTable` (only when face does not mitigate)

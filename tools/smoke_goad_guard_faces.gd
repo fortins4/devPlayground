@@ -162,7 +162,6 @@ func _check_poses_differ() -> bool:
 
 func _check_coverage(combat: CombatSystem) -> bool:
 	combat.health = combat.max_health
-	combat.stamina = combat.max_stamina
 	if not combat.set_shaft_block(true) or combat.shaft_guard_face != &"chest":
 		push_error("SMOKE_FAIL chest guard did not raise")
 		return false
@@ -262,7 +261,7 @@ func _check_coverage(combat: CombatSystem) -> bool:
 	_reset(combat)
 	combat.set_shaft_block(true)
 	combat.set_shaft_guard_face(&"low")
-	if not combat.try_sprint_drain(0.05) or combat.is_shaft_blocking:
+	if not combat.try_sprint() or combat.is_shaft_blocking:
 		push_error("SMOKE_FAIL sprint did not drop the faced guard")
 		return false
 	return true
@@ -472,5 +471,4 @@ func _reset(combat: CombatSystem) -> void:
 	combat.attack_recovery_left = 0.0
 	combat.is_charging = false
 	combat.health = combat.max_health
-	combat.stamina = combat.max_stamina
 	combat.set_shaft_block(false)

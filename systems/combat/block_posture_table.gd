@@ -2,11 +2,10 @@ class_name BlockPostureTable
 extends RefCounted
 ## Face-guard / posture numbers for sparring — greybox data surface.
 ##
-## Face guards ≠ full shield block. Shield stubs stay on StaminaEconomy
-## (BLOCK_DRAIN / BLOCK_HIT_COST / BLOCK_MIN) with CombatSystem.enable_block off
-## for the cattle-farm starter kit. This table is the sparring foe resource:
+## Face guards ≠ full shield block (CombatSystem.enable_block stays off for the
+## cattle-farm starter kit). No stamina anywhere. This table is the sparring foe resource:
 ## hold a face aligned with HatchetAttackTable dirs (&"top"/&"left"/&"right");
-## matching attack dir → mitigate + chip posture + stamina cost; mismatch or
+## matching attack dir → mitigate + chip posture; mismatch or
 ## &"open" → full damage + FlankBonusTable open-side multiplier (see flank_bonus_table.gd).
 ##
 ## Feel (anims, dummy face-switch AI, telegraph) stays Godot-owned — DATA +
@@ -17,7 +16,7 @@ const FACES: Array[StringName] = [&"top", &"left", &"right", &"open"]
 
 const DEFAULT_FACE: StringName = &"open"
 
-## Shared posture pool (separate from stamina). Break when emptied.
+## Shared posture pool. Break when emptied.
 const MAX_POSTURE: float = 100.0
 const REGEN_PER_SEC: float = 12.0
 ## Stun / open window after posture hits 0.
@@ -30,17 +29,15 @@ const BREAK_STAGGER_TAG: StringName = &"stagger_heavy"
 
 ## Per-face numbers.
 ## damage_mitigation: fraction stripped on face-match (0..1). Remaining = full*(1-m).
-## stamina_cost_on_block_hit: STA spend on successful face-match absorb.
 ## posture_chip: posture pool damage on successful face-match absorb.
 ## recover_rate: multiplier on POSTURE regen while holding this face.
 ## window_sec: how long a held face stays up before Godot should refresh (data).
 ##
-## Tuned lighter than full shield (shield stub ~0.75 mitigate / hit cost 12):
+## Tuned lighter than full shield (shield stub ~0.75 mitigate):
 ## top denser overhead cover; sides snappier / cheaper; open = no cover.
 const FACE_TABLE: Dictionary = {
 	&"top": {
 		"damage_mitigation": 0.60,
-		"stamina_cost_on_block_hit": 8.0,
 		"posture_chip": 22.0,
 		"recover_rate": 1.00,
 		"window_sec": 1.40,
@@ -48,7 +45,6 @@ const FACE_TABLE: Dictionary = {
 	},
 	&"left": {
 		"damage_mitigation": 0.55,
-		"stamina_cost_on_block_hit": 6.0,
 		"posture_chip": 18.0,
 		"recover_rate": 1.05,
 		"window_sec": 1.20,
@@ -56,7 +52,6 @@ const FACE_TABLE: Dictionary = {
 	},
 	&"right": {
 		"damage_mitigation": 0.55,
-		"stamina_cost_on_block_hit": 6.0,
 		"posture_chip": 18.0,
 		"recover_rate": 1.05,
 		"window_sec": 1.20,
@@ -64,7 +59,6 @@ const FACE_TABLE: Dictionary = {
 	},
 	&"open": {
 		"damage_mitigation": 0.0,
-		"stamina_cost_on_block_hit": 0.0,
 		"posture_chip": 0.0,
 		"recover_rate": 1.15,
 		"window_sec": 0.0,
@@ -107,7 +101,6 @@ static func face_entry(face: StringName) -> Dictionary:
 	return {
 		"face": f,
 		"damage_mitigation": float(raw.get("damage_mitigation", 0.0)),
-		"stamina_cost_on_block_hit": float(raw.get("stamina_cost_on_block_hit", 0.0)),
 		"posture_chip": float(raw.get("posture_chip", 0.0)),
 		"recover_rate": float(raw.get("recover_rate", 1.0)),
 		"window_sec": float(raw.get("window_sec", 0.0)),
@@ -120,12 +113,6 @@ static func mitigation_for(guard_face: StringName, attack_dir: StringName) -> fl
 	if not faces_match(guard_face, attack_dir):
 		return 0.0
 	return float(face_entry(guard_face)["damage_mitigation"])
-
-
-static func stamina_cost_for(guard_face: StringName, attack_dir: StringName) -> float:
-	if not faces_match(guard_face, attack_dir):
-		return 0.0
-	return float(face_entry(guard_face)["stamina_cost_on_block_hit"])
 
 
 static func posture_chip_for(guard_face: StringName, attack_dir: StringName) -> float:
@@ -160,7 +147,7 @@ static func break_stagger_entry() -> Dictionary:
 
 ## Resolve a guard absorb attempt. Pure data — caller applies costs / HP.
 ## Returns matched, open_side, mitigation, mitigated_amount, remaining_damage,
-## stamina_cost, posture_chip, face entry fields.
+## posture_chip, face entry fields.
 static func resolve_guard_hit(
 	guard_face: StringName,
 	attack_dir: StringName,
@@ -183,7 +170,6 @@ static func resolve_guard_hit(
 		"incoming_damage": incoming,
 		"mitigated_amount": mitigated_amount,
 		"remaining_damage": remaining,
-		"stamina_cost": float(entry["stamina_cost_on_block_hit"]) if matched else 0.0,
 		"posture_chip": float(entry["posture_chip"]) if matched else 0.0,
 		"recover_rate": float(entry["recover_rate"]),
 		"window_sec": float(entry["window_sec"]),
@@ -338,14 +324,13 @@ static func get_debug_text(
 			int(d["break_stagger_interrupt"]),
 		]
 	)
-	lines.append("face            mit   sta   chip  recov  window")
+	lines.append("face            mit   chip  recov  window")
 	for f in FACES:
 		var e: Dictionary = d["faces"][String(f)]
 		lines.append(
-			"%-8s        %4.2f  %4.0f  %5.0f  %4.2f   %4.2f" % [
+			"%-8s        %4.2f  %5.0f  %4.2f   %4.2f" % [
 				String(f),
 				float(e["damage_mitigation"]),
-				float(e["stamina_cost_on_block_hit"]),
 				float(e["posture_chip"]),
 				float(e["recover_rate"]),
 				float(e["window_sec"]),
@@ -364,14 +349,13 @@ static func get_debug_text(
 		lines.append("current guard_face=%s" % String(normalize_face(guard_face)))
 	if not last_resolve.is_empty():
 		lines.append(
-			"last resolve: guard=%s atk=%s matched=%s mit=%.2f rem=%.1f chip=%.0f sta=%.0f open=%s" % [
+			"last resolve: guard=%s atk=%s matched=%s mit=%.2f rem=%.1f chip=%.0f open=%s" % [
 				String(last_resolve.get("guard_face", &"")),
 				String(last_resolve.get("attack_dir", &"")),
 				str(last_resolve.get("matched", false)),
 				float(last_resolve.get("mitigation", 0.0)),
 				float(last_resolve.get("remaining_damage", 0.0)),
 				float(last_resolve.get("posture_chip", 0.0)),
-				float(last_resolve.get("stamina_cost", 0.0)),
 				str(last_resolve.get("open_side", true)),
 			]
 		)

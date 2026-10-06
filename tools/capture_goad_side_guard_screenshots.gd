@@ -132,7 +132,6 @@ func _run_capture() -> void:
 		combat.is_attacking = false
 		combat.attack_recovery_left = 0.0
 		combat.is_charging = false
-		combat.stamina = combat.max_stamina
 		combat.set_shaft_block(false)
 		combat.reset_weapon_pose()
 		combat.set_weapon(CombatSystem.Weapon.GOAD)

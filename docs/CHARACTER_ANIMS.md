@@ -32,7 +32,7 @@ Horse calls `player.tick_mounted_rider_pose(...)` each physics frame while ridin
 
 Full skeletal import + AnimationTree blend space is the right long-term path, but too heavy
 for this feel slice. Procedural joints already give readable walk/sprint/crouch and clearer
-hatchet / knife / goad body English while keeping stamina light/heavy timings.
+hatchet / knife / goad body English while keeping the light/heavy recovery timings (`CombatSystem.ATTACK_RECOVERY`).
 
 ## Key files
 

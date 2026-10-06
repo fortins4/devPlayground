@@ -146,15 +146,10 @@ func _run_capture() -> void:
 	for i in 22:
 		player.global_position = player.global_position.lerp(Vector3(4.2, 0.0, 2.6), 0.1)
 		await physics_frame
-	var combat := player.get_node_or_null("CombatSystem")
-	if combat:
-		combat.stamina = 38.0
-		combat.stamina_changed.emit(combat.stamina, combat.max_stamina)
-		player.set("drag_stamina_exhausted", false)
 	if corpse.has_method("_refresh_labels"):
 		corpse.call("_refresh_labels")
 	var drag_cap := Label3D.new()
-	drag_cap.text = "Hold E drag · STA −11/s · body follows"
+	drag_cap.text = "Hold E drag · body follows"
 	drag_cap.font_size = 36
 	drag_cap.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	drag_cap.modulate = Color(0.95, 0.9, 0.5)

@@ -115,7 +115,6 @@ func _run_capture() -> void:
 	combat.is_attacking = false
 	combat.attack_recovery_left = 0.0
 	combat.is_charging = false
-	combat.stamina = combat.max_stamina
 	combat.health = combat.max_health
 	combat.set_weapon(CombatSystem.Weapon.GOAD)
 	combat.set_face_guard(&"open")

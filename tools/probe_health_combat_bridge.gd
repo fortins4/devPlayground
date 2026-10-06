@@ -27,8 +27,6 @@ func _run() -> void:
 	combat.name = "CombatSystem"
 	combat.max_health = 100.0
 	combat.health = 100.0
-	combat.max_stamina = 100.0
-	combat.stamina = 100.0
 	var probe_player := Node.new()
 	probe_player.name = "ProbePlayer"
 	probe_player.add_child(combat)
@@ -37,7 +35,6 @@ func _run() -> void:
 	bridge.auto_bind_on_ready = false
 	bridge.sync_combat_to_session = true
 	bridge.sync_session_to_combat = true
-	bridge.sync_stamina = true
 	bridge.seed_session_from_combat_on_bind = true
 	probe_player.add_child(bridge)
 	root.add_child(probe_player)

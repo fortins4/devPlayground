@@ -62,10 +62,8 @@ var _capsule_shape: CapsuleShape3D
 var _hurt_shape: CapsuleShape3D
 var _weapon_base_y: float = 1.05
 
-## FULL bog body-drag: slow move + stamina drain while dragging a corpse.
-const DRAG_STAMINA_PER_SEC := 11.0
+## FULL bog body-drag: slow move while dragging a corpse. No stamina (removed).
 var dragging_body: Node3D = null
-var drag_stamina_exhausted: bool = false
 
 ## Horse traversal (greybox mount).
 var is_mounted: bool = false
@@ -324,9 +322,9 @@ func _physics_process(delta: float) -> void:
 	)
 	var sprinting := false
 	if want_sprint and combat:
-		# Drain only succeeds with stamina; failed sprint cancels nothing.
-		# Successful drain cancels charge and drops shaft block inside combat.
-		sprinting = combat.try_sprint_drain(delta)
+		# No meter. Refused only while dead or mid-attack. A sprint cancels a
+		# charge and drops the look-guard inside combat (no attack while sprinting).
+		sprinting = combat.try_sprint()
 		if sprinting:
 			_hatchet_charge_armed = false
 	elif want_sprint and combat == null:
@@ -335,7 +333,7 @@ func _physics_process(delta: float) -> void:
 
 	var target_speed := WALK_SPEED
 	if dragging_body != null and is_instance_valid(dragging_body):
-		target_speed = DRAG_SPEED * (0.55 if drag_stamina_exhausted else 1.0)
+		target_speed = DRAG_SPEED
 		sprinting = false
 		_sprinting = false
 	elif is_crouching:
@@ -367,7 +365,6 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 	_update_noise(horiz.length(), sprinting)
-	_update_drag_stamina(delta)
 	if not is_mounted:
 		_expire_hurt_react_if_tween_died()
 		_tick_locomotion(delta, horiz.length(), sprinting, locked)
@@ -2990,12 +2987,10 @@ func begin_drag(body: Node3D) -> void:
 	if body == null or is_mounted:
 		return
 	dragging_body = body
-	drag_stamina_exhausted = false
 
 
 func end_drag() -> void:
 	dragging_body = null
-	drag_stamina_exhausted = false
 
 
 func is_dragging() -> bool:
@@ -3011,30 +3006,7 @@ func get_dragged_body() -> Node3D:
 func get_drag_status_text() -> String:
 	if not is_dragging():
 		return ""
-	var sta := 0.0
-	var mx := 100.0
-	if combat:
-		sta = combat.stamina
-		mx = combat.max_stamina
-	var tag := "EXHAUSTED · crawl-drag" if drag_stamina_exhausted else "dragging"
-	return "DRAG %s · speed %.2f · STA %d/%d (−%d/s)" % [
-		tag, DRAG_SPEED * (0.55 if drag_stamina_exhausted else 1.0),
-		int(sta), int(mx), int(DRAG_STAMINA_PER_SEC),
-	]
-
-
-func _update_drag_stamina(delta: float) -> void:
-	if not is_dragging() or combat == null or combat.is_dead:
-		return
-	# Overcome CombatSystem idle regen so the HUD cost is actually readable.
-	var cost := (DRAG_STAMINA_PER_SEC + combat.stamina_regen_per_sec) * delta
-	if combat.stamina <= DRAG_STAMINA_PER_SEC * delta * 0.5:
-		drag_stamina_exhausted = true
-		combat.stamina = maxf(0.0, combat.stamina - cost * 0.4)
-	else:
-		drag_stamina_exhausted = false
-		combat.stamina = maxf(0.0, combat.stamina - cost)
-	combat.stamina_changed.emit(combat.stamina, combat.max_stamina)
+	return "DRAG dragging · speed %.2f" % DRAG_SPEED
 
 
 ## --- Horse mount API (called by HorseController) ---

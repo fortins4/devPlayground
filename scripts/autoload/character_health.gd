@@ -7,7 +7,6 @@ extends Node
 ## session-level vitals surface Godot gameplay / HUD can connect to.
 
 signal health_changed(current: float, maximum: float)
-signal stamina_changed(current: float, maximum: float)
 signal wounds_changed(count: int)
 ## Named wound tag applied (CombatTags); wound_delta already fed into add_wound when > 0.
 signal wound_tag_applied(tag: StringName, wound_delta: int)
@@ -29,9 +28,7 @@ const SLOT_COMPANION := &"companion"
 ## Protagonist vitals (slice defaults).
 var max_hp: float = 100.0
 var hp: float = 100.0
-## Mirrors StaminaEconomy.MAX_STAMINA (CombatSystem fight pool).
-var max_stamina: float = StaminaEconomy.MAX_STAMINA
-var stamina: float = StaminaEconomy.MAX_STAMINA
+## No stamina vital (removed game-wide).
 ## Soft injury counter (0..MAX_WOUNDS). Not a full injury sim.
 var wounds: int = 0
 const MAX_WOUNDS: int = 5
@@ -85,7 +82,6 @@ func _process(delta: float) -> void:
 
 func _emit_all_player() -> void:
 	health_changed.emit(hp, max_hp)
-	stamina_changed.emit(stamina, max_stamina)
 	wounds_changed.emit(wounds)
 
 
@@ -133,44 +129,6 @@ func is_hp_full() -> bool:
 
 func is_hp_depleted() -> bool:
 	return hp <= 0.0
-
-
-# --- Player stamina ------------------------------------------------------------
-
-func get_stamina() -> float:
-	return stamina
-
-
-func get_max_stamina() -> float:
-	return max_stamina
-
-
-func set_max_stamina(value: float, fill: bool = false) -> void:
-	max_stamina = maxf(1.0, value)
-	if fill:
-		stamina = max_stamina
-	else:
-		stamina = clampf(stamina, 0.0, max_stamina)
-	stamina_changed.emit(stamina, max_stamina)
-
-
-func set_stamina(value: float) -> void:
-	var before := stamina
-	stamina = clampf(value, 0.0, max_stamina)
-	if is_equal_approx(before, stamina):
-		return
-	stamina_changed.emit(stamina, max_stamina)
-	_notify_vital_edges(&"stamina", before, stamina, max_stamina)
-
-
-func modify_stamina(amount: float) -> float:
-	var before := stamina
-	set_stamina(stamina + amount)
-	return stamina - before
-
-
-func is_stamina_depleted() -> bool:
-	return stamina <= 0.0
 
 
 # --- Wounds --------------------------------------------------------------------
@@ -314,7 +272,6 @@ func revive(fill_vitals: bool = true) -> void:
 	is_downed = false
 	if fill_vitals:
 		set_hp(max_hp)
-		set_stamina(max_stamina)
 		clear_wounds()
 	elif hp <= 0.0:
 		set_hp(maxf(1.0, max_hp * 0.25))
@@ -325,7 +282,6 @@ func revive(fill_vitals: bool = true) -> void:
 
 func restore_full() -> void:
 	set_hp(max_hp)
-	set_stamina(max_stamina)
 	clear_wounds()
 	if is_downed or is_dead:
 		revive(false)
@@ -501,8 +457,6 @@ func to_debug_dict() -> Dictionary:
 		"protagonist": PROTAGONIST_NAME,
 		"hp": hp,
 		"max_hp": max_hp,
-		"stamina": stamina,
-		"max_stamina": max_stamina,
 		"wounds": wounds,
 		"max_wounds": MAX_WOUNDS,
 		"is_downed": is_downed,
@@ -536,9 +490,8 @@ func get_debug_text() -> String:
 	lines.append("=== CharacterHealth / vitals ===")
 	lines.append("Protagonist: %s" % str(d["protagonist"]))
 	lines.append(
-		"HP %.0f/%.0f   STA %.0f/%.0f   Wounds %d/%d" % [
+		"HP %.0f/%.0f   Wounds %d/%d" % [
 			float(d["hp"]), float(d["max_hp"]),
-			float(d["stamina"]), float(d["max_stamina"]),
 			int(d["wounds"]), int(d["max_wounds"]),
 		]
 	)
@@ -580,7 +533,7 @@ func get_debug_text() -> String:
 			_soft_wound_decay_accum,
 		]
 	)
-	lines.append("V toggle · 9/0 HP ±10 · 7/8 STA ±10 · 6 wound+ · 5 restore · 4 downed stub · F7 tags · F10 decay")
+	lines.append("V toggle · 9/0 HP ±10 · 6 wound+ · 5 restore · 4 downed stub · F7 tags · F10 decay")
 	lines.append("≠ CombatSystem alone (per-entity melee; player bridged). ≠ BandUpkeep (roster).")
 	return "\n".join(lines)
 
