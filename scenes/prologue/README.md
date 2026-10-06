@@ -18,8 +18,8 @@ First-morning tutorial: walk the farm lane from the house to the pasture, stir t
 
 1. Spawn in the yard by the house / byre.
 2. Máire calls from the door ("Cian! Bring them home…") as you leave.
-3. Walk the tighter twisting lane south (rails + path-bias stakes; bog on the east side of the middle bends).
-4. Find the herd idle-grazing at the pasture (~100 m from home).
+3. Walk the tighter twisting lane south (rails + path-bias stakes; bog on the east side of the mid/far bends).
+4. Find the herd idle-grazing at the secluded pasture behind low hills and bog (~180 m from home — out of sight of the house).
 5. Prod any cow (LMB/RMB with goad) — the herd lifts its heads (`begin_herd`).
 6. Walk **behind** the drove with the goad drawn (facing them) and prod laggards; cattle stall / graze if you stop pushing (freshness fade).
 7. Steer clear of the bog edge (bogged cows slow until goaded back out).

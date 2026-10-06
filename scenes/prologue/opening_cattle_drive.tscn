@@ -33,7 +33,7 @@ fog_density = 0.0028
 size = Vector3(12.6, 2.4, 10.6)
 
 [sub_resource type="BoxShape3D" id="Shape_bog"]
-size = Vector3(18, 2, 18)
+size = Vector3(22, 2, 22)
 
 [sub_resource type="BoxShape3D" id="Shape_pasture"]
 size = Vector3(40, 2.4, 28)
@@ -48,7 +48,7 @@ transform = Transform3D(-0.3420, -0.4698, 0.8138, 0, 0.8660, 0.5, -0.9397, 0.171
 light_color = Color(1, 0.92, 0.8, 1)
 light_energy = 1.2
 shadow_enabled = true
-directional_shadow_max_distance = 140.0
+directional_shadow_max_distance = 240.0
 
 [node name="PathMarkers" type="Node3D" parent="."]
 
@@ -65,13 +65,22 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 0, 37)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18, 0, 54)
 
 [node name="Bend4" type="Marker3D" parent="PathMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 68)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0, 74)
 
 [node name="Bend5" type="Marker3D" parent="PathMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 0, 82)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0, 96)
+
+[node name="Bend6" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 0, 122)
+
+[node name="Bend7" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 148)
+
+[node name="Bend8" type="Marker3D" parent="PathMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 0, 168)
 
 [node name="PastureMouth" type="Marker3D" parent="PathMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 96)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -28, 0, 178)
 
 [node name="HomeZone" type="Area3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 1.2, 6.5)
@@ -83,7 +92,7 @@ monitorable = false
 shape = SubResource("Shape_home")
 
 [node name="BogZone" type="Area3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 1, 55)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 1, 118)
 collision_layer = 0
 collision_mask = 1
 monitorable = false
@@ -92,7 +101,7 @@ monitorable = false
 shape = SubResource("Shape_bog")
 
 [node name="PastureZone" type="Area3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1.2, 112)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25, 1.2, 192)
 collision_layer = 0
 collision_mask = 2
 monitorable = false
@@ -106,27 +115,27 @@ script = ExtResource("1_greybox")
 [node name="Herd" type="Node3D" parent="."]
 
 [node name="Cow0" parent="Herd" instance=ExtResource("5_cow")]
-transform = Transform3D(0.9397, 0, -0.3420, 0, 1, 0, 0.3420, 0, 0.9397, 4, 0.1, 108)
+transform = Transform3D(0.9397, 0, -0.3420, 0, 1, 0, 0.3420, 0, 0.9397, -31, 0.1, 188)
 cow_id = 0
 
 [node name="Cow1" parent="Herd" instance=ExtResource("5_cow")]
-transform = Transform3D(0.8192, 0, 0.5736, 0, 1, 0, -0.5736, 0, 0.8192, 9, 0.1, 111)
+transform = Transform3D(0.8192, 0, 0.5736, 0, 1, 0, -0.5736, 0, 0.8192, -26, 0.1, 191)
 cow_id = 1
 
 [node name="Cow2" parent="Herd" instance=ExtResource("5_cow")]
-transform = Transform3D(0.3420, 0, -0.9397, 0, 1, 0, 0.9397, 0, 0.3420, 14, 0.1, 107)
+transform = Transform3D(0.3420, 0, -0.9397, 0, 1, 0, 0.9397, 0, 0.3420, -21, 0.1, 187)
 cow_id = 2
 
 [node name="Cow3" parent="Herd" instance=ExtResource("5_cow")]
-transform = Transform3D(-0.8660, 0, -0.5000, 0, 1, 0, 0.5000, 0, -0.8660, 7, 0.1, 116)
+transform = Transform3D(-0.8660, 0, -0.5000, 0, 1, 0, 0.5000, 0, -0.8660, -28, 0.1, 196)
 cow_id = 3
 
 [node name="Cow4" parent="Herd" instance=ExtResource("5_cow")]
-transform = Transform3D(-0.3420, 0, 0.9397, 0, 1, 0, -0.9397, 0, -0.3420, 17, 0.1, 114)
+transform = Transform3D(-0.3420, 0, 0.9397, 0, 1, 0, -0.9397, 0, -0.3420, -18, 0.1, 194)
 cow_id = 4
 
 [node name="Cow5" parent="Herd" instance=ExtResource("5_cow")]
-transform = Transform3D(0.9848, 0, -0.1736, 0, 1, 0, 0.1736, 0, 0.9848, 12, 0.1, 120)
+transform = Transform3D(0.9848, 0, -0.1736, 0, 1, 0, 0.1736, 0, 0.9848, -23, 0.1, 200)
 cow_id = 5
 
 [node name="Player" parent="." instance=ExtResource("4_player")]

@@ -5,7 +5,7 @@ extends SceneTree
 ##   godot --headless --path . --fixed-fps 60 --script res://tools/smoke_opening_cattle_drive.gd
 
 const SCENE := "res://scenes/prologue/opening_cattle_drive.tscn"
-const DRIVE_LIMIT_SECS := 360.0
+const DRIVE_LIMIT_SECS := 480.0
 
 var _fail := false
 
@@ -90,7 +90,7 @@ func _run() -> void:
 			herded += 1
 	print("SMOKE stirred_herd=%d/%d" % [herded, cows.size()])
 	_check(herded == cows.size(), "first goad should stir the whole herd")
-	player.global_position = Vector3(-20, 0.2, 95)
+	player.global_position = centroid + Vector3(-45.0, 0.2, 10.0)
 	await _wait_physics(14.0)
 	var moved := cow0.global_position.distance_to(start0)
 	var fresh := float(cow0.call("drive_freshness"))

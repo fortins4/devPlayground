@@ -1,7 +1,7 @@
 @tool
 extends Node3D
 ## Greybox geometry for the first-morning cattle drive (house · byre · home pen · twisting
-## lane · pasture · bog edge · west ditch · neighbours' ringfort silhouette).
+## lane · secluded pasture behind low hills/bogs · bog edge · west ditch · neighbours' ringfort).
 ##
 ## Builds plain boxes/prisms/cylinders at _ready into an un-owned child, so the layout shows in
 ## the editor (tool script) but nothing generated is serialized into the .tscn. Gameplay nodes
@@ -66,6 +66,7 @@ func build() -> void:
 	_build_lane(path)
 	_build_pasture()
 	_build_bog()
+	_build_secluding_hills()
 	_build_edges()
 	_build_ringfort(Vector3(-78.0, 0.0, 42.0), 16.0)
 	_build_trees(path)
@@ -105,13 +106,13 @@ func _build_ground() -> void:
 	_gen.add_child(ground)
 	var shape := CollisionShape3D.new()
 	var bs := BoxShape3D.new()
-	bs.size = Vector3(360.0, 1.0, 360.0)
+	bs.size = Vector3(420.0, 1.0, 460.0)
 	shape.shape = bs
-	shape.position = Vector3(0.0, -0.5, 40.0)
+	shape.position = Vector3(-10.0, -0.5, 80.0)
 	ground.add_child(shape)
-	_mesh_box(ground, Vector3(0.0, -0.05, 40.0), Vector3(360.0, 0.1, 360.0), C_GRASS)
-	# Low, rolling south-Leinster farmland: a few broad flattened swells far off (no mountain).
-	for swell in [Vector3(80, 0, 10), Vector3(-60, 0, 130), Vector3(90, 0, 150), Vector3(-120, 0, -30)]:
+	_mesh_box(ground, Vector3(-10.0, -0.05, 80.0), Vector3(420.0, 0.1, 460.0), C_GRASS)
+	# Low, rolling south-Leinster farmland: broad flattened swells far off (no mountain).
+	for swell in [Vector3(80, 0, 10), Vector3(-60, 0, 130), Vector3(90, 0, 150), Vector3(-120, 0, -30), Vector3(70, 0, 210)]:
 		var s := _mesh_sphere(_gen, swell + Vector3(0, -6.0, 0), 34.0, C_GRASS.darkened(0.04))
 		s.scale = Vector3(1.6, 0.28, 1.2)
 
@@ -202,7 +203,7 @@ func _build_lane(path: Array[Vector3]) -> void:
 
 
 func _build_pasture() -> void:
-	var box := _zone_box(pasture_zone_path, Vector3(10.0, 1.0, 112.0), Vector3(40.0, 2.0, 28.0))
+	var box := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
 	var c := box.get_center()
 	_mesh_box(_gen, Vector3(c.x, 0.02, c.z), Vector3(box.size.x, 0.03, box.size.z), C_PASTURE)
 	var x0 := box.position.x
@@ -223,7 +224,7 @@ func _build_pasture() -> void:
 
 
 func _build_bog() -> void:
-	var box := _zone_box(bog_zone_path, Vector3(9.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
+	var box := _zone_box(bog_zone_path, Vector3(28.0, 1.0, 118.0), Vector3(22.0, 2.0, 22.0))
 	var c := box.get_center()
 	_mesh_box(_gen, Vector3(c.x, 0.03, c.z), Vector3(box.size.x, 0.05, box.size.z), C_BOG)
 	var rng := RandomNumberGenerator.new()
@@ -243,20 +244,73 @@ func _build_bog() -> void:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
 		_mesh_sphere(_gen, Vector3(px, 0.35, pz), 0.12, C_STAKE_TOP)
+	# Extra visual bog saddle west of the lane (no Area3D — line-of-sight + pastoral read).
+	_build_bog_patch(Vector3(-8.0, 0.0, 100.0), Vector3(24.0, 2.0, 20.0), 5521)
+	_build_bog_patch(Vector3(-32.0, 0.0, 155.0), Vector3(20.0, 2.0, 16.0), 7733)
+
+
+func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
+	var half := size * 0.5
+	var box := AABB(center - half, size)
+	_mesh_box(_gen, Vector3(center.x, 0.03, center.z), Vector3(size.x, 0.05, size.z), C_BOG)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_val
+	for i in 5:
+		var px := rng.randf_range(box.position.x + 2.0, box.end.x - 2.0)
+		var pz := rng.randf_range(box.position.z + 2.0, box.end.z - 2.0)
+		var pool := _mesh_cyl(_gen, Vector3(px, 0.06, pz), 1.0, 1.0, 0.03, C_BOG_WATER)
+		pool.scale = Vector3(rng.randf_range(1.0, 2.2), 1.0, rng.randf_range(0.8, 1.7))
+	for i in 28:
+		var px := rng.randf_range(box.position.x, box.end.x)
+		var pz := rng.randf_range(box.position.z, box.end.z)
+		var h := rng.randf_range(0.55, 1.2)
+		_mesh_box(_gen, Vector3(px, h * 0.5, pz), Vector3(0.08, h, 0.08), C_REED)
+	for i in 10:
+		var px := rng.randf_range(box.position.x, box.end.x)
+		var pz := rng.randf_range(box.position.z, box.end.z)
+		_mesh_sphere(_gen, Vector3(px, 0.35, pz), 0.12, C_STAKE_TOP)
+
+
+func _build_secluding_hills() -> void:
+	## Low rolling ridges between the farmhouse and the secluded pasture — visual blockers only
+	## (no collision), kept off the lane so the drove still walks flat ground.
+	# Near ridge: first screen from the yard looking south (~z 88–110).
+	_hill(Vector3(2.0, 0.0, 92.0), 38.0, Vector3(1.9, 0.42, 1.15), C_BANK.lightened(0.08))
+	_hill(Vector3(-22.0, 0.0, 105.0), 32.0, Vector3(1.7, 0.38, 1.25), C_GRASS.darkened(0.06))
+	_hill(Vector3(18.0, 0.0, 108.0), 30.0, Vector3(1.5, 0.36, 1.2), C_BANK)
+	# Mid ridge: second fold before the hollow (~z 135–155).
+	_hill(Vector3(-6.0, 0.0, 142.0), 40.0, Vector3(2.0, 0.48, 1.2), C_GRASS.darkened(0.05))
+	_hill(Vector3(20.0, 0.0, 138.0), 28.0, Vector3(1.6, 0.4, 1.15), C_BANK.lightened(0.05))
+	_hill(Vector3(-38.0, 0.0, 150.0), 34.0, Vector3(1.55, 0.44, 1.3), C_HEDGE.lightened(0.15))
+	# Flanking knoll east of the pasture mouth — tucks the hollow.
+	_hill(Vector3(8.0, 0.0, 175.0), 26.0, Vector3(1.4, 0.4, 1.35), C_BANK)
+	_hill(Vector3(-48.0, 0.0, 185.0), 30.0, Vector3(1.5, 0.36, 1.2), C_GRASS.darkened(0.04))
+	# Soft bank lips so the pasture floor reads as a hollow.
+	_mesh_box(_gen, Vector3(-25.0, 0.55, 176.0), Vector3(36.0, 1.1, 2.4), C_BANK)
+	_mesh_box(_gen, Vector3(-8.0, 0.7, 192.0), Vector3(2.2, 1.4, 24.0), C_HEDGE)
+	_mesh_box(_gen, Vector3(-42.0, 0.7, 192.0), Vector3(2.2, 1.4, 24.0), C_HEDGE)
+
+
+func _hill(center: Vector3, radius: float, scl: Vector3, color: Color) -> void:
+	# Sphere sunk below grade then scaled flat — crest height ≈ radius * scl.y - sink.
+	var sink := radius * scl.y * 0.55
+	var s := _mesh_sphere(_gen, center + Vector3(0.0, -sink, 0.0), radius, color)
+	s.scale = scl
 
 
 func _build_edges() -> void:
-	# West ditch + bank: the farm edge beyond the lane (cattle cannot climb the bank).
-	_mesh_box(_gen, Vector3(-27.0, 0.02, 60.0), Vector3(2.6, 0.05, 100.0), C_DITCH)
-	_solid_box(_gen, Vector3(-25.2, 0.35, 60.0), Vector3(0.9, 0.7, 100.0), C_BANK)
-	_solid_box(_gen, Vector3(-28.8, 0.45, 60.0), Vector3(1.0, 0.9, 100.0), C_HEDGE)
-	# East hedge bank (field boundary) and south hedge behind the pasture.
-	_solid_box(_gen, Vector3(34.0, 0.9, 58.0), Vector3(1.6, 1.8, 150.0), C_HEDGE)
-	_solid_box(_gen, Vector3(2.0, 0.9, 133.0), Vector3(66.0, 1.8, 1.6), C_HEDGE)
+	# West ditch + bank: the farm edge beyond the early lane (cattle cannot climb the bank).
+	_mesh_box(_gen, Vector3(-27.0, 0.02, 70.0), Vector3(2.6, 0.05, 140.0), C_DITCH)
+	_solid_box(_gen, Vector3(-25.2, 0.35, 70.0), Vector3(0.9, 0.7, 140.0), C_BANK)
+	_solid_box(_gen, Vector3(-28.8, 0.45, 70.0), Vector3(1.0, 0.9, 140.0), C_HEDGE)
+	# East hedge bank (field boundary) and south hedge behind the secluded pasture.
+	_solid_box(_gen, Vector3(42.0, 0.9, 90.0), Vector3(1.6, 1.8, 220.0), C_HEDGE)
+	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
+	_solid_box(_gen, Vector3(pas.get_center().x, 0.9, pas.end.z + 3.0), Vector3(pas.size.x + 18.0, 1.8, 1.6), C_HEDGE)
 	# North hedge behind the farmstead.
 	_solid_box(_gen, Vector3(0.0, 0.9, -14.0), Vector3(70.0, 1.8, 1.4), C_HEDGE)
 	# Short ditch along the bog's lane side (visual cue: "wet ground starts here").
-	var box := _zone_box(bog_zone_path, Vector3(9.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
+	var box := _zone_box(bog_zone_path, Vector3(28.0, 1.0, 118.0), Vector3(22.0, 2.0, 22.0))
 	_mesh_box(_gen, Vector3(box.position.x - 0.6, 0.025, box.get_center().z), Vector3(1.0, 0.05, box.size.z + 2.0), C_DITCH)
 
 
@@ -285,15 +339,15 @@ func _build_trees(path: Array[Vector3]) -> void:
 	rng.seed = 1169
 	var placed := 0
 	var tries := 0
-	while placed < 46 and tries < 600:
+	while placed < 58 and tries < 800:
 		tries += 1
-		var p := Vector3(rng.randf_range(-60.0, 60.0), 0.0, rng.randf_range(-40.0, 150.0))
+		var p := Vector3(rng.randf_range(-70.0, 70.0), 0.0, rng.randf_range(-40.0, 220.0))
 		if _near_lane(p, path, 7.0):
 			continue
 		if p.x > -18.0 and p.x < 20.0 and p.z > -10.0 and p.z < 18.0:
 			continue  # farmstead
-		var bog := _zone_box(bog_zone_path, Vector3(9.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0)).grow(1.0)
-		var pas := _zone_box(pasture_zone_path, Vector3(10.0, 1.0, 112.0), Vector3(40.0, 2.0, 28.0)).grow(1.0)
+		var bog := _zone_box(bog_zone_path, Vector3(28.0, 1.0, 118.0), Vector3(22.0, 2.0, 22.0)).grow(1.0)
+		var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0)).grow(1.0)
 		if _in_xz(bog, p) or _in_xz(pas, p):
 			continue
 		if p.distance_to(Vector3(-78, 0, 42)) < 22.0:
@@ -310,9 +364,9 @@ func _build_labels(path: Array[Vector3]) -> void:
 	_label(Vector3(7.0, 4.6, -2.6), "Byre", 40, Color(0.95, 0.9, 0.75))
 	var home := _zone_box(home_zone_path, Vector3(7.0, 1.2, 6.5), Vector3(12.6, 2.4, 10.6))
 	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
-	var pas := _zone_box(pasture_zone_path, Vector3(10.0, 1.0, 112.0), Vector3(40.0, 2.0, 28.0))
-	_label(pas.get_center() + Vector3(0, 4.5, -6.0), "Pasture", 46, Color(0.85, 0.95, 0.7))
-	var bog := _zone_box(bog_zone_path, Vector3(9.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
+	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
+	_label(pas.get_center() + Vector3(0, 4.5, -6.0), "Secluded pasture", 46, Color(0.85, 0.95, 0.7))
+	var bog := _zone_box(bog_zone_path, Vector3(28.0, 1.0, 118.0), Vector3(22.0, 2.0, 22.0))
 	_label(bog.get_center() + Vector3(0, 2.6, 0), "Bog edge — cattle bog down here", 34, Color(0.75, 0.85, 0.6))
 	_label(Vector3(-27.0, 2.4, 40.0), "Ditch (farm edge)", 30, Color(0.7, 0.8, 0.6))
 	if path.size() >= 2:
