@@ -45,6 +45,7 @@ const C_HUT := Color(0.68, 0.62, 0.5)
 
 var _mats: Dictionary = {}
 var _gen: Node3D = null
+var _hill_defs: Array = []  # {c,r,scl} for clip/LOS helpers
 
 
 func _ready() -> void:
@@ -59,14 +60,15 @@ func build() -> void:
 	_gen = Node3D.new()
 	_gen.name = GEN_NAME
 	add_child(_gen)  # no owner on purpose → never saved into the scene file
+	_hill_defs.clear()
 	var path := _path_points()
 	_build_ground()
 	_build_farmstead()
 	_build_home_pen()
+	_build_secluding_hills()  # before bog/trees/lane so clip filters see knolls
 	_build_lane(path)
 	_build_pasture()
 	_build_bog()
-	_build_secluding_hills()
 	_build_edges()
 	_build_ringfort(Vector3(-78.0, 0.0, 42.0), 16.0)
 	_build_trees(path)
@@ -199,6 +201,8 @@ func _build_lane(path: Array[Vector3]) -> void:
 		outer = outer.normalized()
 		var along := Vector3(-outer.z, 0.0, outer.x)
 		var c := p + outer * (LANE_WIDTH * 0.5 + 1.8)
+		if _on_hill(c, 0.5) or _on_hill(c - along * 5.0, 0.5) or _on_hill(c + along * 5.0, 0.5):
+			continue  # keep wattle off knoll volumes
 		_rail(c - along * 7.0, c + along * 7.0)
 
 
@@ -224,7 +228,7 @@ func _build_pasture() -> void:
 
 
 func _build_bog() -> void:
-	var box := _zone_box(bog_zone_path, Vector3(28.0, 1.0, 118.0), Vector3(22.0, 2.0, 22.0))
+	var box := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
 	var c := box.get_center()
 	_mesh_box(_gen, Vector3(c.x, 0.03, c.z), Vector3(box.size.x, 0.05, box.size.z), C_BOG)
 	var rng := RandomNumberGenerator.new()
@@ -232,21 +236,27 @@ func _build_bog() -> void:
 	for i in 7:
 		var px := rng.randf_range(box.position.x + 2.0, box.end.x - 2.0)
 		var pz := rng.randf_range(box.position.z + 2.0, box.end.z - 2.0)
+		if _on_hill(Vector3(px, 0.0, pz), 0.35):
+			continue
 		var pool := _mesh_cyl(_gen, Vector3(px, 0.06, pz), 1.0, 1.0, 0.03, C_BOG_WATER)
 		pool.scale = Vector3(rng.randf_range(1.0, 2.4), 1.0, rng.randf_range(0.8, 1.8))
 	for i in 46:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
+		if _on_hill(Vector3(px, 0.0, pz), 0.35):
+			continue
 		var h := rng.randf_range(0.6, 1.3)
 		_mesh_box(_gen, Vector3(px, h * 0.5, pz), Vector3(0.08, h, 0.08), C_REED)
 	# Bog-cotton tufts.
 	for i in 18:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
+		if _on_hill(Vector3(px, 0.0, pz), 0.35):
+			continue
 		_mesh_sphere(_gen, Vector3(px, 0.35, pz), 0.12, C_STAKE_TOP)
-	# Extra visual bog patches kept west of the winding lane (no Area3D — LOS + pastoral read).
-	_build_bog_patch(Vector3(-22.0, 0.0, 108.0), Vector3(20.0, 2.0, 16.0), 5521)
-	_build_bog_patch(Vector3(-42.0, 0.0, 154.0), Vector3(20.0, 2.0, 16.0), 7733)
+	# Extra visual bog patches on clear ground west of the lane (avoid knoll volumes).
+	_build_bog_patch(Vector3(-10.0, 0.0, 100.0), Vector3(14.0, 2.0, 10.0), 5521)
+	_build_bog_patch(Vector3(-55.0, 0.0, 160.0), Vector3(18.0, 2.0, 14.0), 7733)
 
 
 func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
@@ -258,41 +268,53 @@ func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
 	for i in 5:
 		var px := rng.randf_range(box.position.x + 2.0, box.end.x - 2.0)
 		var pz := rng.randf_range(box.position.z + 2.0, box.end.z - 2.0)
+		if _on_hill(Vector3(px, 0.0, pz), 0.35):
+			continue
 		var pool := _mesh_cyl(_gen, Vector3(px, 0.06, pz), 1.0, 1.0, 0.03, C_BOG_WATER)
 		pool.scale = Vector3(rng.randf_range(1.0, 2.2), 1.0, rng.randf_range(0.8, 1.7))
 	for i in 28:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
+		if _on_hill(Vector3(px, 0.0, pz), 0.35):
+			continue
 		var h := rng.randf_range(0.55, 1.2)
 		_mesh_box(_gen, Vector3(px, h * 0.5, pz), Vector3(0.08, h, 0.08), C_REED)
 	for i in 10:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
+		if _on_hill(Vector3(px, 0.0, pz), 0.35):
+			continue
 		_mesh_sphere(_gen, Vector3(px, 0.35, pz), 0.12, C_STAKE_TOP)
 
 
 func _build_secluding_hills() -> void:
-	## Low rolling knolls between farmhouse and secluded pasture, spaced so the lane can
-	## snake through clear saddles. Each hill has walk collision so you cannot phase through.
-	# Near ridge: west + east knolls with a wide saddle (~x 0–12 at z≈90).
-	_hill(Vector3(-28.0, 0.0, 86.0), 18.0, Vector3(1.35, 0.48, 1.15), C_BANK.lightened(0.08))
-	_hill(Vector3(30.0, 0.0, 98.0), 18.0, Vector3(1.3, 0.46, 1.1), C_GRASS.darkened(0.06))
-	# Soft mid-west knoll (deepens seclusion; sits west of the lane).
-	_hill(Vector3(-42.0, 0.0, 114.0), 16.0, Vector3(1.25, 0.4, 1.1), C_BANK)
-	# Mid ridge: west + east knolls with a saddle near x≈4–12 at z≈130–142.
-	_hill(Vector3(-34.0, 0.0, 142.0), 20.0, Vector3(1.3, 0.5, 1.15), C_GRASS.darkened(0.05))
-	_hill(Vector3(32.0, 0.0, 128.0), 18.0, Vector3(1.3, 0.46, 1.1), C_BANK.lightened(0.05))
+	## Knolls spaced for saddle lane + stacked to kill house↔pasture LOS. Walk collision on each.
+	# Near ridge (west/east) — saddle near x≈0–12 at z≈90.
+	_hill(Vector3(-30.0, 0.0, 82.0), 17.0, Vector3(1.35, 0.55, 1.2), C_BANK.lightened(0.08))
+	_hill(Vector3(34.0, 0.0, 102.0), 16.0, Vector3(1.25, 0.52, 1.1), C_GRASS.darkened(0.06))
+	# West-of-lane LOS screen between near and mid ridges (keeps yard from seeing the hollow).
+	_hill(Vector3(-26.0, 0.0, 120.0), 14.0, Vector3(1.25, 0.68, 1.2), C_BANK)
+	_hill(Vector3(-46.0, 0.0, 110.0), 15.0, Vector3(1.2, 0.48, 1.1), C_HEDGE.lightened(0.12))
+	# Mid ridge — saddle near x≈4–12 at z≈130–142.
+	_hill(Vector3(-38.0, 0.0, 150.0), 19.0, Vector3(1.3, 0.65, 1.25), C_GRASS.darkened(0.05))
+	_hill(Vector3(36.0, 0.0, 132.0), 16.0, Vector3(1.25, 0.52, 1.1), C_BANK.lightened(0.05))
 	# Flanking knolls tuck the pasture hollow; mouth approach stays clear.
-	_hill(Vector3(16.0, 0.0, 176.0), 16.0, Vector3(1.25, 0.42, 1.2), C_BANK)
-	_hill(Vector3(-50.0, 0.0, 188.0), 18.0, Vector3(1.35, 0.4, 1.15), C_GRASS.darkened(0.04))
-	# Soft bank lips so the pasture floor reads as a hollow.
-	_mesh_box(_gen, Vector3(-25.0, 0.55, 176.0), Vector3(36.0, 1.1, 2.4), C_BANK)
-	_mesh_box(_gen, Vector3(-8.0, 0.7, 192.0), Vector3(2.2, 1.4, 24.0), C_HEDGE)
-	_mesh_box(_gen, Vector3(-42.0, 0.7, 192.0), Vector3(2.2, 1.4, 24.0), C_HEDGE)
+	_hill(Vector3(18.0, 0.0, 178.0), 15.0, Vector3(1.2, 0.5, 1.2), C_BANK)
+	_hill(Vector3(-52.0, 0.0, 190.0), 17.0, Vector3(1.35, 0.48, 1.15), C_GRASS.darkened(0.04))
+	# Hedge ridges west of the boreen — thick screens that kill elevated yard LOS
+	# while leaving the saddle lane (x ≳ -2) open.
+	_solid_box(_gen, Vector3(-20.0, 1.6, 106.0), Vector3(34.0, 3.2, 4.5), C_HEDGE)
+	_solid_box(_gen, Vector3(-22.0, 1.6, 134.0), Vector3(36.0, 3.2, 4.5), C_HEDGE)
+	_solid_box(_gen, Vector3(-24.0, 1.5, 156.0), Vector3(32.0, 3.0, 3.6), C_HEDGE)
+	# Tall bank lips so the pasture floor reads as a hollow and hides the house looking north.
+	_solid_box(_gen, Vector3(-25.0, 1.3, 176.0), Vector3(36.0, 2.6, 2.6), C_BANK)
+	_solid_box(_gen, Vector3(-8.0, 1.2, 192.0), Vector3(2.4, 2.4, 24.0), C_HEDGE)
+	_solid_box(_gen, Vector3(-42.0, 1.2, 192.0), Vector3(2.4, 2.4, 24.0), C_HEDGE)
 
 
 func _hill(center: Vector3, radius: float, scl: Vector3, color: Color) -> void:
 	# Sphere sunk below grade then scaled flat — crest height ≈ radius * scl.y * 0.45.
+	_hill_defs.append({"c": center, "r": radius, "scl": scl})
 	var sink := radius * scl.y * 0.55
 	var mesh_pos := center + Vector3(0.0, -sink, 0.0)
 	var s := _mesh_sphere(_gen, mesh_pos, radius, color)
@@ -327,7 +349,7 @@ func _build_edges() -> void:
 	# North hedge behind the farmstead.
 	_solid_box(_gen, Vector3(0.0, 0.9, -14.0), Vector3(70.0, 1.8, 1.4), C_HEDGE)
 	# Short ditch along the bog's lane side (visual cue: "wet ground starts here").
-	var box := _zone_box(bog_zone_path, Vector3(28.0, 1.0, 118.0), Vector3(22.0, 2.0, 22.0))
+	var box := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
 	_mesh_box(_gen, Vector3(box.position.x - 0.6, 0.025, box.get_center().z), Vector3(1.0, 0.05, box.size.z + 2.0), C_DITCH)
 
 
@@ -363,12 +385,14 @@ func _build_trees(path: Array[Vector3]) -> void:
 			continue
 		if p.x > -18.0 and p.x < 20.0 and p.z > -10.0 and p.z < 18.0:
 			continue  # farmstead
-		var bog := _zone_box(bog_zone_path, Vector3(28.0, 1.0, 118.0), Vector3(22.0, 2.0, 22.0)).grow(1.0)
+		var bog := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0)).grow(1.0)
 		var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0)).grow(1.0)
 		if _in_xz(bog, p) or _in_xz(pas, p):
 			continue
 		if p.distance_to(Vector3(-78, 0, 42)) < 22.0:
 			continue
+		if _on_hill(p, 0.35):
+			continue  # sit trees beside knolls, not through them
 		var h := rng.randf_range(3.5, 6.0)
 		_mesh_cyl(_gen, p + Vector3(0, h * 0.4, 0), 0.22, 0.3, h * 0.8, C_TRUNK)
 		var crown := _mesh_sphere(_gen, p + Vector3(0, h * 0.85, 0), rng.randf_range(1.6, 2.6), C_CANOPY.darkened(rng.randf_range(0.0, 0.15)))
@@ -383,7 +407,7 @@ func _build_labels(path: Array[Vector3]) -> void:
 	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
 	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
 	_label(pas.get_center() + Vector3(0, 4.5, -6.0), "Secluded pasture", 46, Color(0.85, 0.95, 0.7))
-	var bog := _zone_box(bog_zone_path, Vector3(28.0, 1.0, 118.0), Vector3(22.0, 2.0, 22.0))
+	var bog := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
 	_label(bog.get_center() + Vector3(0, 2.6, 0), "Bog edge — cattle bog down here", 34, Color(0.75, 0.85, 0.6))
 	_label(Vector3(-27.0, 2.4, 40.0), "Ditch (farm edge)", 30, Color(0.7, 0.8, 0.6))
 	if path.size() >= 2:
@@ -391,6 +415,28 @@ func _build_labels(path: Array[Vector3]) -> void:
 
 
 # ---------------------------------------------------------------- helpers
+
+
+func _hill_surface_y(p: Vector3) -> float:
+	## Approximate mound height above grade at xz (0 if off every knoll).
+	var best := 0.0
+	for h in _hill_defs:
+		var c: Vector3 = h["c"]
+		var r: float = h["r"]
+		var scl: Vector3 = h["scl"]
+		var sink := r * scl.y * 0.55
+		var rem := 1.0 - pow((p.x - c.x) / (r * scl.x), 2.0) - pow((p.z - c.z) / (r * scl.z), 2.0)
+		if rem <= 0.0:
+			continue
+		var y_surf := -sink + (r * scl.y) * sqrt(rem)
+		if y_surf > best:
+			best = y_surf
+	return best
+
+
+func _on_hill(p: Vector3, thr: float = 0.4) -> bool:
+	return _hill_surface_y(p) > thr
+
 
 func _near_lane(p: Vector3, path: Array[Vector3], dist: float) -> bool:
 	for i in path.size() - 1:
