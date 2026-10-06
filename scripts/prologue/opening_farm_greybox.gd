@@ -305,9 +305,24 @@ func _build_secluding_hills() -> void:
 	# while leaving the saddle lane (x ≳ -2) open.
 	_solid_box(_gen, Vector3(-20.0, 1.6, 106.0), Vector3(34.0, 3.2, 4.5), C_HEDGE)
 	_solid_box(_gen, Vector3(-22.0, 1.6, 134.0), Vector3(36.0, 3.2, 4.5), C_HEDGE)
-	_solid_box(_gen, Vector3(-24.0, 1.5, 156.0), Vector3(32.0, 3.0, 3.6), C_HEDGE)
-	# Tall bank lips so the pasture floor reads as a hollow and hides the house looking north.
-	_solid_box(_gen, Vector3(-25.0, 1.3, 176.0), Vector3(36.0, 2.6, 2.6), C_BANK)
+	# Far screen stays west of Bend8 (−16,164) so the mouth approach stays walkable.
+	_solid_box(_gen, Vector3(-34.0, 1.5, 156.0), Vector3(22.0, 3.0, 3.6), C_HEDGE)
+	# Tall bank lips with a mouth gap at PastureMouth so the drove can enter/leave.
+	var mouth_x := -28.0
+	var path_pts := _path_points()
+	if path_pts.size() > 0:
+		mouth_x = path_pts[-1].x
+	var gap := 5.0
+	# West bank lip (left of mouth).
+	var west_x1 := -43.0
+	var west_x0 := mouth_x - gap
+	if west_x0 > west_x1 + 1.0:
+		_solid_box(_gen, Vector3((west_x1 + west_x0) * 0.5, 1.3, 176.0), Vector3(west_x0 - west_x1, 2.6, 2.6), C_BANK)
+	# East bank lip (right of mouth).
+	var east_x0 := mouth_x + gap
+	var east_x1 := -7.0
+	if east_x1 > east_x0 + 1.0:
+		_solid_box(_gen, Vector3((east_x0 + east_x1) * 0.5, 1.3, 176.0), Vector3(east_x1 - east_x0, 2.6, 2.6), C_BANK)
 	_solid_box(_gen, Vector3(-8.0, 1.2, 192.0), Vector3(2.4, 2.4, 24.0), C_HEDGE)
 	_solid_box(_gen, Vector3(-42.0, 1.2, 192.0), Vector3(2.4, 2.4, 24.0), C_HEDGE)
 
