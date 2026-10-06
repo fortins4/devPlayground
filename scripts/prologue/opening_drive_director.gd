@@ -19,6 +19,7 @@ signal soft_success(home_count: int, total: int)
 @export var bog_zone_path: NodePath = ^"../BogZone"
 @export var pasture_zone_path: NodePath = ^"../PastureZone"
 @export var path_markers_path: NodePath = ^"../PathMarkers"
+@export var family_caller_path: NodePath = ^"../FamilyCaller"
 ## Herd "lifts its heads" (all start milling / respond to goad pressure) after the first prod.
 @export var stir_radius: float = 30.0
 @export var at_herd_radius: float = 22.0
@@ -37,6 +38,7 @@ var _player_start: Transform3D = Transform3D.IDENTITY
 var _slot_index: int = 0
 var _flash_text: String = ""
 var _flash_timer: float = 0.0
+var _family: Node = null
 
 
 func _ready() -> void:
@@ -70,6 +72,10 @@ func _bind() -> void:
 	for cow in _cows:
 		cow.call("set_player", _player)
 		cow.call("set_path_bias", _path_home_first, home)
+	_family = get_node_or_null(family_caller_path)
+	if _family and _family.has_signal("callout_spoken"):
+		if not _family.is_connected("callout_spoken", _on_family_callout):
+			_family.connect("callout_spoken", _on_family_callout)
 	_set_stage(Stage.WALK_OUT)
 	print("OPENING_DRIVE_READY cows=%d need=%d path_markers=%d" % [_cows.size(), need_home, _path_home_first.size()])
 
@@ -182,6 +188,8 @@ func objective_text() -> String:
 	var total := _cows.size()
 	match stage:
 		Stage.WALK_OUT:
+			if family_bark_visible():
+				return "%s calls from the door — walk the lane south and bring the cattle home.  (pasture ~%d m)" % [family_speaker(), int(distance_to_herd())]
 			return "First morning. Walk the lane south to the pasture and bring the cattle home.  (pasture ~%d m)" % int(distance_to_herd())
 		Stage.AT_HERD:
 			return "The herd is grazing. Draw the goad (3) and prod a cow (LMB / RMB) to stir them."
@@ -217,6 +225,8 @@ func reset_herd() -> void:
 	succeeded = false
 	first_goad_done = false
 	_set_stage(Stage.WALK_OUT)
+	if _family and _family.has_method("reset_callout"):
+		_family.call("reset_callout")
 	_flash("Herd back at the pasture.", 3.0)
 
 
@@ -237,6 +247,24 @@ func debug_place_in_home(n: int) -> void:
 		cow.global_position = home + Vector3(-4.0 + float(placed) * 2.2, 0.15, 1.5)
 		cow.call("start_driven")
 		placed += 1
+
+
+func family_has_spoken() -> bool:
+	return bool(_family.call("has_spoken")) if _family and _family.has_method("has_spoken") else false
+
+
+func family_bark_visible() -> bool:
+	return bool(_family.call("is_bark_visible")) if _family and _family.has_method("is_bark_visible") else false
+
+
+func family_speaker() -> String:
+	return String(_family.call("get_speaker_name")) if _family and _family.has_method("get_speaker_name") else ""
+
+
+func _on_family_callout(line: String) -> void:
+	var who := family_speaker()
+	var prefix := ("%s: " % who) if who != "" else ""
+	_flash(prefix + line, 6.0)
 
 
 # ---------------------------------------------------------------- internals

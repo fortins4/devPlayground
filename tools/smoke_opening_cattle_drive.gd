@@ -57,6 +57,11 @@ func _run() -> void:
 	var combat := player.get_node_or_null("CombatSystem")
 	_check(combat != null and String(combat.call("weapon_name")) == "goad", "opening kit should start on goad")
 
+	# Family callout at the house as the drive leaves (opening beat).
+	await _wait_physics(1.6)
+	_check(bool(director.call("family_has_spoken")), "family callout should fire in the opening beat")
+	print("SMOKE family_speaker=%s bark_visible=%s" % [director.call("family_speaker"), director.call("family_bark_visible")])
+
 	# Idle until goaded.
 	await _wait_physics(2.0)
 	var any_driven := false

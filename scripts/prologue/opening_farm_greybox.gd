@@ -197,8 +197,8 @@ func _build_lane(path: Array[Vector3]) -> void:
 			continue
 		outer = outer.normalized()
 		var along := Vector3(-outer.z, 0.0, outer.x)
-		var c := p + outer * (LANE_WIDTH * 0.5 + 2.4)
-		_rail(c - along * 5.5, c + along * 5.5)
+		var c := p + outer * (LANE_WIDTH * 0.5 + 1.8)
+		_rail(c - along * 7.0, c + along * 7.0)
 
 
 func _build_pasture() -> void:
@@ -223,7 +223,7 @@ func _build_pasture() -> void:
 
 
 func _build_bog() -> void:
-	var box := _zone_box(bog_zone_path, Vector3(7.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
+	var box := _zone_box(bog_zone_path, Vector3(9.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
 	var c := box.get_center()
 	_mesh_box(_gen, Vector3(c.x, 0.03, c.z), Vector3(box.size.x, 0.05, box.size.z), C_BOG)
 	var rng := RandomNumberGenerator.new()
@@ -256,7 +256,7 @@ func _build_edges() -> void:
 	# North hedge behind the farmstead.
 	_solid_box(_gen, Vector3(0.0, 0.9, -14.0), Vector3(70.0, 1.8, 1.4), C_HEDGE)
 	# Short ditch along the bog's lane side (visual cue: "wet ground starts here").
-	var box := _zone_box(bog_zone_path, Vector3(7.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
+	var box := _zone_box(bog_zone_path, Vector3(9.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
 	_mesh_box(_gen, Vector3(box.position.x - 0.6, 0.025, box.get_center().z), Vector3(1.0, 0.05, box.size.z + 2.0), C_DITCH)
 
 
@@ -292,7 +292,7 @@ func _build_trees(path: Array[Vector3]) -> void:
 			continue
 		if p.x > -18.0 and p.x < 20.0 and p.z > -10.0 and p.z < 18.0:
 			continue  # farmstead
-		var bog := _zone_box(bog_zone_path, Vector3(7.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0)).grow(1.0)
+		var bog := _zone_box(bog_zone_path, Vector3(9.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0)).grow(1.0)
 		var pas := _zone_box(pasture_zone_path, Vector3(10.0, 1.0, 112.0), Vector3(40.0, 2.0, 28.0)).grow(1.0)
 		if _in_xz(bog, p) or _in_xz(pas, p):
 			continue
@@ -312,7 +312,7 @@ func _build_labels(path: Array[Vector3]) -> void:
 	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
 	var pas := _zone_box(pasture_zone_path, Vector3(10.0, 1.0, 112.0), Vector3(40.0, 2.0, 28.0))
 	_label(pas.get_center() + Vector3(0, 4.5, -6.0), "Pasture", 46, Color(0.85, 0.95, 0.7))
-	var bog := _zone_box(bog_zone_path, Vector3(7.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
+	var bog := _zone_box(bog_zone_path, Vector3(9.0, 1.0, 55.0), Vector3(18.0, 2.0, 18.0))
 	_label(bog.get_center() + Vector3(0, 2.6, 0), "Bog edge — cattle bog down here", 34, Color(0.75, 0.85, 0.6))
 	_label(Vector3(-27.0, 2.4, 40.0), "Ditch (farm edge)", 30, Color(0.7, 0.8, 0.6))
 	if path.size() >= 2:
