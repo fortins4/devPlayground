@@ -288,44 +288,42 @@ func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
 
 
 func _build_secluding_hills() -> void:
-	## Fewer longer gradual rolling rises (not scattered little mounds). Saddles keep
-	## Bend4–8 + PastureMouth walkable; soft west-of-lane screens still kill house↔pasture LOS.
+	## Broad rolling ground — very gradual rises with long skirts (not distinct hill blobs).
+	## Overlapping soft volumes keep Bend4–8 + PastureMouth clear and kill house↔pasture LOS.
 	## Crest ≈ r * scl.y * 0.45. Walk collision on each.
-	# Near rolling rises — long soft skirts; saddle near x≈0–12 at z≈70–95 (Bend4→Bend5).
-	_hill(Vector3(-44.0, 0.0, 76.0), 24.0, Vector3(1.4, 0.38, 1.5), C_BANK.lightened(0.08))
-	_hill(Vector3(42.0, 0.0, 98.0), 24.0, Vector3(1.4, 0.36, 1.4), C_GRASS.darkened(0.06))
-	# West-of-lane LOS screens — long N–S soft rolls (not short berm chunks).
-	# Crest clears elevated yard cams; eastern toes stay west of Bend6 (−2,118).
-	_hill(Vector3(-26.0, 0.0, 108.0), 16.0, Vector3(1.45, 0.58, 1.35), C_HEDGE)
-	_hill(Vector3(-40.0, 0.0, 114.0), 18.0, Vector3(1.35, 0.42, 1.4), C_BANK)
-	# Mid rolling rises — saddle near x≈4–12 at z≈118–145 (Bend6→Bend7).
-	_hill(Vector3(-44.0, 0.0, 142.0), 24.0, Vector3(1.45, 0.42, 1.5), C_GRASS.darkened(0.05))
-	_hill(Vector3(42.0, 0.0, 132.0), 24.0, Vector3(1.35, 0.36, 1.35), C_BANK.lightened(0.05))
-	# Mid west-of-lane soft screen — one long roll + a deeper backer.
-	_hill(Vector3(-26.0, 0.0, 134.0), 16.0, Vector3(1.45, 0.58, 1.35), C_HEDGE)
-	_hill(Vector3(-40.0, 0.0, 130.0), 16.0, Vector3(1.35, 0.44, 1.25), C_BANK.darkened(0.02))
-	# Far roll west of Bend8 (−16,164) — mouth approach stays clear.
-	_hill(Vector3(-44.0, 0.0, 154.0), 18.0, Vector3(1.4, 0.48, 1.25), C_HEDGE)
-	_hill(Vector3(-54.0, 0.0, 148.0), 16.0, Vector3(1.25, 0.38, 1.2), C_BANK)
-	# Pasture flanks — longer soft rises tucking the hollow (mouth approach stays open).
-	_hill(Vector3(24.0, 0.0, 184.0), 22.0, Vector3(1.35, 0.38, 1.35), C_BANK)
-	_hill(Vector3(-56.0, 0.0, 188.0), 24.0, Vector3(1.4, 0.36, 1.3), C_GRASS.darkened(0.04))
-	# Pasture mouth bank lips — longer gradual berms with a walkable gap at PastureMouth.
+	# Near west/east rolls — wide low skirts; saddle ~x 0–12 at z≈70–95 (Bend4→Bend5).
+	_hill(Vector3(-50.0, 0.0, 72.0), 32.0, Vector3(1.4, 0.30, 1.6), C_BANK.lightened(0.08))
+	_hill(Vector3(46.0, 0.0, 100.0), 30.0, Vector3(1.4, 0.28, 1.45), C_GRASS.darkened(0.06))
+	# West-of-lane continuous roll (merged near+mid screens into two overlapping soft rises).
+	# Low crest, long skirt; still clears elevated yard cams. Eastern toes west of Bend6 (−2,118).
+	_hill(Vector3(-38.0, 0.0, 112.0), 30.0, Vector3(1.4, 0.38, 1.55), C_HEDGE)
+	_hill(Vector3(-50.0, 0.0, 118.0), 28.0, Vector3(1.3, 0.32, 1.5), C_BANK)
+	# Mid west/east rolls — saddle ~x 4–12 at z≈118–145 (Bend6→Bend7).
+	_hill(Vector3(-48.0, 0.0, 144.0), 30.0, Vector3(1.4, 0.32, 1.55), C_GRASS.darkened(0.05))
+	_hill(Vector3(46.0, 0.0, 134.0), 30.0, Vector3(1.35, 0.28, 1.4), C_BANK.lightened(0.05))
+	# Mid west continuation — blends with near roll into one long N–S swell.
+	_hill(Vector3(-38.0, 0.0, 136.0), 28.0, Vector3(1.4, 0.38, 1.5), C_HEDGE.lightened(0.04))
+	# Far west roll (west of Bend8) — soft approach into the hollow.
+	_hill(Vector3(-48.0, 0.0, 156.0), 24.0, Vector3(1.4, 0.34, 1.4), C_HEDGE)
+	_hill(Vector3(-58.0, 0.0, 148.0), 22.0, Vector3(1.25, 0.30, 1.3), C_BANK)
+	# Pasture flanks — broad soft rises tucking the hollow.
+	_hill(Vector3(28.0, 0.0, 186.0), 28.0, Vector3(1.35, 0.30, 1.4), C_BANK)
+	_hill(Vector3(-62.0, 0.0, 192.0), 28.0, Vector3(1.3, 0.28, 1.35), C_GRASS.darkened(0.04))
+	# Pasture mouth lips — wide low berms with a walkable gap at PastureMouth.
 	var mouth_x := -28.0
 	var path_pts := _path_points()
 	if path_pts.size() > 0:
 		mouth_x = path_pts[-1].x
-	var gap := 5.5
+	var gap := 6.5
 	var west_end := mouth_x - gap
 	var east_start := mouth_x + gap
-	# West lip (eastern toe ≤ west_end); east lip (western toe ≥ east_start).
-	_hill(Vector3(-46.0, 0.0, 176.0), 10.0, Vector3(1.55, 0.60, 0.7), C_BANK)
-	_hill(Vector3(west_end - 6.5, 0.0, 177.0), 8.0, Vector3(1.35, 0.58, 0.65), C_BANK.lightened(0.05))
-	_hill(Vector3(east_start + 7.0, 0.0, 176.5), 9.0, Vector3(1.45, 0.60, 0.7), C_BANK)
-	_hill(Vector3(-8.0, 0.0, 177.5), 9.0, Vector3(1.35, 0.56, 0.65), C_HEDGE.lightened(0.08))
-	# Pasture side screens — one long N–S soft bank each side (not paired short chunks).
-	_hill(Vector3(-8.0, 0.0, 190.0), 12.0, Vector3(0.48, 0.52, 1.85), C_HEDGE)
-	_hill(Vector3(-42.0, 0.0, 190.0), 12.0, Vector3(0.48, 0.52, 1.85), C_HEDGE)
+	_hill(Vector3(-50.0, 0.0, 176.5), 14.0, Vector3(1.45, 0.38, 0.9), C_BANK)
+	_hill(Vector3(west_end - 9.0, 0.0, 177.0), 12.0, Vector3(1.3, 0.36, 0.85), C_BANK.lightened(0.05))
+	_hill(Vector3(east_start + 10.0, 0.0, 176.5), 13.0, Vector3(1.35, 0.38, 0.9), C_BANK)
+	_hill(Vector3(-4.0, 0.0, 177.5), 13.0, Vector3(1.3, 0.34, 0.85), C_HEDGE.lightened(0.08))
+	# Pasture side screens — long low N–S banks (soft hedge feel).
+	_hill(Vector3(-8.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_HEDGE)
+	_hill(Vector3(-42.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_HEDGE)
 
 
 func _hill(center: Vector3, radius: float, scl: Vector3, color: Color) -> void:
