@@ -20,6 +20,24 @@ var _state: StringName = &"idle"
 var _attack_lock: float = 0.0
 var _combat_overrides: Dictionary = {} ## joint_name -> Vector3 euler additive
 var _root_drop: float = 0.0 ## metres; kept across tick so a planted stance is not popped back up
+## Opt-in (player): walking while a combat pose owns the body keeps the walk
+## cycle on the legs. Arms / spine / hips stay on the combat additives.
+var attack_walk_enabled: bool = false
+var _attack_walk_w: float = 0.0 ## 0 = planted combat legs, 1 = walk-cycle legs
+var _walk_legs: Dictionary = {} ## "left"/"right" -> Vector2(sole forward m, lift m) from the last tick
+const LEG_JOINTS := ["left_thigh", "left_shin", "right_thigh", "right_shin"]
+const ATTACK_WALK_BLEND_RATE := 9.0 ## 1/s; ~0.11 s from plant to stride
+var _attack_walk_back: bool = false
+## The planted stance's root drop is kept while striding (the upper body and
+## the shaft stay at the planted height, so clearance is unchanged); a
+## two-bone leg solve bends the knees so the soles walk on the ground under
+## that drop instead of sinking.
+const HIP_TO_SOLE := 0.835 ## rest hip pivot -> sole, metres (kerne mesh builder)
+const THIGH_LEN := 0.44
+const SHIN_TO_SOLE := 0.395
+const ATTACK_WALK_STEP := 0.30 ## sole fore/aft amplitude, metres
+const ATTACK_WALK_LIFT := 0.07 ## swing-foot lift, metres
+const ATTACK_WALK_CADENCE := 10.0
 
 # Cached owner body for yaw delta
 var _body: Node3D
@@ -88,8 +106,33 @@ func set_combat_additive(joint: String, euler: Vector3) -> void:
 	# Apply immediately so charge/aim reads without waiting for the next loco tick.
 	var n: Node3D = joints.get(joint) as Node3D
 	if n and _rest.has(joint):
-		n.rotation = (_rest[joint]["rot"] as Vector3) + euler
+		n.rotation = (_rest[joint]["rot"] as Vector3) + _leg_or_combat(joint, euler)
 
+
+func _leg_or_combat(joint: String, euler: Vector3) -> Vector3:
+	## While walking in a combat pose, a leg is the walk stride blended over
+	## the planted pose. Every other joint is the combat additive as written.
+	if _attack_walk_w <= 0.001 or not (joint in LEG_JOINTS):
+		return euler
+	return euler.lerp(_walk_leg_euler(joint), _attack_walk_w)
+
+
+func _walk_leg_euler(joint: String) -> Vector3:
+	## Two-bone solve for this leg's stride target at the hip height the kept
+	## root drop leaves. Thighs undo the combat hip pitch so a leaning swing
+	## does not tip the stride forward / back.
+	var side := "left" if joint.begins_with("left") else "right"
+	var target: Vector2 = _walk_legs.get(side, Vector2.ZERO)
+	var hip_h := HIP_TO_SOLE - _root_drop - target.y
+	var ik := _solve_leg(target.x, hip_h)
+	if joint.ends_with("thigh"):
+		var hips_x := (_combat_overrides.get("hips", Vector3.ZERO) as Vector3).x
+		return Vector3(ik.x - hips_x, 0.0, deg_to_rad(-2.0 if side == "left" else 2.0))
+	return Vector3(ik.y, 0.0, 0.0)
+
+
+func attack_walk_weight() -> float:
+	return _attack_walk_w
 
 func get_combat_additive(joint: String) -> Vector3:
 	return _combat_overrides.get(joint, Vector3.ZERO) as Vector3
@@ -108,6 +151,14 @@ func set_root_drop(drop: float) -> void:
 		return
 	var rest_pos: Vector3 = _rest["root"]["pos"]
 	n.position = rest_pos + Vector3(0.0, -_root_drop, 0.0)
+	if _attack_walk_w > 0.001:
+		# Knees re-solve for the new hip height so the soles stay down.
+		for key in LEG_JOINTS:
+			var ln: Node3D = joints.get(key) as Node3D
+			if ln == null or not _rest.has(key):
+				continue
+			var base: Vector3 = _combat_overrides.get(key, Vector3.ZERO)
+			ln.rotation = (_rest[key]["rot"] as Vector3) + base.lerp(_walk_leg_euler(key), _attack_walk_w)
 
 
 func clear_combat_additives() -> void:
@@ -128,6 +179,8 @@ func reset_to_rest() -> void:
 	_attack_lock = 0.0
 	_combat_overrides.clear()
 	_root_drop = 0.0
+	_attack_walk_w = 0.0
+	_walk_legs.clear()
 	_state = &"idle"
 	for key in joints:
 		var n: Node3D = joints[key] as Node3D
@@ -147,6 +200,7 @@ func tick_mounted(delta: float, horiz_speed: float, galloping: bool = false) -> 
 	_attack_lock = 0.0
 	_combat_overrides.clear()
 	_root_drop = 0.0
+	_attack_walk_w = 0.0
 	_breath += delta
 
 	var target_state: StringName = &"mounted_idle"
@@ -248,6 +302,21 @@ func tick(
 	_state = target_state
 	pose_updated.emit(_state)
 
+	# Walking inside a combat pose: stride on the legs, combat owns the rest.
+	var attack_walk := (
+		attack_walk_enabled
+		and _state == &"attack"
+		and not crouching
+		and horiz_speed > 0.15
+	)
+	if move_dir_local.length_squared() > 0.01:
+		_attack_walk_back = move_dir_local.z > 0.3
+	if _state != &"attack":
+		# Out of the combat pose the plain walk cycle owns the legs again.
+		_attack_walk_w = 0.0
+	else:
+		_attack_walk_w = move_toward(_attack_walk_w, 1.0 if attack_walk else 0.0, delta * ATTACK_WALK_BLEND_RATE)
+
 	var cadence := 0.0
 	var stride := 0.0
 	var arm_amp := 0.0
@@ -278,8 +347,10 @@ func tick(
 			stride = 0.22
 			arm_amp = 0.15
 		&"attack":
-			# Hold near rest; combat additives applied below
-			pass
+			# Hold near rest; combat additives applied below. Walking keeps
+			# the walk cadence for the legs only (blended by _attack_walk_w).
+			if _attack_walk_w > 0.001:
+				cadence = ATTACK_WALK_CADENCE
 		_:
 			pass
 
@@ -292,6 +363,8 @@ func tick(
 	var c := cos(_phase)
 	var breath := sin(_breath * 1.7) * 0.012
 
+	# Attack walk adds no body bob: the leg solve keeps the soles down and the
+	# upper body (and shaft) stays at the planted height.
 	_apply_joint("root", Vector3(0.0, bob * absf(s) - crouch_sink - _root_drop, 0.0), Vector3.ZERO)
 
 	var hip_sway := Vector3(0.0, s * stride * 0.08, 0.0)
@@ -312,6 +385,18 @@ func tick(
 	_apply_joint("head", Vector3.ZERO, Vector3(-breath * 0.5 - torso_breath.x * 0.3, -hip_sway.y * 0.5, 0.0))
 
 	# Legs: opposite phase
+	if _state == &"attack":
+		# Stride targets per leg: sole fore/aft on the stride, lifted on the
+		# swing. The knee solve itself runs against the live root drop and hip
+		# pitch (_walk_leg_euler), so a pose written after this tick (the
+		# settle's idle seat) cannot leave the knees bent for the old drop.
+		var legs := {"left": _phase, "right": _phase + PI}
+		for side in legs:
+			var ph: float = legs[side]
+			var swing := cos(ph)
+			if _attack_walk_back:
+				swing = -swing
+			_walk_legs[side] = Vector2(ATTACK_WALK_STEP * sin(ph), ATTACK_WALK_LIFT * maxf(0.0, swing))
 	var thigh_f := s * stride
 	var thigh_b := -s * stride
 	_apply_joint("left_thigh", Vector3.ZERO, Vector3(thigh_f, 0.0, deg_to_rad(-2.0)))
@@ -335,7 +420,15 @@ func tick(
 	for key in _combat_overrides:
 		var n: Node3D = joints.get(key) as Node3D
 		if n and _rest.has(key):
-			n.rotation = (_rest[key]["rot"] as Vector3) + (_combat_overrides[key] as Vector3)
+			n.rotation = (_rest[key]["rot"] as Vector3) + _leg_or_combat(String(key), _combat_overrides[key] as Vector3)
+	# Walking in a combat pose with no leg additive: the stride still shows.
+	if _state == &"attack" and _attack_walk_w > 0.001:
+		for key in LEG_JOINTS:
+			if _combat_overrides.has(key):
+				continue
+			var ln: Node3D = joints.get(key) as Node3D
+			if ln and _rest.has(key):
+				ln.rotation = (_rest[key]["rot"] as Vector3) + _walk_leg_euler(key) * _attack_walk_w
 
 	# Slight yaw lean into move direction
 	if move_dir_local.length_squared() > 0.01 and _state != &"attack":
@@ -343,6 +436,19 @@ func tick(
 		var torso_n: Node3D = joints.get("torso") as Node3D
 		if torso_n:
 			torso_n.rotation.z += lean
+
+
+func _solve_leg(fx: float, h: float) -> Vector2:
+	## Sagittal two-bone IK. fx: sole forward of the hip (m), h: hip above the
+	## sole (m). Returns (thigh pitch, shin pitch); +thigh = forward, -shin =
+	## knee bent with the foot behind it (same signs the strike poses use).
+	var l1 := THIGH_LEN
+	var l2 := SHIN_TO_SOLE
+	var d := clampf(sqrt(fx * fx + h * h), 0.05, l1 + l2 - 0.0005)
+	var cos_k := clampf((l1 * l1 + l2 * l2 - d * d) / (2.0 * l1 * l2), -1.0, 1.0)
+	var bend := PI - acos(cos_k)
+	var cos_a := clampf((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0)
+	return Vector2(atan2(fx, h) + acos(cos_a), -bend)
 
 
 func _apply_joint(key: String, pos_off: Vector3, rot_off: Vector3) -> void:

@@ -93,13 +93,10 @@ const HURT_FLINCH_IN_SEC := 0.10
 const HURT_FLINCH_HOLD_SEC := 0.12
 const HURT_FLINCH_OUT_SEC := 0.16
 var _hurt_reacting: bool = false
-## Light footwork step during charge (does NOT cancel charge). Sprint still cancels.
-const CHARGE_STEP_SPEED := 4.4
-const CHARGE_STEP_SECS := 0.13
-const CHARGE_STEP_COOLDOWN := 0.38
-var _charge_step_left: float = 0.0
-var _charge_step_cd: float = 0.0
-var _charge_step_dir: Vector3 = Vector3.ZERO
+## Walk while attacking: WASD keeps moving through charge, release, swing,
+## jab and settle at this fraction of WALK_SPEED (replaces the old 0.28 charge
+## drift + tap-step and the recovery freeze). Sprint stays refused mid-attack.
+const ATTACK_WALK_SCALE := 0.85
 
 ## Recent mouse look used to pick a goad/knife tap direction (not hatchet charge).
 var _tool_aim_delta: Vector2 = Vector2.ZERO
@@ -215,6 +212,10 @@ func _ready() -> void:
 		_hurt_shape = hurtbox_shape.shape as CapsuleShape3D
 	if weapon_visual:
 		_weapon_base_y = weapon_visual.position.y
+	if locomotion:
+		# Walking through charge / release / swing / jab / settle keeps the
+		# stride on the legs; the combat pose keeps the arms, spine and shaft.
+		locomotion.attack_walk_enabled = true
 	# Locomotion builds mesh in its _ready; resolve arm after a deferred pass.
 	call_deferred("_bind_locomotion_joints")
 
@@ -321,22 +322,18 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 
+	# `locked` still gates jump / crouch / sprint exactly as before (recovery
+	# refuses them). It no longer stops WASD: only death / stagger do.
 	var locked := combat != null and not combat.can_move() and not (combat != null and combat.is_charging)
-	# Charging: light step footwork (no cancel) + slow drift.
-	var charging_move := combat != null and combat.is_charging
-	_charge_step_cd = maxf(0.0, _charge_step_cd - delta)
-	_charge_step_left = maxf(0.0, _charge_step_left - delta)
-	if charging_move and _charge_step_left <= 0.0 and _charge_step_cd <= 0.0 and is_on_floor():
-		var step_in := _move_vector()
-		if step_in != Vector2.ZERO and (
-			Input.is_action_just_pressed("move_left")
-			or Input.is_action_just_pressed("move_right")
-			or Input.is_action_just_pressed("move_forward")
-			or Input.is_action_just_pressed("move_back")
-		):
-			_charge_step_dir = (transform.basis * Vector3(step_in.x, 0.0, step_in.y)).normalized()
-			_charge_step_left = CHARGE_STEP_SECS
-			_charge_step_cd = CHARGE_STEP_COOLDOWN
+	var move_locked := combat != null and (combat.is_dead or combat.stagger_left > 0.0)
+	# Charge, release, continuous swing, jab and the settle tail all walk.
+	var attack_walking := combat != null and not move_locked and (
+		combat.is_charging
+		or combat.is_attacking
+		or combat.attack_recovery_left > 0.0
+		or _goad_release_live
+		or _swing_arc_live
+	)
 	var want_crouch := Input.is_action_pressed("crouch") and is_on_floor() and not locked
 	# Stay crouched mid-air until land if already crouching; no jump while crouched.
 	if not is_on_floor() and is_crouching:
@@ -379,15 +376,11 @@ func _physics_process(delta: float) -> void:
 		target_speed = CROUCH_SPEED
 	elif sprinting:
 		target_speed = SPRINT_SPEED
-	if locked:
+	if move_locked:
 		target_speed = 0.0
 		direction = Vector3.ZERO
-	elif charging_move:
-		if _charge_step_left > 0.0:
-			target_speed = CHARGE_STEP_SPEED
-			direction = _charge_step_dir
-		else:
-			target_speed = WALK_SPEED * 0.28  # light drift; tap WASD for a step
+	elif attack_walking and not sprinting:
+		target_speed = minf(target_speed, WALK_SPEED * ATTACK_WALK_SCALE)
 
 	var target_vel := direction * target_speed
 	var horiz := Vector3(velocity.x, 0.0, velocity.z)
@@ -406,7 +399,7 @@ func _physics_process(delta: float) -> void:
 	_update_noise(horiz.length(), sprinting)
 	if not is_mounted:
 		_expire_hurt_react_if_tween_died()
-		_tick_locomotion(delta, horiz.length(), sprinting, locked)
+		_tick_locomotion(delta, horiz.length(), sprinting, move_locked)
 		_tick_shaft_block()
 		_sync_weapon_to_hand()
 
@@ -571,8 +564,10 @@ func _begin_guard_blend(start_pose: Dictionary, target_pose: Dictionary) -> void
 	_guard_from_pose = start_pose
 	_guard_to_pose = target_pose
 	# The stick that is already showing, not a reseat of the start pose.
-	_guard_from_xf = weapon_visual.global_transform if weapon_visual else Transform3D.IDENTITY
-	_guard_to_xf = _peek_shaft_xf(target_pose)
+	# Body-local holds: a blend that starts while walking must not leave the
+	# shaft at the world spot the blend began from.
+	_guard_from_xf = _to_body(weapon_visual.global_transform if weapon_visual else global_transform)
+	_guard_to_xf = _to_body(_peek_shaft_xf(target_pose))
 	_guard_blend_u = 0.0
 	_guard_blend_active = true
 	_apply_blended_pose(start_pose, target_pose, 0.0, true)
@@ -654,6 +649,11 @@ func _peek_shaft_xf(pose: Dictionary) -> Transform3D:
 	return xf
 
 
+func _to_body(xf: Transform3D) -> Transform3D:
+	## World hold -> player-local, so a shaft blend rides along while walking.
+	return global_transform.affine_inverse() * xf
+
+
 func _guard_line(xf: Transform3D, slide: float) -> PackedVector3Array:
 	## Wood ends in world space. slide is the goad grip offset on this hold.
 	var butt := xf * Vector3(0.0, -0.255 - slide, 0.0)
@@ -732,6 +732,9 @@ func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) ->
 	## captured seats, not a new one.
 	if weapon_visual == null:
 		return
+	# Holds are stored body-local (see _to_body); walk them with the body.
+	from_xf = global_transform * from_xf
+	to_xf = global_transform * to_xf
 	var along := clampf(u, 0.0, 1.0)
 	if _guard_blend_active:
 		weapon_visual.global_transform = _guard_shaft_beside(from_xf, to_xf, along)
@@ -1171,18 +1174,18 @@ func _apply_goad_charge_pose(ratio: float, _direction: StringName) -> void:
 	var full: Dictionary = ToolStrikePoses.tool_aim_pose(CombatSystem.Weapon.GOAD, aim.x, aim.y, 1.0)
 	if not _charge_from_ready:
 		_charge_from_pose = _current_tool_pose(full)
-		_charge_from_xf = weapon_visual.global_transform if weapon_visual else Transform3D.IDENTITY
+		_charge_from_xf = _to_body(weapon_visual.global_transform if weapon_visual else global_transform)
 		_charge_from_ready = true
 		_guard_face_held = &""
 	var blend := ToolStrikePoses._charge_blend(ratio)
 	_shaft_from_xf = _charge_from_xf
-	_shaft_to_xf = _peek_shaft_xf(full)
+	_shaft_to_xf = _to_body(_peek_shaft_xf(full))
 	# Top hold is a bar over the head in the committed pose. The authored
 	# cock reads as the right chamber. Left and right charges keep the peek.
 	# Measure after the body is in that pose, or the bar is built on the old head.
 	if _is_top_goad_charge(aim):
 		_apply_tool_pose(full)
-		_shaft_to_xf = _overhead_charge_xf()
+		_shaft_to_xf = _to_body(_overhead_charge_xf())
 	_shaft_xf_u = blend
 	_shaft_xf_blend = true
 	_apply_blended_pose(_charge_from_pose, full, blend, false)
@@ -1731,6 +1734,10 @@ func _swing_line(butt: Vector3, direction: Vector3) -> Array:
 
 
 func _sample_continuous_goad_swing(u: float) -> void:
+	# The arc is authored in player space. Re-anchor it to the body every
+	# sample so walking (or turning) through the swing carries the wood along
+	# instead of leaving it at the world spot the release began.
+	_swing_frame = global_transform
 	var line: Array = _continuous_line_at(clampf(u, 0.0, 1.0))
 	var butt_l: Vector3 = line[0]
 	var tip_l: Vector3 = line[1]
@@ -2471,7 +2478,7 @@ func _lerp_goad_shaft(t: float, from_pose: Dictionary, to_pose: Dictionary, from
 		# The whole swing, including the seat it arrives on. The guard
 		# the player is holding is not this path. Pose tables stay put.
 		_swing_arc_interior = true
-		var shaft_xf := _swing_shaft_on_arc(from_xf, to_xf, u)
+		var shaft_xf := _to_body(_swing_shaft_on_arc(from_xf, to_xf, u))
 		_shaft_from_xf = shaft_xf
 		_shaft_to_xf = shaft_xf
 		_shaft_xf_u = 1.0
@@ -2480,7 +2487,7 @@ func _lerp_goad_shaft(t: float, from_pose: Dictionary, to_pose: Dictionary, from
 		_shaft_xf_blend = false
 		_swing_arc_interior = false
 		return
-	var shaft_xf := from_xf.interpolate_with(to_xf, u)
+	var shaft_xf := _to_body(from_xf.interpolate_with(to_xf, u))
 	# Jab keeps the old blend. One transform, so the plant cannot slerp off it.
 	_shaft_from_xf = shaft_xf
 	_shaft_to_xf = shaft_xf
