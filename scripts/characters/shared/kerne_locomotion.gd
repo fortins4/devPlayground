@@ -28,6 +28,10 @@ var _walk_legs: Dictionary = {} ## "left"/"right" -> Vector2(sole forward m, lif
 const LEG_JOINTS := ["left_thigh", "left_shin", "right_thigh", "right_shin"]
 const ATTACK_WALK_BLEND_RATE := 9.0 ## 1/s; ~0.11 s from plant to stride
 var _attack_walk_back: bool = false
+## Per-joint rotation offset the cycle itself wrote this tick (before combat
+## additives). A caller blending its own pose in or out of the plain cycle
+## (the player's sprint carry) reads it so the hand-off does not pop.
+var _cycle_rot: Dictionary = {}
 ## The planted stance's root drop is kept while striding (the upper body and
 ## the shaft stay at the planted height, so clearance is unchanged); a
 ## two-bone leg solve bends the knees so the soles walk on the ground under
@@ -459,6 +463,17 @@ func _apply_joint(key: String, pos_off: Vector3, rot_off: Vector3) -> void:
 	# (additive applied after). Base pose always set first.
 	n.position = (_rest[key]["pos"] as Vector3) + pos_off
 	n.rotation = (_rest[key]["rot"] as Vector3) + rot_off
+	_cycle_rot[key] = rot_off
+
+
+## Offset the walk / run / sprint cycle wrote on this joint last tick.
+func cycle_offset(joint: String) -> Vector3:
+	return _cycle_rot.get(joint, Vector3.ZERO) as Vector3
+
+
+## Stride phase (radians). sin(phase) > 0: left leg forward, right arm forward.
+func cycle_phase() -> float:
+	return _phase
 
 
 func current_state() -> StringName:

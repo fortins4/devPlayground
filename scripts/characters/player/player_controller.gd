@@ -190,6 +190,64 @@ var _atk_buf_face: StringName = &""
 var _atk_buf_down: bool = false
 var _atk_buf_stats: Dictionary = {"armed": 0, "fired": 0, "discarded": 0, "expired": 0}
 var _atk_buf_last_fire_frame: int = -1
+
+## Sprint carry (visual only; sprint rules are unchanged). One hand: the right
+## palm holds the goad near its balance point and the shaft rides along his
+## right side, head forward, butt trailing, off the ground. That arm swings a
+## shortened stride; the left arm pumps free. Ending the sprint is the one-hand
+## draw's pattern: the right hand brings the shaft forward and the left hand
+## meets it on the way, not while it still trails at the side.
+const CARRY_IN_SEC := 0.22
+const CARRY_OUT_SEC := 0.30
+## Palm station on the goad (wood -0.255..1.045, iron head beyond): balance point.
+const CARRY_GRIP_SLIDE := 0.42
+const CARRY_PITCH_DEG := 8.0 ## tip above level
+const CARRY_YAW_IN_DEG := 5.0 ## tip toward the centre line, butt out behind him
+const CARRY_SWING_PITCH_DEG := 4.0 ## wrist lag: tip dips as the arm swings forward
+const CARRY_ARM_SWING := 0.45 ## share of the sprint arm swing on the carrying arm
+## Carrying arm out from the hip (right arm: +Z is away from the body; the
+## plain cycle's -10 swings it across). Puts the palm about 0.38 m off centre.
+const CARRY_ARM_OUT_DEG := 23.0
+const CARRY_ELBOW_DEG := 16.0
+const PUMP_ARM_OUT_DEG := 4.0 ## left arm: +Z is toward the body
+const PUMP_ELBOW_DEG := 82.0
+const PUMP_ELBOW_FWD_DEG := 18.0 ## extra bend on the forward swing
+const PUMP_ELBOW_BACK_DEG := 14.0 ## opens a little on the back swing
+## Out blend: the left hand stays off the shaft until it has come forward.
+const CARRY_MEET_FROM := 0.45
+const CARRY_MEET_TO := 0.90
+## Mid-blend the carrying hand swings out around the hip, not through the
+## front of the skirt (zero at both ends, so neither hold moves).
+const CARRY_HIP_BULGE_DEG := 22.0
+const CARRY_OUT_BULGE_DEG := 10.0 ## the return rises in front; a smaller swing out
+const CARRY_GROUND_CLEAR := 0.16
+const CARRY_CLEAR_MARGIN := 0.03
+const CARRY_ARM_KEYS := ["right_arm", "right_forearm", "left_arm", "left_forearm"]
+const CARRY_BODY_KEYS := ["hips", "torso", "head", "left_thigh", "left_shin", "right_thigh", "right_shin"]
+const CARRY_LEG_KEYS := ["left_thigh", "left_shin", "right_thigh", "right_shin"]
+enum { CARRY_NONE, CARRY_IN, CARRY_HOLD, CARRY_OUT }
+var _carry_state: int = CARRY_NONE
+## 0..1 progress into the carry (1 = held). -1 / unused outside IN/HOLD.
+var _carry_u: float = 0.0
+## 0..1 progress of the return to the two-hand hold; -1 when not returning.
+var _carry_out_u: float = -1.0
+var _carry_from_pose: Dictionary = {}
+var _carry_from_basis: Basis = Basis.IDENTITY ## body-local
+var _carry_from_slide: float = 0.0
+## Seat offset of the stick from the raw palm (guard seats nudge it), body-local.
+var _carry_from_off: Vector3 = Vector3.ZERO
+var _carry_to_off: Vector3 = Vector3.ZERO
+var _carry_to_pose: Dictionary = {}
+var _carry_to_basis: Basis = Basis.IDENTITY ## body-local
+var _carry_to_slide: float = 0.0
+var _carry_to_face: StringName = &""
+var _carry_to_guard: bool = false
+var _carry_meshes: Array = []
+## How the in blend turns the stick: 0 short arc, 1 long way round, 2 up
+## past his right shoulder first. Picked at the start: the one that meets
+## the body least (a stick left across his back after a draw needs 1 or 2).
+var _carry_in_path: int = 0
+var _carry_stats: Dictionary = {"frames": 0, "cleared": 0, "residual": 0, "ground": 0}
 ## While the goad guard is up, look offset is not decayed so a face stays put.
 ## Look face / strike cardinals share LOOK_AIM_DEADZONE + equal quadrants.
 
@@ -401,6 +459,7 @@ func _physics_process(delta: float) -> void:
 		_expire_hurt_react_if_tween_died()
 		_tick_locomotion(delta, horiz.length(), sprinting, move_locked)
 		_tick_shaft_block()
+		_tick_sprint_carry(delta)
 		_sync_weapon_to_hand()
 
 
@@ -445,6 +504,8 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		and horiz_speed < 0.25
 		and not is_mounted
 		and not _goad_swing_held
+		and _carry_state == CARRY_NONE
+		and not _carry_wanted()
 	):
 		_apply_weapon_idle_pose()
 	elif (
@@ -457,6 +518,8 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 		and not _hurt_reacting
 		and combat.current_weapon != CombatSystem.Weapon.HATCHET
 		and horiz_speed >= 0.25
+		and _carry_state == CARRY_NONE
+		and not _carry_wanted()
 	):
 		# Drop full-body tool additives so the walk cycle can move the legs.
 		# Never while a goad release/settle still owns the shaft — clearing here
@@ -497,7 +560,9 @@ func _tick_shaft_block() -> void:
 		_shaft_pose_applied = true
 	elif _shaft_pose_applied:
 		_shaft_pose_applied = false
-		if not combat.is_attacking and not combat.is_charging:
+		if _carry_wanted() or _carry_state != CARRY_NONE:
+			pass  # Sprint carry takes the body from the guard (_tick_sprint_carry).
+		elif not combat.is_attacking and not combat.is_charging:
 			if combat.current_weapon == CombatSystem.Weapon.GOAD:
 				_release_guard_to_idle()
 			else:
@@ -513,6 +578,10 @@ func _apply_shaft_block_pose() -> void:
 		locomotion.release_attack_lock()
 	else:
 		locomotion.lock_attack(0.12)
+	# Coming out of the sprint carry: that blend owns the body until the
+	# shaft is back in both hands (it starts / finishes in _tick_sprint_carry).
+	if _carry_state != CARRY_NONE and not _carry_must_abort():
+		return
 	var face: StringName = &"chest"
 	if combat:
 		face = combat.shaft_guard_face
@@ -611,6 +680,499 @@ func _replay_guard_walk_legs() -> void:
 func _finish_guard_blend() -> void:
 	_guard_blend_active = false
 	_guard_blend_u = 1.0
+
+
+# --- Sprint carry -----------------------------------------------------------
+
+
+func _carry_wanted() -> bool:
+	## Visual only: the same sprint that already dropped the guard. No new gate.
+	return (
+		combat != null and locomotion != null and weapon_visual != null
+		and _sprinting
+		and not _carry_must_abort()
+	)
+
+
+func _carry_must_abort() -> bool:
+	## Anything that owns the body or the shaft ends the carry on the spot.
+	## Its own blend then starts from the pose already on screen.
+	if combat == null or locomotion == null or weapon_visual == null:
+		return true
+	return (
+		combat.current_weapon != CombatSystem.Weapon.GOAD
+		or combat.is_attacking
+		or combat.is_charging
+		or combat.is_dead
+		or _goad_release_live
+		or _swing_arc_live
+		or _hurt_reacting
+		or is_mounted
+		or _goad_stowing
+		or _goad_draw_u < 0.999
+	)
+
+
+func _tick_sprint_carry(delta: float) -> void:
+	if _carry_state != CARRY_NONE and _carry_must_abort():
+		_carry_abort()
+		return
+	var want := _carry_wanted()
+	match _carry_state:
+		CARRY_NONE:
+			if not want:
+				return
+			_carry_begin_in()
+		CARRY_IN, CARRY_HOLD:
+			if not want:
+				_carry_begin_out()
+			elif _carry_state == CARRY_IN:
+				_carry_u = minf(1.0, _carry_u + delta / CARRY_IN_SEC)
+				if _carry_u >= 1.0:
+					_carry_state = CARRY_HOLD
+		CARRY_OUT:
+			if want:
+				# Sprint again mid-return: carry back in from where it is.
+				_carry_begin_in()
+			else:
+				_carry_out_u = minf(1.0, _carry_out_u + delta / CARRY_OUT_SEC)
+	_carry_write_pose()
+	_sync_weapon_to_hand()
+	if _carry_state == CARRY_OUT and _carry_out_u >= 1.0:
+		_carry_finish_out()
+
+
+func _carry_abort() -> void:
+	_carry_state = CARRY_NONE
+	_carry_u = 0.0
+	_carry_out_u = -1.0
+
+
+func _carry_capture_pose() -> Dictionary:
+	## What is on screen now: combat additives where they exist, otherwise the
+	## offset the plain cycle wrote (so a walking leg is not frozen at rest).
+	var pose := {}
+	for k in CARRY_ARM_KEYS + CARRY_BODY_KEYS:
+		if locomotion.has_combat_additive(k):
+			pose[k] = locomotion.get_combat_additive(k)
+		else:
+			pose[k] = locomotion.cycle_offset(k)
+	pose["root_drop"] = _tool_root_drop
+	return pose
+
+
+func _carry_live_slide() -> float:
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	return -goad.position.y if goad else _goad_grip_slide
+
+
+func _carry_body_basis(world_basis: Basis) -> Basis:
+	return (global_transform.basis.inverse() * world_basis).orthonormalized()
+
+
+func _carry_palm() -> Vector3:
+	var fore := locomotion.get_joint("right_forearm") as Node3D
+	return fore.to_global(Vector3(0.0, -0.22, 0.0)) if fore else weapon_visual.global_position
+
+
+func _carry_station_of(xf: Transform3D, slide: float, palm: Vector3) -> Array:
+	## The palm's station on this stick (the slide that puts that point of the
+	## wood at the weapon origin) and what is left over across the shaft, in
+	## body axes. Re-expressing a hold this way changes nothing on screen.
+	var axis := xf.basis.y.normalized()
+	var along := (palm - xf.origin).dot(axis)
+	var on_line := xf.origin + axis * along
+	return [slide + along, global_transform.basis.inverse() * (on_line - palm)]
+
+
+func _carry_palm_for(pose: Dictionary) -> Vector3:
+	## Right palm if this pose were on screen. Leaves the screen as it was.
+	var saved := {}
+	for k in pose.keys():
+		var key := String(k)
+		if key == "weapon" or key == "root_drop" or key == "grip_slide":
+			continue
+		saved[key] = [locomotion.has_combat_additive(key), locomotion.get_combat_additive(key)]
+		locomotion.set_combat_additive(key, pose[k])
+	var saved_drop := _tool_root_drop
+	locomotion.set_root_drop(float(pose.get("root_drop", 0.0)))
+	var palm := _carry_palm()
+	for key in saved.keys():
+		if saved[key][0]:
+			locomotion.set_combat_additive(key, saved[key][1])
+		else:
+			locomotion.set_combat_additive(key, locomotion.cycle_offset(key))
+			locomotion.forget_combat_additive(key)
+	locomotion.set_root_drop(saved_drop)
+	return palm
+
+
+func _carry_begin_in() -> void:
+	# The guard blend tween (not a release) would keep writing the guard.
+	if _arm_tween and _arm_tween.is_valid() and not _goad_release_live and not _swing_arc_live:
+		_arm_tween.kill()
+	_guard_blend_active = false
+	_shaft_xf_blend = false
+	_guard_face_held = &""
+	_carry_from_pose = _carry_capture_pose()
+	_carry_from_basis = _carry_body_basis(weapon_visual.global_transform.basis)
+	var st_in := _carry_station_of(weapon_visual.global_transform, _carry_live_slide(), _carry_palm())
+	_carry_from_slide = st_in[0]
+	_carry_from_off = st_in[1]
+	_carry_stats["from_off_max"] = maxf(float(_carry_stats.get("from_off_max", 0.0)), _carry_from_off.length())
+	_carry_u = 0.0
+	_carry_out_u = -1.0
+	_carry_state = CARRY_IN
+	_carry_in_path = _carry_pick_in_path()
+	_tool_pose_active = false
+	# The guard's planted lock would hold the stride back for a beat.
+	locomotion.release_attack_lock()
+
+
+func _carry_begin_out() -> void:
+	_carry_to_guard = combat.is_shaft_blocking
+	_carry_to_face = combat.shaft_guard_face if _carry_to_guard else &""
+	if _carry_to_guard:
+		_carry_to_pose = ToolStrikePoses.tool_shaft_guard_pose(_carry_to_face)
+	else:
+		_carry_to_pose = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	_carry_from_pose = _carry_capture_pose()
+	_carry_from_basis = _carry_body_basis(weapon_visual.global_transform.basis)
+	var st_out := _carry_station_of(weapon_visual.global_transform, _carry_live_slide(), _carry_palm())
+	_carry_from_slide = st_out[0]
+	_carry_from_off = st_out[1]
+	# Where the two-hand hold seats the stick, without leaving it on screen.
+	var st := _carry_state
+	_carry_state = CARRY_NONE
+	var xf := _peek_shaft_xf(_carry_to_pose)
+	_carry_state = st
+	var to_slide := float(_carry_to_pose.get("grip_slide", 0.0))
+	var st_to := _carry_station_of(xf, to_slide, _carry_palm_for(_carry_to_pose))
+	_carry_to_slide = st_to[0]
+	_carry_to_off = st_to[1]
+	_carry_stats["to_off_max"] = maxf(float(_carry_stats.get("to_off_max", 0.0)), _carry_to_off.length())
+	_carry_to_basis = _carry_body_basis(xf.basis)
+	_carry_out_u = 0.0
+	_carry_state = CARRY_OUT
+
+
+func _carry_finish_out() -> void:
+	_carry_abort()
+	if combat.current_weapon != CombatSystem.Weapon.GOAD:
+		return
+	if _carry_to_guard and combat.is_shaft_blocking:
+		# Seated: hand the body to the guard exactly where the blend ended.
+		_guard_blend_active = false
+		_guard_face_held = _carry_to_face
+		_apply_tool_pose(_carry_to_pose)
+		_replay_guard_walk_legs()
+		_shaft_pose_applied = true
+	else:
+		_apply_tool_pose(_carry_to_pose)
+		_tool_pose_active = false
+		_sync_weapon_to_hand()
+
+
+func _carry_hold_pose() -> Dictionary:
+	## Arms only. Built on the live cycle so the swing stays on the stride.
+	var r: Vector3 = locomotion.cycle_offset("right_arm")
+	var l: Vector3 = locomotion.cycle_offset("left_arm")
+	var carry_swing := r.x * CARRY_ARM_SWING
+	var fwd := clampf(l.x / 0.95, 0.0, 1.0)
+	var back := clampf(-l.x / 0.95, 0.0, 1.0)
+	return {
+		"right_arm": Vector3(carry_swing + deg_to_rad(4.0), 0.0, deg_to_rad(CARRY_ARM_OUT_DEG)),
+		"right_forearm": Vector3(deg_to_rad(CARRY_ELBOW_DEG) + maxf(0.0, carry_swing) * 0.5, 0.0, 0.0),
+		"left_arm": Vector3(l.x, 0.0, deg_to_rad(PUMP_ARM_OUT_DEG)),
+		"left_forearm": Vector3(deg_to_rad(PUMP_ELBOW_DEG + PUMP_ELBOW_FWD_DEG * fwd - PUMP_ELBOW_BACK_DEG * back), 0.0, 0.0),
+	}
+
+
+func _carry_slerp(a: Vector3, b: Vector3, t: float) -> Vector3:
+	return Quaternion.from_euler(a).slerp(Quaternion.from_euler(b), clampf(t, 0.0, 1.0)).get_euler()
+
+
+func _carry_stepping() -> bool:
+	return _guard_wants_steps(Vector2(velocity.x, velocity.z).length())
+
+
+func _carry_write_pose() -> void:
+	if _carry_state == CARRY_NONE:
+		return
+	var hold := _carry_hold_pose()
+	if _carry_state == CARRY_OUT:
+		var e := smoothstep(0.0, 1.0, _carry_out_u)
+		var meet := smoothstep(CARRY_MEET_FROM, CARRY_MEET_TO, _carry_out_u)
+		var stepping := _carry_stepping()
+		for k in CARRY_ARM_KEYS + CARRY_BODY_KEYS:
+			var to: Vector3 = _carry_to_pose.get(k, Vector3.ZERO)
+			if k in CARRY_LEG_KEYS:
+				if stepping:
+					locomotion.forget_combat_additive(k)
+					continue
+				locomotion.set_combat_additive(k, _carry_slerp(locomotion.cycle_offset(k), to, e))
+				continue
+			var w := meet if k.begins_with("left_") else e
+			var v := _carry_slerp(_carry_from_pose[k], to, w)
+			if k == "right_arm":
+				v.z += deg_to_rad(CARRY_OUT_BULGE_DEG) * sin(PI * e)
+			locomotion.set_combat_additive(k, v)
+		var drop := lerpf(float(_carry_from_pose.get("root_drop", 0.0)), float(_carry_to_pose.get("root_drop", 0.0)), e)
+		_tool_root_drop = drop
+		locomotion.set_root_drop(drop)
+		return
+	var s := 1.0 if _carry_state == CARRY_HOLD else smoothstep(0.0, 1.0, _carry_u)
+	var bulge := deg_to_rad(CARRY_HIP_BULGE_DEG) * sin(PI * s)
+	for k in CARRY_ARM_KEYS:
+		var a: Vector3 = _carry_from_pose.get(k, hold[k]) if s < 1.0 else hold[k]
+		var v := _carry_slerp(a, hold[k], s)
+		if k == "right_arm":
+			v.z += bulge
+		locomotion.set_combat_additive(k, v)
+	for k in CARRY_BODY_KEYS:
+		if s >= 1.0:
+			# Equal to the cycle now: let the run own the spine and the legs.
+			locomotion.forget_combat_additive(k)
+		else:
+			locomotion.set_combat_additive(k, _carry_slerp(_carry_from_pose[k], locomotion.cycle_offset(k), s))
+	var d := lerpf(float(_carry_from_pose.get("root_drop", 0.0)), 0.0, s)
+	_tool_root_drop = d
+	locomotion.set_root_drop(d)
+
+
+func _carry_hold_basis() -> Basis:
+	## Body-local: shaft along +Y of the weapon, pointing forward (-Z),
+	## tip a little up and in. The wrist keeps it near level through the swing.
+	var swing := clampf(locomotion.cycle_offset("right_arm").x / 0.95, -1.0, 1.0)
+	var pitch := deg_to_rad(CARRY_PITCH_DEG - CARRY_SWING_PITCH_DEG * swing)
+	var axis := Basis(Vector3.UP, deg_to_rad(CARRY_YAW_IN_DEG)) * (Basis(Vector3.RIGHT, pitch) * Vector3(0.0, 0.0, -1.0))
+	axis = axis.normalized()
+	var x := axis.cross(Vector3.UP).normalized()
+	var z := x.cross(axis).normalized()
+	return Basis(x, axis, z)
+
+
+func _carry_swing_path(from_b: Basis, to_b: Basis, t: float, long_way: bool) -> Basis:
+	## Turn the shaft's direction along one arc (short or long way round),
+	## then settle its roll about the wood. Exact at both ends.
+	t = clampf(t, 0.0, 1.0)
+	if t >= 1.0:
+		return to_b
+	var a := from_b.y.normalized()
+	var b := to_b.y.normalized()
+	var n := a.cross(b)
+	var theta := acos(clampf(a.dot(b), -1.0, 1.0))
+	if n.length() < 1e-4:
+		n = from_b.x.normalized()
+	n = n.normalized()
+	var full := theta
+	if long_way:
+		n = -n
+		full = TAU - theta
+	var mid := Basis(n, full * t) * from_b
+	var end_b := Basis(n, full) * from_b
+	var ex := end_b.x - b * end_b.x.dot(b)
+	var tx := to_b.x - b * to_b.x.dot(b)
+	var roll := 0.0
+	if ex.length() > 1e-4 and tx.length() > 1e-4:
+		roll = ex.normalized().signed_angle_to(tx.normalized(), b)
+	return (Basis(mid.y.normalized(), roll * t) * mid).orthonormalized()
+
+
+func _carry_in_basis(hold_b: Basis, s: float, path: int) -> Basis:
+	if path != 2:
+		return _carry_swing_path(_carry_from_basis, hold_b, s, path == 1)
+	# Up beside the right shoulder, then down along the side.
+	var up := Vector3(0.55, 0.80, -0.15).normalized()
+	var x := up.cross(Vector3(0.0, 0.0, -1.0)).normalized()
+	var w := Basis(x, up, x.cross(up).normalized())
+	if s < 0.5:
+		return _carry_swing_path(_carry_from_basis, w, s * 2.0, false)
+	return _carry_swing_path(w, hold_b, (s - 0.5) * 2.0, false)
+
+
+func _carry_pick_in_path() -> int:
+	## Sample each path along the coming blend (palm eased toward the carry
+	## hold) and keep the one that meets the body least. Short arc on a tie.
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	if goad == null:
+		return 0
+	var saved_xf := weapon_visual.global_transform
+	var saved_goad := goad.position
+	var palm_now := _carry_palm()
+	var palm_hold := _carry_palm_for(_carry_hold_pose())
+	var hold_b := _carry_hold_basis()
+	var hits := [0, 0, 0]
+	for i in 3:
+		for t in [0.15, 0.3, 0.45, 0.6, 0.75, 0.9]:
+			var sm := smoothstep(0.0, 1.0, t)
+			var b := _carry_in_basis(hold_b, sm, i)
+			weapon_visual.global_transform = Transform3D(global_transform.basis * b, palm_now.lerp(palm_hold, sm))
+			goad.position = Vector3(0.0, -lerpf(_carry_from_slide, CARRY_GRIP_SLIDE, sm), 0.0)
+			hits[i] += _carry_shaft_hits(goad, _carry_clear_meshes(sm >= 0.5))
+	weapon_visual.global_transform = saved_xf
+	goad.position = saved_goad
+	var best := 0
+	for i in 3:
+		if hits[i] < hits[best]:
+			best = i
+	return best
+
+
+func _carry_quat_lerp(a: Basis, b: Basis, t: float) -> Basis:
+	return Basis(Quaternion(a.orthonormalized()).slerp(Quaternion(b.orthonormalized()), clampf(t, 0.0, 1.0)))
+
+
+func _place_carry_shaft() -> void:
+	## Palm-pinned: the weapon origin is already on the right palm (sync).
+	## Only the stick's direction and the palm's station along it blend.
+	var goad := weapon_visual.get_node_or_null("Goad") as Node3D
+	if goad == null:
+		return
+	var basis_l: Basis
+	var slide: float
+	var off := Vector3.ZERO
+	var left_free := true
+	if _carry_state == CARRY_OUT:
+		var e := smoothstep(0.0, 1.0, _carry_out_u)
+		basis_l = _carry_quat_lerp(_carry_from_basis, _carry_to_basis, e)
+		slide = lerpf(_carry_from_slide, _carry_to_slide, e)
+		off = _carry_from_off.lerp(_carry_to_off, e)
+		left_free = _carry_out_u < CARRY_MEET_FROM
+	else:
+		var s := 1.0 if _carry_state == CARRY_HOLD else smoothstep(0.0, 1.0, _carry_u)
+		basis_l = _carry_in_basis(_carry_hold_basis(), s, _carry_in_path)
+		slide = lerpf(_carry_from_slide, CARRY_GRIP_SLIDE, s)
+		off = _carry_from_off.lerp(Vector3.ZERO, s)
+		# The left hand is still letting go early in the blend; it is not
+		# an obstacle for the wood it was just holding.
+		left_free = s >= 0.5
+	var origin := _carry_palm() + global_transform.basis * off
+	weapon_visual.global_transform = Transform3D(global_transform.basis * basis_l, origin)
+	goad.position = Vector3(0.0, -slide, 0.0)
+	goad.rotation = Vector3.ZERO
+	_goad_grip_slide = slide
+	_carry_stats["frames"] = int(_carry_stats["frames"]) + 1
+	_carry_clear_shaft(goad, left_free)
+	if _carry_state == CARRY_OUT and _carry_out_u >= CARRY_MEET_FROM:
+		# The left hand meets the wood as it comes forward. The blended arm is
+		# the reach; the grip solve lands the palm on the nearest point.
+		var meet := smoothstep(CARRY_MEET_FROM, CARRY_MEET_TO, _carry_out_u)
+		var reach_arm := locomotion.get_combat_additive("left_arm")
+		var reach_fore := locomotion.get_combat_additive("left_forearm")
+		_grip_shaft_with(goad, "left_arm", "left_forearm", 0.24)
+		locomotion.set_combat_additive("left_arm", _carry_slerp(reach_arm, locomotion.get_combat_additive("left_arm"), meet))
+		locomotion.set_combat_additive("left_forearm", _carry_slerp(reach_fore, locomotion.get_combat_additive("left_forearm"), meet))
+
+
+func _carry_clear_meshes(left_free: bool) -> Array:
+	if _carry_meshes.is_empty():
+		var visual_node := get_node_or_null("Visual") as Node3D
+		if visual_node:
+			for mn in ["TorsoMesh", "TunicSkirt", "Cloak", "HeadMesh", "Belt", "HipsMesh", "ShoulderL", "ShoulderR"]:
+				var m := visual_node.find_child(mn, true, false) as MeshInstance3D
+				if m:
+					_carry_meshes.append([mn, m])
+		for jn in ["left_thigh", "right_thigh", "left_shin", "right_shin", "left_arm", "left_forearm"]:
+			var j := locomotion.get_joint(jn)
+			if j == null:
+				continue
+			for c in j.get_children():
+				if c is MeshInstance3D:
+					_carry_meshes.append([jn, c])
+	if left_free:
+		return _carry_meshes
+	var out: Array = []
+	for pair in _carry_meshes:
+		if not String(pair[0]).begins_with("left_arm") and not String(pair[0]).begins_with("left_forearm"):
+			out.append(pair)
+	return out
+
+
+func _carry_shaft_hits(goad: Node3D, meshes: Array) -> int:
+	var butt := goad.to_global(Vector3(0.0, -0.255, 0.0))
+	var tip := goad.to_global(Vector3(0.0, 1.13, 0.0))
+	var hits := 0
+	for pair in meshes:
+		var mi: MeshInstance3D = pair[1]
+		if not mi.is_visible_in_tree():
+			continue
+		var box: AABB = mi.get_aabb().grow(CARRY_CLEAR_MARGIN)
+		var inv := mi.global_transform.affine_inverse()
+		for i in 28:
+			if box.has_point(inv * butt.lerp(tip, float(i) / 27.0)):
+				hits += 1
+				break
+	return hits
+
+
+func _carry_low_point(goad: Node3D) -> float:
+	var butt := goad.to_global(Vector3(0.0, -0.255, 0.0))
+	var tip := goad.to_global(Vector3(0.0, 1.13, 0.0))
+	return minf(butt.y, tip.y) - global_position.y
+
+
+func _carry_clear_shaft(goad: Node3D, left_free: bool) -> void:
+	## The carry is authored clear of the body and legs. If a stride or a
+	## blend still meets one, turn the stick about the palm (the grip stays)
+	## by the smallest yaw / pitch that clears; keep the butt off the ground.
+	var meshes := _carry_clear_meshes(left_free)
+	var low := _carry_low_point(goad)
+	if low < CARRY_GROUND_CLEAR:
+		var axis := weapon_visual.global_transform.basis.y.normalized()
+		var side := axis.cross(Vector3.UP)
+		if side.length() > 0.01:
+			var lift := (CARRY_GROUND_CLEAR - low) / 0.70
+			var sgn := 1.0 if axis.y >= 0.0 else -1.0
+			# Raise whichever end is low (butt when the tip points up).
+			var ang := -sgn * clampf(lift, 0.0, 0.5)
+			weapon_visual.global_basis = Basis(side.normalized(), ang) * weapon_visual.global_basis
+			_carry_stats["ground"] = int(_carry_stats["ground"]) + 1
+	if _carry_shaft_hits(goad, meshes) == 0:
+		return
+	var base := weapon_visual.global_basis
+	var up := Vector3.UP
+	var right := global_transform.basis.x.normalized()
+	var best := base
+	var found := false
+	for mag in [4.0, 8.0, 12.0, 16.0, 22.0, 28.0, 36.0, 45.0]:
+		for dir in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1), Vector2(0.7, 0.7), Vector2(-0.7, 0.7), Vector2(0.7, -0.7), Vector2(-0.7, -0.7)]:
+			var yaw := deg_to_rad(mag * dir.x)
+			var pitch := deg_to_rad(mag * dir.y)
+			var cand := Basis(up, yaw) * Basis(right, pitch) * base
+			weapon_visual.global_basis = cand
+			if _carry_low_point(goad) < CARRY_GROUND_CLEAR * 0.5:
+				continue
+			if _carry_shaft_hits(goad, meshes) == 0:
+				best = cand
+				found = true
+				break
+		if found:
+			break
+	weapon_visual.global_basis = best
+	if not found:
+		# The palm itself is against the body mid-blend: no turn about it
+		# clears. Ease the stick out and forward a few cm and let the right
+		# hand follow it, rather than leave wood in the skirt.
+		var base_pos := weapon_visual.global_position
+		var out_x := global_transform.basis.x.normalized()
+		var fwd := -global_transform.basis.z.normalized()
+		for mag in [0.03, 0.06, 0.09, 0.12, 0.15]:
+			for d in [out_x, (out_x + fwd).normalized(), fwd]:
+				weapon_visual.global_position = base_pos + d * mag
+				if _carry_shaft_hits(goad, meshes) == 0:
+					found = true
+					break
+			if found:
+				break
+		if found:
+			_grip_shaft_at_y(goad, "right_arm", "right_forearm", _goad_grip_slide)
+		else:
+			weapon_visual.global_position = base_pos
+	if found:
+		_carry_stats["cleared"] = int(_carry_stats["cleared"]) + 1
+	else:
+		_carry_stats["residual"] = int(_carry_stats["residual"]) + 1
 
 
 func _peek_shaft_xf(pose: Dictionary) -> Transform3D:
@@ -1293,6 +1855,7 @@ func _on_weapon_changed(weapon: StringName) -> void:
 	# tween writing the old shaft, and a later bare kill stuck its flags.
 	_abort_goad_release_tween()
 	_discard_attack_buffer(&"weapon")
+	_carry_abort()
 	_tool_pose_active = false
 	# Unarmed stow keeps the goad idle so the hands can carry it back.
 	# Clearing here would drop the arms for a frame before the ease.
@@ -2880,7 +3443,9 @@ func _sync_weapon_to_hand() -> void:
 	elif _swing_pose_only:
 		pass
 	elif combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
-		if _guard_blend_active:
+		if _carry_state != CARRY_NONE and not _carry_must_abort():
+			_place_carry_shaft()
+		elif _guard_blend_active:
 			_plant_shaft_between(_guard_from_xf, _guard_to_xf, _guard_blend_u)
 		elif _shaft_xf_blend:
 			_plant_shaft_between(_shaft_from_xf, _shaft_to_xf, _shaft_xf_u)
