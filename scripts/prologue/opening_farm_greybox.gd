@@ -292,39 +292,52 @@ func _build_secluding_hills() -> void:
 	# Near ridge (west/east) — saddle near x≈0–12 at z≈90.
 	_hill(Vector3(-30.0, 0.0, 82.0), 17.0, Vector3(1.35, 0.55, 1.2), C_BANK.lightened(0.08))
 	_hill(Vector3(34.0, 0.0, 102.0), 16.0, Vector3(1.25, 0.52, 1.1), C_GRASS.darkened(0.06))
-	# West-of-lane LOS screen between near and mid ridges (keeps yard from seeing the hollow).
-	_hill(Vector3(-26.0, 0.0, 120.0), 14.0, Vector3(1.25, 0.68, 1.2), C_BANK)
-	_hill(Vector3(-46.0, 0.0, 110.0), 15.0, Vector3(1.2, 0.48, 1.1), C_HEDGE.lightened(0.12))
+	# West-of-lane LOS screen — elongated berms (less greybox blob, still screens yard→hollow).
+	_hill(Vector3(-28.0, 0.0, 118.0), 12.5, Vector3(1.65, 0.72, 0.9), C_BANK)
+	_hill(Vector3(-44.0, 0.0, 112.0), 13.0, Vector3(1.35, 0.46, 0.95), C_HEDGE.lightened(0.12))
 	# Mid ridge — saddle near x≈4–12 at z≈130–142.
 	_hill(Vector3(-38.0, 0.0, 150.0), 19.0, Vector3(1.3, 0.65, 1.25), C_GRASS.darkened(0.05))
 	_hill(Vector3(36.0, 0.0, 132.0), 16.0, Vector3(1.25, 0.52, 1.1), C_BANK.lightened(0.05))
 	# Flanking knolls tuck the pasture hollow; mouth approach stays clear.
 	_hill(Vector3(18.0, 0.0, 178.0), 15.0, Vector3(1.2, 0.5, 1.2), C_BANK)
 	_hill(Vector3(-52.0, 0.0, 190.0), 17.0, Vector3(1.35, 0.48, 1.15), C_GRASS.darkened(0.04))
-	# Hedge ridges west of the boreen — thick screens that kill elevated yard LOS
-	# while leaving the saddle lane (x ≳ -2) open.
-	_solid_box(_gen, Vector3(-20.0, 1.6, 106.0), Vector3(34.0, 3.2, 4.5), C_HEDGE)
-	_solid_box(_gen, Vector3(-22.0, 1.6, 134.0), Vector3(36.0, 3.2, 4.5), C_HEDGE)
+	# Soft berm / broken-hedge ridges west of the boreen (replace hard rectangular screens).
+	# Crest ≈ r * scl.y * 0.45; keep eastern toes west of the saddle lane (x ≳ -2).
+	# Near ridge z≈103–109 — staggered broken lengths + slight double-row for elevated LOS.
+	_hill(Vector3(-34.0, 0.0, 105.0), 9.0, Vector3(1.75, 0.88, 0.58), C_HEDGE)
+	_hill(Vector3(-22.0, 0.0, 107.8), 8.2, Vector3(1.55, 0.86, 0.55), C_BANK.darkened(0.04))
+	_hill(Vector3(-10.0, 0.0, 104.2), 8.0, Vector3(1.4, 0.9, 0.55), C_HEDGE.lightened(0.05))
+	_hill(Vector3(-27.0, 0.0, 102.5), 6.5, Vector3(1.35, 0.78, 0.5), C_HEDGE.darkened(0.04))
+	_hill(Vector3(-15.0, 0.0, 109.0), 6.2, Vector3(1.3, 0.8, 0.48), C_BANK)
+	# Mid ridge z≈131–137
+	_hill(Vector3(-36.0, 0.0, 133.0), 9.5, Vector3(1.7, 0.88, 0.58), C_HEDGE)
+	_hill(Vector3(-23.0, 0.0, 135.8), 8.5, Vector3(1.5, 0.86, 0.55), C_BANK.darkened(0.03))
+	_hill(Vector3(-10.5, 0.0, 132.2), 8.0, Vector3(1.35, 0.9, 0.55), C_HEDGE.lightened(0.06))
+	_hill(Vector3(-29.0, 0.0, 130.5), 6.5, Vector3(1.35, 0.78, 0.5), C_HEDGE.darkened(0.04))
+	_hill(Vector3(-16.0, 0.0, 137.0), 6.2, Vector3(1.3, 0.8, 0.48), C_BANK)
 	# Far screen stays west of Bend8 (−16,164) so the mouth approach stays walkable.
-	_solid_box(_gen, Vector3(-34.0, 1.5, 156.0), Vector3(22.0, 3.0, 3.6), C_HEDGE)
-	# Tall bank lips with a mouth gap at PastureMouth so the drove can enter/leave.
+	_hill(Vector3(-42.0, 0.0, 155.0), 8.0, Vector3(1.55, 0.82, 0.55), C_HEDGE)
+	_hill(Vector3(-31.0, 0.0, 157.5), 7.5, Vector3(1.4, 0.8, 0.52), C_BANK)
+	_hill(Vector3(-36.0, 0.0, 152.5), 6.0, Vector3(1.25, 0.72, 0.48), C_HEDGE.lightened(0.04))
+	# Pasture mouth bank lips — rounded berms with a walkable gap at PastureMouth.
 	var mouth_x := -28.0
 	var path_pts := _path_points()
 	if path_pts.size() > 0:
 		mouth_x = path_pts[-1].x
 	var gap := 5.0
-	# West bank lip (left of mouth).
-	var west_x1 := -43.0
-	var west_x0 := mouth_x - gap
-	if west_x0 > west_x1 + 1.0:
-		_solid_box(_gen, Vector3((west_x1 + west_x0) * 0.5, 1.3, 176.0), Vector3(west_x0 - west_x1, 2.6, 2.6), C_BANK)
-	# East bank lip (right of mouth).
-	var east_x0 := mouth_x + gap
-	var east_x1 := -7.0
-	if east_x1 > east_x0 + 1.0:
-		_solid_box(_gen, Vector3((east_x0 + east_x1) * 0.5, 1.3, 176.0), Vector3(east_x1 - east_x0, 2.6, 2.6), C_BANK)
-	_solid_box(_gen, Vector3(-8.0, 1.2, 192.0), Vector3(2.4, 2.4, 24.0), C_HEDGE)
-	_solid_box(_gen, Vector3(-42.0, 1.2, 192.0), Vector3(2.4, 2.4, 24.0), C_HEDGE)
+	var west_end := mouth_x - gap
+	var east_start := mouth_x + gap
+	# West lip (broken berms; eastern toes stay ≤ west_end).
+	_hill(Vector3(-43.0, 0.0, 175.5), 6.5, Vector3(1.45, 0.85, 0.5), C_BANK)
+	_hill(Vector3(west_end - 5.0, 0.0, 176.8), 5.5, Vector3(1.2, 0.82, 0.48), C_BANK.lightened(0.05))
+	# East lip (broken berms; western toes stay ≥ east_start).
+	_hill(Vector3(east_start + 5.5, 0.0, 176.0), 6.0, Vector3(1.35, 0.85, 0.5), C_BANK)
+	_hill(Vector3(-10.5, 0.0, 177.2), 5.5, Vector3(1.2, 0.8, 0.48), C_HEDGE.lightened(0.08))
+	# Pasture side screens — short broken hedge banks (not continuous greybox walls).
+	_hill(Vector3(-8.0, 0.0, 184.0), 5.5, Vector3(0.45, 0.72, 1.5), C_HEDGE)
+	_hill(Vector3(-8.5, 0.0, 194.0), 5.0, Vector3(0.42, 0.68, 1.3), C_HEDGE.lightened(0.05))
+	_hill(Vector3(-42.0, 0.0, 184.0), 5.5, Vector3(0.45, 0.72, 1.5), C_HEDGE)
+	_hill(Vector3(-41.5, 0.0, 194.0), 5.0, Vector3(0.42, 0.68, 1.3), C_HEDGE.lightened(0.05))
 
 
 func _hill(center: Vector3, radius: float, scl: Vector3, color: Color) -> void:
