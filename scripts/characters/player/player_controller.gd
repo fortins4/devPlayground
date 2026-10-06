@@ -209,7 +209,7 @@ const CARRY_ARM_SWING := 0.45 ## share of the sprint arm swing on the carrying a
 ## plain cycle's -10 swings it across). Puts the palm about 0.38 m off centre.
 const CARRY_ARM_OUT_DEG := 23.0
 const CARRY_ELBOW_DEG := 16.0
-const PUMP_ARM_OUT_DEG := 4.0 ## left arm: +Z is toward the body
+const PUMP_ARM_OUT_DEG := -20.0 ## left free pump: -Z abducts clear of the torso (+Z was into the chest)
 const PUMP_ELBOW_DEG := 82.0
 const PUMP_ELBOW_FWD_DEG := 18.0 ## extra bend on the forward swing
 const PUMP_ELBOW_BACK_DEG := 14.0 ## opens a little on the back swing

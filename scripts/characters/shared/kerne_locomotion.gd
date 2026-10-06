@@ -409,14 +409,17 @@ func tick(
 	_apply_joint("left_shin", Vector3.ZERO, Vector3(maxf(0.0, -thigh_f) * 0.9 + 0.05, 0.0, 0.0))
 	_apply_joint("right_shin", Vector3.ZERO, Vector3(maxf(0.0, -thigh_b) * 0.9 + 0.05, 0.0, 0.0))
 
-	# Arms opposite to legs (unless attacking — additives may override)
+	# Arms opposite to legs (unless attacking — additives may override).
+	# Z abduction: left -Z / right +Z swing NEXT TO the torso. The old +10/-10
+	# signs pulled empty arms through the chest; sprint needs more clearance.
 	var arm_l := -s * arm_amp
 	var arm_r := s * arm_amp
 	if _state == &"idle" or _state == &"crouch_idle":
 		arm_l = breath * 0.8
 		arm_r = -breath * 0.8
-	_apply_joint("left_arm", Vector3.ZERO, Vector3(arm_l, 0.0, deg_to_rad(10.0)))
-	_apply_joint("right_arm", Vector3.ZERO, Vector3(arm_r, 0.0, deg_to_rad(-10.0)))
+	var arm_out := deg_to_rad(22.0 if _state == &"sprint" else 14.0)
+	_apply_joint("left_arm", Vector3.ZERO, Vector3(arm_l, 0.0, -arm_out))
+	_apply_joint("right_arm", Vector3.ZERO, Vector3(arm_r, 0.0, arm_out))
 	_apply_joint("left_forearm", Vector3.ZERO, Vector3(maxf(0.0, -arm_l) * 0.4, 0.0, 0.0))
 	_apply_joint("right_forearm", Vector3.ZERO, Vector3(maxf(0.0, -arm_r) * 0.4, 0.0, 0.0))
 
