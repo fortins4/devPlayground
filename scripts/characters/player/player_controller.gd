@@ -365,7 +365,13 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	_tick_attack_buffer()
 	# Decay strike-aim unless a guard is up. A held face keeps the look that set it.
-	if combat == null or not combat.is_shaft_blocking:
+	# Keep look-aim while sprinting / mid-carry so sprint→walk returns to the face
+	# the mouse was holding, not a decayed idle chest.
+	if combat == null or (
+		not combat.is_shaft_blocking
+		and not _sprinting
+		and _carry_state == CARRY_NONE
+	):
 		_tool_aim_delta = _tool_aim_delta.move_toward(Vector2.ZERO, 150.0 * delta)
 	if combat and combat.is_charging and not is_mounted:
 		_apply_charge_direction_from_input()
@@ -542,10 +548,12 @@ func _tick_shaft_block() -> void:
 			combat.set_shaft_block(false)
 		combat.set_shaft_guard_face(face)
 		return
+	# Gate on live sprint only. Holding Shift while standing/stopped must not
+	# freeze the guard down — releasing movement (or Shift) while walking must
+	# re-enable look-guard. try_sprint() already drops the guard while moving.
 	var want := (
 		combat.current_weapon == CombatSystem.Weapon.GOAD
 		and not _sprinting
-		and not Input.is_action_pressed("sprint")
 		and not combat.is_attacking
 		and not combat.is_charging
 		and not _goad_release_live
@@ -830,12 +838,12 @@ func _carry_begin_in() -> void:
 
 
 func _carry_begin_out() -> void:
-	_carry_to_guard = combat.is_shaft_blocking
-	_carry_to_face = combat.shaft_guard_face if _carry_to_guard else &""
-	if _carry_to_guard:
-		_carry_to_pose = ToolStrikePoses.tool_shaft_guard_pose(_carry_to_face)
-	else:
-		_carry_to_pose = ToolStrikePoses.tool_idle_pose(CombatSystem.Weapon.GOAD)
+	# Always blend back into the CURRENT look-guard face from the mouse.
+	# Do not read is_shaft_blocking here: sprint already dropped it, so that
+	# flag was always false and the return wrongly targeted idle (waist hold).
+	_carry_to_guard = true
+	_carry_to_face = _resolve_shaft_guard_face()
+	_carry_to_pose = ToolStrikePoses.tool_shaft_guard_pose(_carry_to_face)
 	_carry_from_pose = _carry_capture_pose()
 	_carry_from_basis = _carry_body_basis(weapon_visual.global_transform.basis)
 	var st_out := _carry_station_of(weapon_visual.global_transform, _carry_live_slide(), _carry_palm())
@@ -860,17 +868,20 @@ func _carry_finish_out() -> void:
 	_carry_abort()
 	if combat.current_weapon != CombatSystem.Weapon.GOAD:
 		return
-	if _carry_to_guard and combat.is_shaft_blocking:
-		# Seated: hand the body to the guard exactly where the blend ended.
-		_guard_blend_active = false
-		_guard_face_held = _carry_to_face
-		_apply_tool_pose(_carry_to_pose)
-		_replay_guard_walk_legs()
-		_shaft_pose_applied = true
-	else:
-		_apply_tool_pose(_carry_to_pose)
-		_tool_pose_active = false
-		_sync_weapon_to_hand()
+	if _sprinting or _carry_must_abort():
+		return
+	# Hand ownership back to look-guard at the face the return blended toward.
+	# Never leave the goad parked at the idle waist hold with the guard frozen.
+	if not combat.is_shaft_blocking:
+		combat.set_shaft_block(true)
+	combat.set_shaft_guard_face(_carry_to_face)
+	_guard_blend_active = false
+	_guard_face_held = _carry_to_face
+	_apply_tool_pose(_carry_to_pose)
+	_replay_guard_walk_legs()
+	_shaft_pose_applied = true
+	_tool_pose_active = false
+	_sync_weapon_to_hand()
 
 
 func _carry_hold_pose() -> Dictionary:
