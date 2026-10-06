@@ -160,6 +160,39 @@ var _swing_follow_pose: Dictionary = {}
 var _swing_strike_u: float = 0.5
 ## After a shaft swing the follow-through stays. Idle must not stand the stick up.
 var _goad_swing_held: bool = false
+## Seconds the current continuous swing tween runs (incl. settle). Probe / soak read.
+var _swing_arc_total: float = 0.0
+
+## Shaft clearance solver (one pass, last write before the grips). The whole
+## segment steps perpendicular to the wood toward the chest face, never along it.
+const SHAFT_CLEAR_SAMPLES := 24
+const SHAFT_CLEAR_MAX_PUSH := 0.16
+const SHAFT_CLEAR_STEP := 0.02
+const SHAFT_CLEAR_GRIP_REACH := 0.55
+const SHAFT_CLEAR_BOX_GROW := 0.04
+## A palm already past reach (authored early-arc) may drift this much further.
+const SHAFT_CLEAR_OFF_PALM_SLACK := 0.10
+## Fallback only (capped solve left hits): same perpendicular step, further,
+## as long as every palm on the wood stays on it.
+const SHAFT_CLEAR_FALLBACK_PUSH := 0.30
+## Charged side seat: grip mid this far in front of the chest (was 0.30 off the
+## root). Palm stations stay inside SHAFT_CLEAR_GRIP_REACH.
+const SEAT_SIDE_FORWARD := 0.38
+const SHAFT_CLEAR_MESHES := ["TorsoMesh", "TunicSkirt", "Cloak", "HeadMesh", "Belt", "HipsMesh"]
+var _clear_meshes: Array = []
+## Last solve: hits before / after, push metres, why it stopped. Soak / probe read.
+var _clear_last: Dictionary = {}
+var _clear_stats: Dictionary = {"calls": 0, "pushed": 0, "residual": 0, "reach_rejected": 0}
+
+## Attack input buffer. A press refused only because a swing is still live is
+## held for ATTACK_BUFFER_SEC and fired once the body is free. Never while Shift.
+const ATTACK_BUFFER_SEC := 0.18
+var _atk_buf_until: float = -1.0
+var _atk_buf_action: StringName = &""
+var _atk_buf_face: StringName = &""
+var _atk_buf_down: bool = false
+var _atk_buf_stats: Dictionary = {"armed": 0, "fired": 0, "discarded": 0, "expired": 0}
+var _atk_buf_last_fire_frame: int = -1
 ## While the goad guard is up, look offset is not decayed so a face stays put.
 ## Look face / strike cardinals share LOOK_AIM_DEADZONE + equal quadrants.
 
@@ -227,8 +260,13 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event.is_action_pressed("jump"):
 		_jump_buffered = true
+	if event.is_action_pressed("sprint"):
+		_discard_attack_buffer(&"sprint")
+	if event.is_action_released("attack_light") or event.is_action_released("attack_heavy"):
+		_atk_buf_down = false
 
 	if combat == null or combat.is_dead:
+		_discard_attack_buffer(&"dead")
 		return
 	if dragging_body != null and is_instance_valid(dragging_body):
 		return
@@ -266,6 +304,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_tick_attack_buffer()
 	# Decay strike-aim unless a guard is up. A held face keeps the look that set it.
 	if combat == null or not combat.is_shaft_blocking:
 		_tool_aim_delta = _tool_aim_delta.move_toward(Vector2.ZERO, 150.0 * delta)
@@ -489,7 +528,7 @@ func _apply_shaft_block_pose() -> void:
 		if _goad_release_live or _swing_arc_live:
 			return
 		if _arm_tween and _arm_tween.is_valid():
-			_arm_tween.kill()
+			_abort_goad_release_tween()
 		_guard_blend_active = false
 		_apply_tool_pose(ToolStrikePoses.tool_shaft_guard_pose(face))
 		_replay_guard_walk_legs()
@@ -524,7 +563,7 @@ func _begin_guard_blend(start_pose: Dictionary, target_pose: Dictionary) -> void
 	if _goad_release_live or _swing_arc_live:
 		return
 	if _arm_tween and _arm_tween.is_valid():
-		_arm_tween.kill()
+		_abort_goad_release_tween()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	_guard_blend_active = false
@@ -706,14 +745,18 @@ func _plant_shaft_between(from_xf: Transform3D, to_xf: Transform3D, u: float) ->
 		goad.rotation = Vector3.ZERO
 		shaft = goad
 	_bow_stow_off_the_head(shaft)
-	if _swing_arc_live and _swing_arc_interior:
-		# Face side, not the cloak. The sideways stow push leaves a
-		# horizontal shaft through the skull. This one walks it clear.
+	# Shared clearance solver (same as the swing). Charge plant grips are the
+	# spaced palm stations; guard blends grip the nearest point.
+	var charging_plant := combat != null and combat.is_charging and not combat.is_attacking
+	var stations := Vector2(0.14, 0.46) if charging_plant else Vector2(NAN, NAN)
+	_clear_shaft_node(shaft, stations, charging_plant and _is_top_goad_charge(_shaft_aim_axes()))
+	if _swing_arc_live and _swing_arc_interior and int(_clear_last.get("after", 0)) > 0:
+		# Fallback only: per-face bows when the solver could not clear.
 		_bow_swing_off_the_chest(shaft)
 		_pull_shaft_into_reach(shaft)
 		_bow_swing_clear_of_body(shaft)
 	# Charged wind-up: spaced palms. Guard look keeps nearest-point grip.
-	if combat and combat.is_charging and not combat.is_attacking:
+	if charging_plant:
 		_grip_shaft_at_y(shaft, "right_arm", "right_forearm", 0.14)
 		_grip_shaft_at_y(shaft, "left_arm", "left_forearm", 0.46)
 	else:
@@ -878,7 +921,7 @@ func _begin_hatchet_or_light() -> void:
 	var goad := combat.current_weapon == CombatSystem.Weapon.GOAD
 	# Already looking down: one uncharged jab. Do not start a shaft charge.
 	if goad and _resolve_shaft_guard_face() == &"low":
-		_fire_goad_jab()
+		_fire_goad_jab(&"light")
 		return
 	if hatchet or goad:
 		# Goad keeps the look you already had; hatchet aim starts neutral (top).
@@ -888,15 +931,19 @@ func _begin_hatchet_or_light() -> void:
 		if not combat.begin_charge():
 			_hatchet_charge_armed = false
 			var fallback := _resolve_tool_strike_direction() if goad else CombatSystem.StrikeDirection.TOP
-			combat.try_attack(&"light", fallback)
+			if not combat.try_attack(&"light", fallback):
+				_arm_attack_buffer(&"light", _resolve_look_face_from(_tool_aim_delta) if goad else &"chest")
 		else:
 			_apply_charge_direction_from_input()
 	else:
-		combat.try_attack(&"light", _resolve_tool_strike_direction())
+		var face := _resolve_look_face_from(_tool_aim_delta)
+		if not combat.try_attack(&"light", _resolve_tool_strike_direction()):
+			_arm_attack_buffer(&"light", face)
 		_tool_aim_delta = Vector2.ZERO
 
 
 func _release_hatchet_or_ignore() -> void:
+	_atk_buf_down = false
 	if combat == null:
 		return
 	if not _hatchet_charge_armed and not combat.is_charging:
@@ -917,16 +964,18 @@ func _heavy_or_ignore_hatchet() -> void:
 		return
 	# Goad RMB is the same uncharged point jab at any look. Not a heavy swing.
 	if combat.current_weapon == CombatSystem.Weapon.GOAD:
-		_fire_goad_jab()
+		_fire_goad_jab(&"heavy")
 		return
 	if combat.is_charging:
 		combat.cancel_charge()
 		_hatchet_charge_armed = false
-	combat.try_attack(&"heavy", _resolve_tool_strike_direction())
+	var face := _resolve_look_face_from(_tool_aim_delta)
+	if not combat.try_attack(&"heavy", _resolve_tool_strike_direction()):
+		_arm_attack_buffer(&"heavy", face)
 	_tool_aim_delta = Vector2.ZERO
 
 
-func _fire_goad_jab() -> void:
+func _fire_goad_jab(action: StringName = &"heavy") -> void:
 	## One uncharged point. Press only — the caller is an action press, so a
 	## held button does not charge or repeat. Look is left alone so the low
 	## guard can return after the jab.
@@ -937,7 +986,122 @@ func _fire_goad_jab() -> void:
 	if combat.is_charging:
 		combat.cancel_charge()
 		_hatchet_charge_armed = false
-	combat.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM)
+	if not combat.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM):
+		_arm_attack_buffer(action, &"low" if action == &"light" else _resolve_look_face_from(_tool_aim_delta))
+
+
+# --- Attack input buffer ---------------------------------------------------
+
+func _attack_swing_live() -> bool:
+	return combat != null and (combat.is_attacking or _goad_release_live)
+
+
+func _arm_attack_buffer(action: StringName, face: StringName) -> void:
+	## Only a press refused because the previous swing is still live. Not while
+	## sprinting or with Shift held. A newer press replaces the older one.
+	if combat == null or combat.is_dead or is_mounted or is_dragging():
+		return
+	if _sprinting or Input.is_action_pressed("sprint"):
+		return
+	if not _attack_swing_live():
+		return
+	_atk_buf_until = _now_sec() + ATTACK_BUFFER_SEC
+	_atk_buf_action = action
+	_atk_buf_face = face
+	_atk_buf_down = true
+	_atk_buf_stats["armed"] = int(_atk_buf_stats["armed"]) + 1
+
+
+func _discard_attack_buffer(reason: StringName = &"") -> void:
+	if _atk_buf_until < 0.0:
+		return
+	_atk_buf_until = -1.0
+	_atk_buf_action = &""
+	_atk_buf_face = &""
+	if reason == &"timeout":
+		_atk_buf_stats["expired"] = int(_atk_buf_stats["expired"]) + 1
+	else:
+		_atk_buf_stats["discarded"] = int(_atk_buf_stats["discarded"]) + 1
+
+
+func has_buffered_attack() -> bool:
+	return _atk_buf_until >= 0.0
+
+
+func _now_sec() -> float:
+	# Physics time, not wall time: the window must not shrink under frame catch-up.
+	return float(Engine.get_physics_frames()) / float(maxi(Engine.physics_ticks_per_second, 1))
+
+
+func _tick_attack_buffer() -> void:
+	## Top of _physics_process. Fires once neither the combat swing nor the
+	## goad release is live and recovery is (nearly) spent.
+	if _atk_buf_until < 0.0:
+		return
+	if combat == null or combat.is_dead:
+		_discard_attack_buffer(&"dead")
+		return
+	if is_mounted:
+		_discard_attack_buffer(&"mount")
+		return
+	if is_dragging():
+		_discard_attack_buffer(&"drag")
+		return
+	if _sprinting or Input.is_action_pressed("sprint"):
+		_discard_attack_buffer(&"sprint")
+		return
+	if combat.is_attacking or _goad_release_live or _swing_arc_live or combat.attack_recovery_left > 0.05:
+		if _now_sec() > _atk_buf_until:
+			_discard_attack_buffer(&"timeout")
+		return
+	if combat.is_charging:
+		# A fresh press already started a charge in the settle tail.
+		_discard_attack_buffer(&"superseded")
+		return
+	var action := _atk_buf_action
+	var face := _atk_buf_face
+	var held := _atk_buf_down
+	_atk_buf_until = -1.0
+	_atk_buf_action = &""
+	_atk_buf_face = &""
+	_atk_buf_stats["fired"] = int(_atk_buf_stats["fired"]) + 1
+	_atk_buf_last_fire_frame = Engine.get_physics_frames()
+	_fire_buffered_attack(action, face, held)
+
+
+func _aim_delta_for_look_face(face: StringName) -> Vector2:
+	match face:
+		&"left":
+			return Vector2(-48.0, 0.0)
+		&"right":
+			return Vector2(48.0, 0.0)
+		&"high":
+			return Vector2(0.0, -48.0)
+		&"low":
+			return Vector2(0.0, 48.0)
+	return Vector2.ZERO
+
+
+func _fire_buffered_attack(action: StringName, face: StringName, held: bool) -> void:
+	## Resolve from the face captured at the press, not the look now.
+	var goad := combat.current_weapon == CombatSystem.Weapon.GOAD
+	var hatchet := combat.current_weapon == CombatSystem.Weapon.HATCHET and combat.enable_directional_hatchet
+	if goad and (action == &"heavy" or action == &"jab" or face == &"low"):
+		combat.try_attack(&"light", CombatSystem.StrikeDirection.BOTTOM)
+		return
+	if goad or hatchet:
+		if held:
+			_charge_aim_delta = _aim_delta_for_look_face(face) if goad else Vector2.ZERO
+			_charge_look_face = face if goad else &"chest"
+			_hatchet_charge_armed = true
+			if combat.begin_charge():
+				_apply_charge_direction_from_input()
+				return
+			_hatchet_charge_armed = false
+		var dir := _strike_direction_for_look_face(face) if goad else CombatSystem.StrikeDirection.TOP
+		combat.try_attack(&"light", dir)
+		return
+	combat.try_attack(action if action == &"heavy" else &"light", _strike_direction_for_look_face(face))
 
 
 func _resolve_tool_strike_direction() -> CombatSystem.StrikeDirection:
@@ -966,7 +1130,7 @@ func _on_charge_updated(ratio: float, direction: StringName) -> void:
 		_apply_goad_charge_pose(ratio, direction)
 		return
 	if _arm_tween and _arm_tween.is_valid():
-		_arm_tween.kill()
+		_abort_goad_release_tween()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	var dir_enum := CombatSystem.StrikeDirection.TOP
@@ -997,7 +1161,7 @@ func _apply_goad_charge_pose(ratio: float, _direction: StringName) -> void:
 	if combat and combat.is_attacking:
 		return
 	if _arm_tween and _arm_tween.is_valid():
-		_arm_tween.kill()
+		_abort_goad_release_tween()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	_guard_blend_active = false
@@ -1122,6 +1286,10 @@ func _apply_idle_hatchet_hold() -> void:
 
 
 func _on_weapon_changed(weapon: StringName) -> void:
+	# A swap in the goad settle tail (is_attacking already false) left the arc
+	# tween writing the old shaft, and a later bare kill stuck its flags.
+	_abort_goad_release_tween()
+	_discard_attack_buffer(&"weapon")
 	_tool_pose_active = false
 	# Unarmed stow keeps the goad idle so the hands can carry it back.
 	# Clearing here would drop the arms for a frame before the ease.
@@ -1215,7 +1383,7 @@ func _on_attack_performed(_attacker: Node, kind: StringName, weapon: StringName)
 				torso_follow = Vector3(deg_to_rad(28.0 if heavy else 16.0), deg_to_rad(8.0), 0.0)
 
 	if _arm_tween and _arm_tween.is_valid():
-		_arm_tween.kill()
+		_abort_goad_release_tween()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 
@@ -1347,7 +1515,7 @@ func _play_tool_body_strike(kind: StringName, _weapon: StringName) -> void:
 	var pose_idle: Dictionary = ToolStrikePoses.tool_idle_pose(weapon_id)
 	var phases: Dictionary = combat.swing_phase_durations(kind, windup, active, recovery)
 	if _arm_tween and _arm_tween.is_valid():
-		_arm_tween.kill()
+		_abort_goad_release_tween()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	# Release continues from the live aim. Heavy hold drives into the strike.
@@ -1474,8 +1642,11 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 		_swing_keys_butt.append(pair[0])
 		_swing_keys_tip.append(pair[1])
 		_swing_key_u.append(float(marks[i]))
+	# Bare kill on purpose: _play_goad_release already aborted the previous
+	# release and has just armed this one's flags; abort would clear them.
 	if _arm_tween and _arm_tween.is_valid():
 		_arm_tween.kill()
+	_swing_arc_total = total
 	_arm_tween = create_tween()
 	# Survive process-mode blips while sprinting out of the swing.
 	_arm_tween.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
@@ -1978,7 +2149,12 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 	if axis.length_squared() < 0.0001:
 		return [butt_w, tip_w]
 	axis = axis.normalized()
+	# In front of the CHEST, not the root. A charged swing yaws the chest far
+	# off the start frame; a root-forward offset landed the butt in the waist.
 	var face := -_swing_frame.basis.z
+	var torso_j := locomotion.get_joint("torso") as Node3D
+	if torso_j:
+		face = -torso_j.global_transform.basis.z
 	face.y = 0.0
 	if face.length_squared() < 0.0001:
 		face = Vector3(0.0, 0.0, -1.0)
@@ -1988,7 +2164,7 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 	var l_sh: Vector3 = left_arm.global_position
 	var mid_sh: Vector3 = (r_sh + l_sh) * 0.5
 	var swing_mid_y := (butt_w.y + tip_w.y) * 0.5
-	var grip_mid: Vector3 = mid_sh + face * 0.30
+	var grip_mid: Vector3 = mid_sh + face * SEAT_SIDE_FORWARD
 	grip_mid.y = clampf(swing_mid_y, mid_sh.y - 0.10, mid_sh.y + 0.40)
 	var spacing := 0.36
 	var right_pt: Vector3 = grip_mid - axis * (spacing * 0.5)
@@ -1997,9 +2173,216 @@ func _seat_charged_shaft_at_shoulders(butt_w: Vector3, tip_w: Vector3) -> Array:
 	return [butt_w, tip_w]
 
 
+func _shaft_point_in_body(p: Vector3, torso: Node3D, head: Node3D) -> bool:
+	## Same body the captures score: ToolStrikePoses._point_in_body plus the
+	## torso / skirt / cloak / head / belt / hips mesh boxes, grown a little.
+	if ToolStrikePoses._point_in_body(p, torso, head, locomotion):
+		return true
+	if _clear_meshes.is_empty() or not is_instance_valid(_clear_meshes[0]):
+		_clear_meshes = []
+		for mn in SHAFT_CLEAR_MESHES:
+			var m := find_child(mn, true, false) as MeshInstance3D
+			if m:
+				_clear_meshes.append(m)
+	for m in _clear_meshes:
+		var mi := m as MeshInstance3D
+		if mi == null or not is_instance_valid(mi):
+			continue
+		if mi.get_aabb().grow(SHAFT_CLEAR_BOX_GROW).has_point(mi.global_transform.affine_inverse() * p):
+			return true
+	return false
+
+
+func _shaft_body_hits(butt_w: Vector3, tip_w: Vector3, torso: Node3D, head: Node3D) -> int:
+	var n := 0
+	for i in SHAFT_CLEAR_SAMPLES:
+		if _shaft_point_in_body(butt_w.lerp(tip_w, float(i) / float(SHAFT_CLEAR_SAMPLES - 1)), torso, head):
+			n += 1
+	return n
+
+
+func _shaft_grip_dists(butt_w: Vector3, tip_w: Vector3, stations: Vector2) -> Vector2:
+	## Shoulder → palm distance, right / left. stations = goad-local Y of the
+	## palm (origin = butt + 0.255 along the wood); NAN = nearest point.
+	var axis := (tip_w - butt_w).normalized()
+	var origin := butt_w + axis * 0.255
+	var ys := [stations.x, stations.y]
+	var arms := ["right_arm", "left_arm"]
+	var out := Vector2.ZERO
+	for k in 2:
+		var arm := locomotion.get_joint(arms[k]) as Node3D
+		if arm == null:
+			continue
+		var sh: Vector3 = arm.global_position
+		var grip: Vector3
+		if is_nan(float(ys[k])):
+			grip = butt_w + axis * clampf((sh - butt_w).dot(axis), 0.0, 1.30)
+		else:
+			grip = origin + axis * float(ys[k])
+		out[k] = sh.distance_to(grip)
+	return out
+
+
+func _shaft_on_palms_stay(butt_w: Vector3, tip_w: Vector3, stations: Vector2, base: Vector2) -> bool:
+	## Fallback rule: every palm that is on the wood (<= reach) stays on it.
+	## A palm already off the wood is not "taken off" by moving the line.
+	var d := _shaft_grip_dists(butt_w, tip_w, stations)
+	for k in 2:
+		if base[k] <= SHAFT_CLEAR_GRIP_REACH and d[k] > SHAFT_CLEAR_GRIP_REACH:
+			return false
+	return true
+
+
+func _shaft_grips_in_reach(butt_w: Vector3, tip_w: Vector3, stations: Vector2, base: Vector2) -> bool:
+	## Both hands stay on: a palm within SHAFT_CLEAR_GRIP_REACH must stay
+	## within it. A palm already past it (authored early-arc left station)
+	## may drift at most SHAFT_CLEAR_OFF_PALM_SLACK further.
+	var d := _shaft_grip_dists(butt_w, tip_w, stations)
+	for k in 2:
+		var limit := SHAFT_CLEAR_GRIP_REACH if base[k] <= SHAFT_CLEAR_GRIP_REACH else base[k] + SHAFT_CLEAR_OFF_PALM_SLACK
+		if d[k] > limit:
+			return false
+	return true
+
+
+func _solve_shaft_clearance(butt_w: Vector3, tip_w: Vector3, stations: Vector2, keep_high_y: bool) -> Array:
+	## ONE clearance pass for swing, charge plant and guard seat. Samples the
+	## 1.30 m wood; if any sample is in the body, the WHOLE segment steps
+	## perpendicular to the shaft toward the chest face (flattened torso -Z),
+	## never along the wood. Smallest push that clears wins; capped at
+	## SHAFT_CLEAR_MAX_PUSH; any push that takes a palm out of reach is rejected.
+	## keep_high_y: overhead chop keeps its high end's height (no vertical push).
+	_clear_stats["calls"] = int(_clear_stats["calls"]) + 1
+	if locomotion == null:
+		return [butt_w, tip_w]
+	var torso := locomotion.get_joint("torso") as Node3D
+	var head := locomotion.get_joint("head") as Node3D
+	if torso == null or head == null:
+		return [butt_w, tip_w]
+	var axis := tip_w - butt_w
+	if axis.length_squared() < 0.0001:
+		return [butt_w, tip_w]
+	axis = axis.normalized()
+	var h0 := _shaft_body_hits(butt_w, tip_w, torso, head)
+	_clear_last = {"before": h0, "after": h0, "push": 0.0, "why": "clear"}
+	if h0 == 0:
+		return [butt_w, tip_w]
+	var face := -torso.global_transform.basis.z
+	face.y = 0.0
+	if face.length_squared() < 0.0001:
+		face = -global_transform.basis.z
+		face.y = 0.0
+	face = face.normalized() if face.length_squared() > 0.0001 else Vector3(0.0, 0.0, -1.0)
+	var dir := face - axis * axis.dot(face)
+	if keep_high_y:
+		dir.y = 0.0
+	if dir.length() < 0.2:
+		# Wood points at the face: "toward the face" would be along the wood.
+		# Step sideways instead, perpendicular to the wood, away from the body
+		# centre on the side the hit samples already lean to.
+		var side := torso.global_transform.basis.x
+		side.y = 0.0
+		side = side - axis * axis.dot(side)
+		if side.length() < 0.2:
+			_clear_last["why"] = "axis_degenerate"
+			_clear_stats["residual"] = int(_clear_stats["residual"]) + 1
+			return [butt_w, tip_w]
+		side = side.normalized()
+		var lean := 0.0
+		for i in SHAFT_CLEAR_SAMPLES:
+			var q := butt_w.lerp(tip_w, float(i) / float(SHAFT_CLEAR_SAMPLES - 1))
+			if _shaft_point_in_body(q, torso, head):
+				lean += (q - head.global_position).dot(side)
+		dir = side if lean >= 0.0 else -side
+		_clear_stats["sideways"] = int(_clear_stats.get("sideways", 0)) + 1
+	dir = dir.normalized()
+	var best_s := 0.0
+	var best_h := h0
+	var rejected := false
+	var base := _shaft_grip_dists(butt_w, tip_w, stations)
+	var steps := int(round(SHAFT_CLEAR_MAX_PUSH / SHAFT_CLEAR_STEP))
+	for k in range(1, steps + 1):
+		var d := dir * (SHAFT_CLEAR_STEP * float(k))
+		if not _shaft_grips_in_reach(butt_w + d, tip_w + d, stations, base):
+			rejected = true
+			break
+		var h := _shaft_body_hits(butt_w + d, tip_w + d, torso, head)
+		if h < best_h:
+			best_h = h
+			best_s = SHAFT_CLEAR_STEP * float(k)
+		if h == 0:
+			break
+	if rejected:
+		_clear_stats["reach_rejected"] = int(_clear_stats["reach_rejected"]) + 1
+	if best_h > 0:
+		# Fallback: keep stepping the same way past the cap. Accept the first
+		# clear step whose on-wood palms all stay on; otherwise keep the best.
+		var fb_steps := int(round(SHAFT_CLEAR_FALLBACK_PUSH / SHAFT_CLEAR_STEP))
+		for k in range(steps + 1, fb_steps + 1):
+			var sk := SHAFT_CLEAR_STEP * float(k)
+			var dk := dir * sk
+			if not _shaft_on_palms_stay(butt_w + dk, tip_w + dk, stations, base):
+				break
+			var hk := _shaft_body_hits(butt_w + dk, tip_w + dk, torso, head)
+			if hk < best_h:
+				best_h = hk
+				best_s = sk
+				_clear_stats["fallback_push"] = int(_clear_stats.get("fallback_push", 0)) + 1
+			if hk == 0:
+				break
+	if best_s > 0.0:
+		_clear_stats["pushed"] = int(_clear_stats["pushed"]) + 1
+		butt_w += dir * best_s
+		tip_w += dir * best_s
+	if best_h > 0:
+		_clear_stats["residual"] = int(_clear_stats["residual"]) + 1
+	_clear_last = {"before": h0, "after": best_h, "push": best_s, "why": "reach" if rejected and best_h > 0 else ("cap" if best_h > 0 else "pushed")}
+	return [butt_w, tip_w]
+
+
+func _clear_shaft_node(shaft: Node3D, stations: Vector2, keep_high_y: bool, mover: Node3D = null) -> bool:
+	## Node form of the same solver (charge plant / guard seat). Moves `mover`
+	## (default the shaft) by the solved offset. Returns true if it moved.
+	if shaft == null:
+		return false
+	var butt := shaft.to_global(Vector3(0.0, -0.255, 0.0))
+	var tip := shaft.to_global(Vector3(0.0, 1.045, 0.0))
+	var solved: Array = _solve_shaft_clearance(butt, tip, stations, keep_high_y)
+	var delta: Vector3 = (solved[0] as Vector3) - butt
+	if delta.length_squared() < 1e-8:
+		return false
+	var target := mover if mover else shaft
+	target.global_position += delta
+	return true
+
+
 func _place_continuous_shaft(butt_w: Vector3, tip_w: Vector3) -> Node3D:
 	if weapon_visual == null:
 		return null
+	# Clearance is the LAST write on the line. Jab rides its authored flank.
+	var jabbing := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y > 0.5
+	if not jabbing:
+		var overhead := absf(_swing_arc_aim.x) < 0.05 and _swing_arc_aim.y < -0.5
+		var stations := Vector2(0.14, 0.46)
+		var base := _shaft_grip_dists(butt_w, tip_w, stations)
+		var solved: Array = _solve_shaft_clearance(butt_w, tip_w, stations, overhead)
+		butt_w = solved[0]
+		tip_w = solved[1]
+		var left_hits := int(_clear_last.get("after", 0))
+		if left_hits > 0 and not overhead and locomotion:
+			# Fallback only: the per-face slide (bigger reach) when the capped
+			# solve cannot clear. Kept only if it clears more and no palm that
+			# was on the wood comes off it.
+			var torso := locomotion.get_joint("torso") as Node3D
+			var head := locomotion.get_joint("head") as Node3D
+			var slid: Array = _slide_line_off_body(butt_w, tip_w)
+			var sh := _shaft_body_hits(slid[0], slid[1], torso, head)
+			if sh < left_hits and _shaft_on_palms_stay(slid[0], slid[1], stations, base):
+				butt_w = slid[0]
+				tip_w = slid[1]
+				_clear_last["after"] = sh
+				_clear_last["why"] = "fallback_slide"
+				_clear_stats["fallback"] = int(_clear_stats.get("fallback", 0)) + 1
 	var axis := tip_w - butt_w
 	if axis.length_squared() < 0.0001:
 		return weapon_visual.get_node_or_null("Goad") as Node3D
@@ -2039,6 +2422,7 @@ func _finish_goad_return() -> void:
 	_swing_arc_interior = false
 	_shaft_xf_blend = false
 	_goad_release_live = false
+	_jab_mirror = false
 	_tool_root_drop = 0.0
 	_goad_grip_slide = 0.0
 	if locomotion:
@@ -2359,7 +2743,7 @@ func _play_hurt_flinch() -> void:
 	var pose_hurt: Dictionary = ToolStrikePoses.tool_hurt_flinch_pose(weapon_id)
 	var start_pose: Dictionary = _current_tool_pose(pose_idle)
 	if _arm_tween and _arm_tween.is_valid():
-		_arm_tween.kill()
+		_abort_goad_release_tween()
 	if _torso_tween and _torso_tween.is_valid():
 		_torso_tween.kill()
 	_hurt_reacting = true
@@ -2414,7 +2798,7 @@ func _screen_punch(amount: float) -> void:
 
 func _on_died(_victim: Node) -> void:
 	# Keep camera; player ragdoll deferred — just stop combat inputs via combat.is_dead
-	pass
+	_discard_attack_buffer(&"dead")
 
 
 
@@ -2498,6 +2882,12 @@ func _sync_weapon_to_hand() -> void:
 			_plant_shaft_between(_charge_from_xf, _shaft_to_xf, ToolStrikePoses._charge_blend(combat.charge_ratio))
 		else:
 			ToolStrikePoses.seat_goad_off_hand(locomotion, weapon_visual)
+			# Shared clearance solver on the seated guard. A no-op when the seat
+			# is already clear; if it moves, both palms re-take the wood.
+			var seated := weapon_visual.get_node_or_null("Goad") as Node3D
+			if seated and _clear_shaft_node(seated, Vector2(NAN, NAN), false, weapon_visual):
+				_grip_shaft_with(seated, "right_arm", "right_forearm", 0.30)
+				_grip_shaft_with(seated, "left_arm", "left_forearm", 0.24)
 	# Keep combat idle rest in sync while not charging so recovery returns to grip.
 	# Not the in-between draw pose — recovery must come back to the landed hold.
 	if combat and not combat.is_charging and not combat.is_attacking and not drawing:
@@ -2986,6 +3376,7 @@ func _idle_weapon_euler() -> Vector3:
 func begin_drag(body: Node3D) -> void:
 	if body == null or is_mounted:
 		return
+	_discard_attack_buffer(&"drag")
 	dragging_body = body
 
 
@@ -3019,6 +3410,7 @@ func prepare_for_mount(horse: Node3D) -> void:
 	# Drop any corpse drag before seating.
 	if is_dragging():
 		end_drag()
+	_discard_attack_buffer(&"mount")
 	is_mounted = true
 	mounted_horse = horse
 	is_crouching = false
