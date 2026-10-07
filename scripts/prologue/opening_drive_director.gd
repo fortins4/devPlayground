@@ -370,6 +370,11 @@ func _set_stage(next: Stage) -> void:
 	stage_changed.emit(int(stage), get_stage_name())
 
 
+func flash(text: String, secs: float = 3.0) -> void:
+	## Public banner flash (chores / callers).
+	_flash(text, secs)
+
+
 func _flash(text: String, secs: float) -> void:
 	_flash_text = text
 	_flash_timer = secs

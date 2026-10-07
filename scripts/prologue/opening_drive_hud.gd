@@ -10,6 +10,7 @@ var _banner: Label
 var _flash: Label
 var _controls: Label
 var _weapon: Label
+var _chore: Node = null
 
 
 func _ready() -> void:
@@ -61,7 +62,7 @@ func _ready() -> void:
 	_controls.offset_top = -36
 	_controls.offset_bottom = -10
 	_controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
+	_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	call_deferred("_bind")
 
 
@@ -71,6 +72,7 @@ func _bind() -> void:
 		_director.connect("soft_success", _on_success)
 	if _director and _director.has_signal("stage_changed"):
 		_director.connect("stage_changed", _on_stage)
+	_chore = get_tree().get_first_node_in_group("opening_bucket_trough")
 
 
 func _process(_delta: float) -> void:
@@ -79,8 +81,14 @@ func _process(_delta: float) -> void:
 	_objective.text = String(_director.call("objective_text"))
 	_status.text = String(_director.call("status_text"))
 	var f := String(_director.call("flash_text"))
+	if f == "" and _chore and _chore.has_method("interact_prompt"):
+		f = String(_chore.call("interact_prompt"))
 	_flash.text = f
 	_flash.visible = f != ""
+	if _chore and _chore.has_method("is_active") and bool(_chore.call("is_active")):
+		_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
+	else:
+		_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
 	var player := get_tree().get_first_node_in_group("player")
 	var combat := player.get_node_or_null("CombatSystem") if player else null
 	if combat and combat.has_method("weapon_name"):
