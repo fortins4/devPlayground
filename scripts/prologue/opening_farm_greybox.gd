@@ -145,8 +145,8 @@ func _build_farmstead() -> void:
 
 func _build_spring_scoop() -> void:
 	## Dug-out spring scoop by the farmstead — clean water source (not a village well).
-	## Yard→grass SW edge — farm-edge spring toward wild/damp ground (not by house/rick).
-	var spring := Vector3(-20.5, 0.0, 15.0)
+	## Yard→grass SW edge — nudged farther into wild/damp ground (not by house/rick).
+	var spring := Vector3(-23.5, 0.0, 19.0)
 	# Shallow dug hollow (elongated oval ~3.2 × 1.9 m) — sunken ditch earth, not a shaft.
 	_mesh_box(_gen, spring + Vector3(0.0, -0.08, 0.0), Vector3(3.2, 0.22, 1.9), C_DITCH)
 	# Soft bank lips around the scoop rim.
