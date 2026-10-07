@@ -1,4 +1,4 @@
-[gd_scene load_steps=20 format=3 uid="uid://cq8riochtopendrv01"]
+[gd_scene load_steps=21 format=3 uid="uid://cq8riochtopendrv01"]
 
 [ext_resource type="Script" path="res://scripts/prologue/opening_farm_greybox.gd" id="1_greybox"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_drive_director.gd" id="2_director"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scripts/prologue/opening_family_caller.gd" id="7_family"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_bucket_trough_chore.gd" id="8_bucket"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_knife_hitch_chore.gd" id="9_knife"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_bogged_cow_chore.gd" id="10_bog"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_morning_mat"]
 sky_top_color = Color(0.5, 0.62, 0.74, 1)
@@ -155,6 +156,9 @@ script = ExtResource("8_bucket")
 
 [node name="OpeningKnifeHitchChore" type="Node3D" parent="."]
 script = ExtResource("9_knife")
+
+[node name="OpeningBoggedCowChore" type="Node3D" parent="."]
+script = ExtResource("10_bog")
 
 [node name="OpeningDriveDirector" type="Node3D" parent="."]
 script = ExtResource("2_director")
