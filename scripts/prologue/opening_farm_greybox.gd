@@ -34,6 +34,7 @@ const C_RAIL := Color(0.45, 0.35, 0.22)
 const C_STAKE_TOP := Color(0.92, 0.9, 0.8)
 const C_BOG := Color(0.2, 0.25, 0.15)
 const C_BOG_WATER := Color(0.16, 0.2, 0.2)
+const C_SPRING_WATER := Color(0.35, 0.48, 0.52)  # clear farm spring (cooler than bog)
 const C_REED := Color(0.5, 0.52, 0.28)
 const C_DITCH := Color(0.17, 0.2, 0.14)
 const C_BANK := Color(0.3, 0.38, 0.22)
@@ -139,6 +140,37 @@ func _build_farmstead() -> void:
 	_mesh_cyl(_gen, Vector3(-14.0, 2.6, 5.0), 0.05, 1.5, 1.2, C_THATCH.darkened(0.05))
 	_solid_box(_gen, Vector3(-12.5, 0.45, -4.6), Vector3(2.6, 0.9, 1.0), C_TRUNK)
 	_mesh_cyl(_gen, Vector3(-5.0, 0.2, 3.6), 0.45, 0.45, 0.4, C_WALL.darkened(0.35))
+	_build_spring_scoop()
+
+
+func _build_spring_scoop() -> void:
+	## Dug-out spring scoop by the farmstead — clean water source (not a village well).
+	## West/SW of house near hay rick; walkable from house door (~12 m) and byre (~25 m).
+	var spring := Vector3(-15.5, 0.0, 9.0)
+	# Shallow dug hollow (elongated oval ~3.2 × 1.9 m) — sunken ditch earth, not a shaft.
+	_mesh_box(_gen, spring + Vector3(0.0, -0.08, 0.0), Vector3(3.2, 0.22, 1.9), C_DITCH)
+	# Soft bank lips around the scoop rim.
+	_mesh_box(_gen, spring + Vector3(0.0, 0.06, -1.15), Vector3(3.4, 0.18, 0.45), C_BANK)
+	_mesh_box(_gen, spring + Vector3(0.0, 0.06, 1.15), Vector3(3.4, 0.18, 0.45), C_BANK)
+	_mesh_box(_gen, spring + Vector3(-1.75, 0.06, 0.0), Vector3(0.4, 0.18, 2.0), C_BANK)
+	_mesh_box(_gen, spring + Vector3(1.75, 0.06, 0.0), Vector3(0.4, 0.18, 2.0), C_BANK)
+	# Rustic stone curb lining (low farm stones, not a masonry well curb).
+	var stone := C_WALL.darkened(0.28)
+	for ox in [-1.2, -0.4, 0.4, 1.2]:
+		_mesh_box(_gen, spring + Vector3(ox, 0.12, -0.85), Vector3(0.55, 0.22, 0.28), stone)
+		_mesh_box(_gen, spring + Vector3(ox, 0.12, 0.85), Vector3(0.55, 0.22, 0.28), stone)
+	_mesh_box(_gen, spring + Vector3(-1.45, 0.11, 0.0), Vector3(0.28, 0.2, 1.2), stone)
+	_mesh_box(_gen, spring + Vector3(1.45, 0.11, 0.0), Vector3(0.28, 0.2, 1.2), stone)
+	# Timber plank on the north rim — rustic wood lining.
+	_mesh_box(_gen, spring + Vector3(0.2, 0.14, -1.0), Vector3(1.8, 0.08, 0.18), C_TRUNK)
+	# Clear spring pool (visibly cooler/clearer than C_BOG_WATER).
+	_mesh_box(_gen, spring + Vector3(0.0, 0.02, 0.0), Vector3(2.6, 0.06, 1.35), C_SPRING_WATER)
+	# Tiny spring-eye at the west head of the scoop.
+	_mesh_box(_gen, spring + Vector3(-1.0, 0.025, -0.15), Vector3(0.55, 0.05, 0.45), C_SPRING_WATER.darkened(0.22))
+	# Short outflow ditch trickle SE toward lower yard / damp edge (clear → slightly murkier).
+	_mesh_box(_gen, spring + Vector3(1.8, -0.02, 0.9), Vector3(1.4, 0.1, 0.55), C_DITCH)
+	_mesh_box(_gen, spring + Vector3(2.4, 0.01, 1.35), Vector3(1.1, 0.04, 0.4), C_SPRING_WATER.darkened(0.12))
+	_mesh_box(_gen, spring + Vector3(3.2, 0.005, 1.9), Vector3(0.9, 0.03, 0.35), Color(0.22, 0.28, 0.28))
 
 
 func _build_home_pen() -> void:
