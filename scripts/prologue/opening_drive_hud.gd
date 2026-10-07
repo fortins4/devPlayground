@@ -15,6 +15,7 @@ var _knife_chore: Node = null
 var _maire_chore: Node = null
 var _bog_chore: Node = null
 var _dog_chore: Node = null
+var _meal_chore: Node = null
 
 
 func _ready() -> void:
@@ -81,6 +82,7 @@ func _bind() -> void:
 	_maire_chore = get_tree().get_first_node_in_group("opening_maire_door_talk")
 	_bog_chore = get_tree().get_first_node_in_group("opening_bogged_cow")
 	_dog_chore = get_tree().get_first_node_in_group("opening_stray_dog")
+	_meal_chore = get_tree().get_first_node_in_group("opening_stow_meal")
 
 
 func _process(_delta: float) -> void:
@@ -99,6 +101,8 @@ func _process(_delta: float) -> void:
 		f = _chore_prompt(_bog_chore)
 	if f == "":
 		f = _chore_prompt(_dog_chore)
+	if f == "":
+		f = _chore_prompt(_meal_chore)
 	_flash.text = f
 	_flash.visible = f != ""
 	if (
@@ -107,6 +111,7 @@ func _process(_delta: float) -> void:
 		or _chore_active(_maire_chore)
 		or _chore_active(_bog_chore)
 		or _chore_active(_dog_chore)
+		or _chore_active(_meal_chore)
 	):
 		_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	else:
