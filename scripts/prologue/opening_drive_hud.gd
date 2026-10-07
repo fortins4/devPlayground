@@ -11,6 +11,7 @@ var _flash: Label
 var _controls: Label
 var _weapon: Label
 var _chore: Node = null
+var _knife_chore: Node = null
 
 
 func _ready() -> void:
@@ -73,6 +74,7 @@ func _bind() -> void:
 	if _director and _director.has_signal("stage_changed"):
 		_director.connect("stage_changed", _on_stage)
 	_chore = get_tree().get_first_node_in_group("opening_bucket_trough")
+	_knife_chore = get_tree().get_first_node_in_group("opening_knife_hitch")
 
 
 func _process(_delta: float) -> void:
@@ -81,11 +83,13 @@ func _process(_delta: float) -> void:
 	_objective.text = String(_director.call("objective_text"))
 	_status.text = String(_director.call("status_text"))
 	var f := String(_director.call("flash_text"))
-	if f == "" and _chore and _chore.has_method("interact_prompt"):
-		f = String(_chore.call("interact_prompt"))
+	if f == "":
+		f = _chore_prompt(_chore)
+	if f == "":
+		f = _chore_prompt(_knife_chore)
 	_flash.text = f
 	_flash.visible = f != ""
-	if _chore and _chore.has_method("is_active") and bool(_chore.call("is_active")):
+	if _chore_active(_chore) or _chore_active(_knife_chore):
 		_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	else:
 		_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
@@ -94,6 +98,16 @@ func _process(_delta: float) -> void:
 	if combat and combat.has_method("weapon_name"):
 		_weapon.text = "In hand: %s   (kit: goad · knife)" % String(combat.call("weapon_name"))
 
+
+
+func _chore_prompt(chore: Node) -> String:
+	if chore and chore.has_method("interact_prompt"):
+		return String(chore.call("interact_prompt"))
+	return ""
+
+
+func _chore_active(chore: Node) -> bool:
+	return chore != null and chore.has_method("is_active") and bool(chore.call("is_active"))
 
 func _on_success(home: int, total: int) -> void:
 	_banner.text = "HERD HOME  ·  %d / %d head in the pen" % [home, total]

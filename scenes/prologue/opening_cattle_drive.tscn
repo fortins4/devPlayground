@@ -1,4 +1,4 @@
-[gd_scene load_steps=19 format=3 uid="uid://cq8riochtopendrv01"]
+[gd_scene load_steps=20 format=3 uid="uid://cq8riochtopendrv01"]
 
 [ext_resource type="Script" path="res://scripts/prologue/opening_farm_greybox.gd" id="1_greybox"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_drive_director.gd" id="2_director"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/prologue/opening_drive_launcher.gd" id="6_launch"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_family_caller.gd" id="7_family"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_bucket_trough_chore.gd" id="8_bucket"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_knife_hitch_chore.gd" id="9_knife"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_morning_mat"]
 sky_top_color = Color(0.5, 0.62, 0.74, 1)
@@ -151,6 +152,9 @@ callout_line = "Cian! Bring them home before the sun's high — and mind the bog
 
 [node name="OpeningBucketTroughChore" type="Node3D" parent="."]
 script = ExtResource("8_bucket")
+
+[node name="OpeningKnifeHitchChore" type="Node3D" parent="."]
+script = ExtResource("9_knife")
 
 [node name="OpeningDriveDirector" type="Node3D" parent="."]
 script = ExtResource("2_director")
