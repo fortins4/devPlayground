@@ -1,16 +1,33 @@
 extends Node3D
 class_name OpeningFamilyCaller
 ## Greybox family member at the house door who calls out to Cian as the morning
-## cattle drive leaves the yard. Readable bark (Label3D + HUD flash) + raised-arm pose.
+## cattle drive leaves the yard — plus interactive E-talk when the player walks up.
+## Readable bark (Label3D + HUD flash) + raised-arm pose.
 ## Standalone prologue prop — no combat / CattleEconomy hooks.
+## Additive soft cue only; does not gate cattle soft success.
 
 signal callout_spoken(line: String)
+
+enum TalkState { IDLE, TALKING, DONE }
+
+const INTERACT_RANGE := 2.5
+## House door south face (authored FamilyCaller sits just outside).
+const DOOR_POS := Vector3(-7.2, 0.0, 1.77)
 
 @export var speaker_name: String = "Máire"
 @export var callout_line: String = "Cian! Bring them home before the sun's high — and mind the bog!"
 @export var bark_hold_secs: float = 6.5
 @export var auto_trigger_delay: float = 1.1
 @export var retrigger_on_reset: bool = true
+@export var director_path: NodePath = ^"../OpeningDriveDirector"
+@export var talk_line_hold_secs: float = 2.4
+
+## Morning-chore E-talk lines (greybox; short).
+var talk_lines: PackedStringArray = PackedStringArray([
+	"There you are, Cian — goad ready?",
+	"Herd's down the lane. Bring them home, and mind the bog.",
+	"Water the trough if you pass the spring — and free that hitch by the byre.",
+])
 
 var _spoken: bool = false
 var _bark: Label3D = null
@@ -19,10 +36,28 @@ var _bark_timer: float = 0.0
 var _delay_left: float = -1.0
 var _arm: Node3D = null
 
+var _talk_state: TalkState = TalkState.IDLE
+var _talk_idx: int = -1
+var _talk_hold: float = 0.0
+var _director: Node = null
+var _player: Node3D = null
+var _off_you_go_said: bool = false
+
 
 func _ready() -> void:
+	add_to_group("opening_maire_door_talk")
 	_build_figure()
 	_delay_left = auto_trigger_delay
+	call_deferred("_bind")
+
+
+func _bind() -> void:
+	_player = get_tree().get_first_node_in_group("player") as Node3D
+	_director = get_node_or_null(director_path)
+	print(
+		"OPENING_MAIRE_DOOR_TALK_READY maire=%s door=%s"
+		% [global_position, DOOR_POS]
+	)
 
 
 func _process(delta: float) -> void:
@@ -38,14 +73,24 @@ func _process(delta: float) -> void:
 			_bark.position.y = 2.55 + sin(Time.get_ticks_msec() * 0.006) * 0.04
 		if _arm:
 			_arm.rotation_degrees.z = -55.0 + sin(Time.get_ticks_msec() * 0.008) * 8.0
+	if _talk_state == TalkState.TALKING:
+		_talk_hold -= delta
+		if _talk_hold <= 0.0:
+			_advance_talk(false)
 
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if (event as InputEventKey).keycode == KEY_E:
+			if _try_interact():
+				get_viewport().set_input_as_handled()
+
+
+# ---------------------------------------------------------------- auto callout
 
 func speak() -> void:
 	_spoken = true
-	_bark_timer = bark_hold_secs
-	if _bark:
-		_bark.text = callout_line
-		_bark.visible = true
+	_show_bark(callout_line, bark_hold_secs)
 	callout_spoken.emit(callout_line)
 	print("OPENING_FAMILY_CALLOUT speaker=%s line=%s" % [speaker_name, callout_line])
 
@@ -74,6 +119,178 @@ func get_callout_line() -> String:
 func get_speaker_name() -> String:
 	return speaker_name
 
+
+# ---------------------------------------------------------------- E-talk queries (smoke / stills)
+
+func chore_done() -> bool:
+	return _talk_state == TalkState.DONE
+
+
+func talk_state() -> String:
+	match _talk_state:
+		TalkState.IDLE:
+			return "idle"
+		TalkState.TALKING:
+			return "talking"
+		TalkState.DONE:
+			return "done"
+	return "unknown"
+
+
+func maire_pos() -> Vector3:
+	return global_position
+
+
+func door_pos() -> Vector3:
+	return DOOR_POS
+
+
+func interact_prompt() -> String:
+	if _player == null or not is_instance_valid(_player):
+		return ""
+	if not _near(_player.global_position, global_position):
+		return ""
+	match _talk_state:
+		TalkState.IDLE:
+			return "E — talk to Máire"
+		TalkState.TALKING:
+			return "E — continue"
+		TalkState.DONE:
+			return ""
+	return ""
+
+
+func is_active() -> bool:
+	return _talk_state != TalkState.DONE
+
+
+## Smoke / capture helpers.
+func force_done() -> void:
+	_talk_state = TalkState.DONE
+	_talk_idx = talk_lines.size() - 1
+	_talk_hold = 0.0
+	_off_you_go_said = false
+	if _bark:
+		_bark.visible = false
+		_bark_timer = 0.0
+
+
+func force_state(state_name: String) -> void:
+	match state_name:
+		"idle":
+			_talk_state = TalkState.IDLE
+			_talk_idx = -1
+			_talk_hold = 0.0
+			_off_you_go_said = false
+			if _bark and _bark_timer <= 0.0:
+				_bark.visible = false
+		"talking":
+			_talk_state = TalkState.TALKING
+			_talk_idx = 0
+			_deliver_line(0, false)
+		"done":
+			force_done()
+		_:
+			push_warning("OpeningFamilyCaller.force_state unknown: " + state_name)
+
+
+func debug_set_state(state_name: String) -> void:
+	force_state(state_name)
+
+
+## Capture helper: hide bark and cancel pending auto-callout (does not unspeak).
+func debug_clear_bark() -> void:
+	_delay_left = -1.0
+	_bark_timer = 0.0
+	if _bark:
+		_bark.visible = false
+
+
+func try_interact() -> bool:
+	return _try_interact()
+
+
+# ---------------------------------------------------------------- interact / talk
+
+func _try_interact() -> bool:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player") as Node3D
+	if _player == null:
+		return false
+	if not _near(_player.global_position, global_position):
+		return false
+	match _talk_state:
+		TalkState.IDLE:
+			_start_talk()
+			return true
+		TalkState.TALKING:
+			_advance_talk(true)
+			return true
+		TalkState.DONE:
+			if not _off_you_go_said:
+				_off_you_go_said = true
+				_flash("Off you go, lad — the herd won't walk itself home.", 3.0)
+				_show_bark("Off you go.", 2.5)
+			return true
+	return false
+
+
+func _start_talk() -> void:
+	_talk_state = TalkState.TALKING
+	_talk_idx = 0
+	print("OPENING_MAIRE_DOOR_TALK_START")
+	_deliver_line(0, true)
+
+
+func _advance_talk(_from_input: bool) -> void:
+	if _talk_state != TalkState.TALKING:
+		return
+	var next := _talk_idx + 1
+	if next >= talk_lines.size():
+		_finish_talk()
+		return
+	_talk_idx = next
+	_deliver_line(next, true)
+
+
+func _deliver_line(idx: int, _announce: bool) -> void:
+	if idx < 0 or idx >= talk_lines.size():
+		return
+	var line := String(talk_lines[idx])
+	_show_bark(line, maxf(talk_line_hold_secs + 0.8, 3.0))
+	_flash("%s: %s" % [speaker_name, line], talk_line_hold_secs + 0.6)
+	_talk_hold = talk_line_hold_secs
+	print("OPENING_MAIRE_DOOR_TALK_LINE idx=%d line=%s" % [idx, line])
+
+
+func _finish_talk() -> void:
+	_talk_state = TalkState.DONE
+	_talk_hold = 0.0
+	_flash("Máire nods — cattle home before the sun's high.", 3.5)
+	print("OPENING_MAIRE_DOOR_TALK_SOFT_SUCCESS")
+
+
+func _show_bark(line: String, secs: float) -> void:
+	_bark_timer = secs
+	if _bark:
+		_bark.text = line
+		_bark.visible = true
+
+
+func _flash(text: String, secs: float = 3.0) -> void:
+	if _director and _director.has_method("flash"):
+		_director.call("flash", text, secs)
+	elif _director and _director.has_method("_flash"):
+		_director.call("_flash", text, secs)
+
+
+func _near(p: Vector3, target: Vector3, range_m: float = INTERACT_RANGE) -> bool:
+	var a := Vector3(p.x, 0.0, p.z)
+	var b := Vector3(target.x, 0.0, target.z)
+	return a.distance_to(b) <= range_m
+
+
+# ---------------------------------------------------------------- figure
 
 func _build_figure() -> void:
 	# Clear any authored placeholders.
