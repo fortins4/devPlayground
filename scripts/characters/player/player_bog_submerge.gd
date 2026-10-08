@@ -587,11 +587,12 @@ func _build_hud() -> void:
 	add_child(_hud)
 	_hud_root = Control.new()
 	_hud_root.name = "Breath"
-	_hud_root.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_hud_root.offset_left = -170.0
-	_hud_root.offset_right = 170.0
-	_hud_root.offset_top = 70.0
-	_hud_root.offset_bottom = 124.0
+	# Top-right under the raid alert line; the left column belongs to heat / band.
+	_hud_root.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_hud_root.offset_left = -356.0
+	_hud_root.offset_right = -16.0
+	_hud_root.offset_top = 92.0
+	_hud_root.offset_bottom = 146.0
 	_hud_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hud_root.visible = false
 	_hud.add_child(_hud_root)

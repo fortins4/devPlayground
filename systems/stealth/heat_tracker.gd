@@ -424,19 +424,19 @@ func _nudge_sentry_suspicious(sentry: Node) -> void:
 func _ensure_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "HeatHUDLayer"
-	# Under the cattle-raid HUD (12): the heat column's second line sits on the raid hint's row,
-	# and the hint ("Goad (3) ...") must stay on top to read. Still above combat (10) / band (8).
-	layer.layer = 11
+	# Top-left stack (raid hint owns the y 8-44 strip above it): heat 50 (two lines -> 112),
+	# investigate 116 + bar 146, band 168, banner 204. Raid alert / breath sit top-right.
+	layer.layer = 20
 	add_child(layer)
 	_hud_label = Label.new()
 	_hud_label.name = "HeatLabel"
-	_hud_label.position = Vector2(16, 14)
+	_hud_label.position = Vector2(16, 50)
 	_hud_label.add_theme_font_size_override("font_size", 22)
 	_legible(_hud_label, 3)
 	layer.add_child(_hud_label)
 	_progress_label = Label.new()
 	_progress_label.name = "InvestigateProgressLabel"
-	_progress_label.position = Vector2(16, 52)
+	_progress_label.position = Vector2(16, 116)
 	_progress_label.add_theme_font_size_override("font_size", 18)
 	_progress_label.add_theme_color_override("font_color", Color(0.95, 0.85, 0.35))
 	_legible(_progress_label, 2)
@@ -444,7 +444,7 @@ func _ensure_hud() -> void:
 	layer.add_child(_progress_label)
 	_progress_bar = ProgressBar.new()
 	_progress_bar.name = "InvestigateProgressBar"
-	_progress_bar.position = Vector2(16, 76)
+	_progress_bar.position = Vector2(16, 146)
 	_progress_bar.custom_minimum_size = Vector2(260, 16)
 	_progress_bar.size = Vector2(260, 16)
 	_progress_bar.max_value = 1.0
@@ -454,7 +454,7 @@ func _ensure_hud() -> void:
 	layer.add_child(_progress_bar)
 	_banner = Label.new()
 	_banner.name = "HeatBanner"
-	_banner.position = Vector2(16, 102)
+	_banner.position = Vector2(16, 204)
 	_banner.add_theme_font_size_override("font_size", 26)
 	_legible(_banner, 3)
 	_banner.visible = false

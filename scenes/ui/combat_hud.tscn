@@ -7,15 +7,17 @@ layer = 10
 script = ExtResource("1_hud")
 
 [node name="Margin" type="MarginContainer" parent="."]
-anchors_preset = 15
+anchors_preset = 12
+anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_top = -100.0
 grow_horizontal = 2
-grow_vertical = 2
+grow_vertical = 0
 theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 12
+theme_override_constants/margin_top = 0
 theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 12
+theme_override_constants/margin_bottom = 10
 
 [node name="Label" type="Label" parent="Margin"]
 layout_mode = 2
@@ -28,3 +30,4 @@ theme_override_constants/shadow_offset_y = 2
 theme_override_constants/outline_size = 2
 theme_override_font_sizes/font_size = 16
 text = "HP --/--   [hatchet]"
+autowrap_mode = 3

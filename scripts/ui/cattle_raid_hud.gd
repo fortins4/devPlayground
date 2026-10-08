@@ -153,7 +153,7 @@ func _ensure_alert_label() -> void:
 	_alert_label = Label.new()
 	_alert_label.name = "RaidAlertLabel"
 	_alert_label.visible = false
-	_alert_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_alert_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	# Same legibility treatment as the raid hint: 24 px, thin 3 px outline + drop shadow so digits
 	# keep their open shapes (a thick outline filled "(3)" in until it read as "(5)").
 	_alert_label.add_theme_font_size_override("font_size", 24)
@@ -162,11 +162,12 @@ func _ensure_alert_label() -> void:
 	_alert_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
 	_alert_label.add_theme_constant_override("shadow_offset_x", 2)
 	_alert_label.add_theme_constant_override("shadow_offset_y", 2)
-	_alert_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_alert_label.offset_left = 16.0
-	_alert_label.offset_top = 88.0
+	# Top-right, under the raid hint strip, clear of the heat column on the left.
+	_alert_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_alert_label.offset_left = -640.0
+	_alert_label.offset_top = 50.0
 	_alert_label.offset_right = -16.0
-	_alert_label.offset_bottom = 122.0
+	_alert_label.offset_bottom = 84.0
 	root.add_child(_alert_label)
 
 

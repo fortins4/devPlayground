@@ -239,12 +239,12 @@ mesh = SubResource("BoxMesh_path")
 surface_material_override/0 = SubResource("Mat_path")
 
 [node name="Signpost" type="MeshInstance3D" parent="PathToRingfort"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.5, 0.9, 1.2)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.0, 0.9, 1.2)
 mesh = SubResource("BoxMesh_sign")
 surface_material_override/0 = SubResource("Mat_path")
 
 [node name="RingfortSign" type="Label3D" parent="PathToRingfort"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.5, 2.4, 1.2)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.0, 2.4, 1.2)
 text = "← Ringfort muster
 Walk west · E recruit · H follow/hold"
 billboard = 1
