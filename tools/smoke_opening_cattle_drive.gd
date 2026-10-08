@@ -1,6 +1,9 @@
 extends SceneTree
 ## Smoke: opening cattle drive loads, spawn near house, herd far + idle, first goad stirs the herd,
 ## un-pushed drove stalls, scripted goad drive gets >= need head home → soft success.
+## The scene always runs the set sequence, so this is the sequence flow: need = all 6 (the
+## bogged cow is the sixth head — debug-rejoined here), the dog ambush springs on the lane and
+## the bot sees it off and regathers; R after success keeps the pen and the sequence.
 ## Run with --fixed-fps 60 so the drive sim is not real-time bound:
 ##   godot --headless --path . --fixed-fps 60 --script res://tools/smoke_opening_cattle_drive.gd
 
@@ -39,6 +42,7 @@ func _run() -> void:
 	var _seq_dbg: Node = get_first_node_in_group("opening_sequence")
 	if _seq_dbg:
 		_seq_dbg.call("force_advance_to", &"drive")
+		get_first_node_in_group("opening_bogged_cow").call("force_rejoin")  # her beat: debug path
 
 	var director: Node = get_first_node_in_group("opening_drive")
 	var player := get_first_node_in_group("player") as Node3D
@@ -124,14 +128,18 @@ func _run() -> void:
 	var home_n := int(director.call("home_count"))
 	print("SMOKE drive_secs=%.1f prods=%d home=%d/%d max_bogged=%d" % [t, bot.prods, home_n, cows.size(), bog_seen])
 	_check(String(director.call("get_stage_name")) == "success", "soft success not reached in %.0fs" % DRIVE_LIMIT_SECS)
-	_check(home_n >= int(director.get("need_home")), "home count below need")
+	_check(home_n >= int(director.call("need_count")), "home count below need")
+	_check(int(director.call("need_count")) == cows.size() and cows.size() == 6, "sequence flow needs all 6 (need=%d cows=%d)" % [director.call("need_count"), cows.size()])
 	_check(bool(director.get("succeeded")), "director.succeeded false")
+	_check(bool(director.call("ambush_fired")), "dog ambush should spring on the lane")
+	print("SMOKE ambush=%s dog_scares=%d dog_state=%s" % [director.call("ambush_fired"), bot.dog_scares, get_first_node_in_group("opening_stray_dog").call("dog_state")])
 
-	# Reset puts the herd back at the pasture.
+	# R after success (sequence flow): a failsafe, not a restart — the pen and the sequence stay.
 	director.call("reset_herd")
 	await _wait_physics(0.2)
-	_check(int(director.call("home_count")) == 0, "reset should clear home count")
-	_check(Vector3(director.call("herd_centroid")).distance_to(home) > 80.0, "reset should return herd to pasture")
+	_check(int(director.call("home_count")) == home_n, "R after success must keep the pen")
+	_check(bool(director.get("succeeded")), "R after success must keep success")
+	_check(StringName(_seq_dbg.call("current_step_id")) != &"drive", "R must not undo the sequence")
 
 	if _fail:
 		print("OPENING_CATTLE_DRIVE_SMOKE_FAIL")

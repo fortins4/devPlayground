@@ -1,10 +1,15 @@
 extends Node3D
 class_name OpeningBoggedCowChore
-## Tutorial beat: one extra cow starts bogged at the lane-facing bog edge.
-## Player goads it onto firm ground. Additive soft cue — not part of the 6-head herd.
-## Soft success only after at least one goad while bogged, then leaving the bog.
+## Drive beat: one of the SIX herd cows starts bogged at the lane-facing bog edge (the director
+## counts her as the herd's 6th head; the Herd node holds the other five at the pasture).
+## Player goads her onto firm ground (freed only after at least one goad while bogged, then
+## leaving the bog). In the set-sequence flow she must then be driven back to the herd at the
+## pasture: she REJOINS once she's within REJOIN_RADIUS of the other five's centre. Until then
+## her home (idle wander + path bias) is the herd, not the free spot. Without a sequence (old
+## standalone behaviour) she re-homes where she came free and counts as rejoined at once.
+## While bogged and the drive is live she lows (Label3D "Mooo!" pulse) so the bog is findable.
 
-enum BogChoreState { BOGGED, DONE }
+enum BogChoreState { BOGGED, FREED, REJOINED }
 
 const COW_SCENE := preload("res://scenes/prologue/opening_cow.tscn")
 const INTERACT_RANGE := 8.0
@@ -16,10 +21,18 @@ const BOG_HALF_XZ := Vector3(10.0, 0.0, 10.0)
 ## is placed on the OpeningTerrain surface (see _ground()).
 const COW_SPAWN := Vector3(27.5, 0.1, 116.0)
 const FIRM_GROUND := Vector3(18.0, 0.1, 116.0)
+## She rejoins within this horizontal distance of the other five's centre (pasture herd spreads
+## ~8.5 m from its centre while grazing).
+const REJOIN_RADIUS := 12.0
+## Her pasture spot (the herd's sixth grazing spot) — used by the R reset / force_rejoin.
+const PASTURE_SPOT := Vector3(-23.0, 0.1, 200.0)
+const LOW_PERIOD := 4.0
+const LOW_ON := 1.7
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 @export var bog_zone_path: NodePath = ^"../BogZone"
-const SEQ_STEP := &"bog"
+## Her beat lives inside the drive step (step 4); goads bounce off her until it's live.
+const SEQ_STEP := &"drive"
 
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 @export var path_markers_path: NodePath = ^"../PathMarkers"
@@ -33,11 +46,15 @@ var _player: Node3D = null
 var _goaded_while_bogged: bool = false
 var _intro_flashed: bool = false
 var _prompt_near: bool = false
+var _low_label: Label3D = null
+var _low_t: float = 0.0
+var _low_announced: bool = false
 
 
 func _ready() -> void:
 	add_to_group("opening_bogged_cow")
 	_spawn_cow()
+	_build_low_label()
 	call_deferred("_bind")
 
 
@@ -72,10 +89,13 @@ func _flash_intro() -> void:
 	_flash("A cow's stuck in the bog — goad it onto the lane.", 4.5)
 
 
-func _process(_delta: float) -> void:
-	if _state == BogChoreState.DONE:
+func _process(delta: float) -> void:
+	_tick_lowing(delta)
+	if _state != BogChoreState.BOGGED:
 		if _cow and is_instance_valid(_cow) and bool(_cow.get("goad_locked")):
 			_cow.set("goad_locked", false)
+		if _state == BogChoreState.FREED:
+			_check_rejoin()
 		return
 	if _cow == null or not is_instance_valid(_cow):
 		return
@@ -94,7 +114,9 @@ func _spawn_cow() -> void:
 	_cow = COW_SCENE.instantiate() as Node3D
 	_cow.name = "BoggedChoreCow"
 	if "cow_id" in _cow:
-		_cow.set("cow_id", 99)
+		# Herd sixth head. id 6: same lateral goad peel as the old id 99 (id % 3 == 0, so her
+		# goad-out is unchanged) and a sane soft-follow trail slot (99 put it ~47 m back).
+		_cow.set("cow_id", 6)
 	add_child(_cow)
 	_cow.global_position = _ground(COW_SPAWN)
 	# Wander home = her placed bog spot (her _ready captured (0,0,0) before placement).
@@ -150,17 +172,41 @@ func _collect_path_points() -> Array:
 
 # ---------------------------------------------------------------- queries
 
+## Freed from the bog (rejoined or not).
 func chore_done() -> bool:
-	return _state == BogChoreState.DONE
+	return _state != BogChoreState.BOGGED
 
 
 func bog_state() -> String:
+	return "bogged" if _state == BogChoreState.BOGGED else "done"
+
+
+## "bogged" → "freed" (on her way back to the herd) → "rejoined".
+func herd_state() -> String:
 	match _state:
 		BogChoreState.BOGGED:
 			return "bogged"
-		BogChoreState.DONE:
-			return "done"
+		BogChoreState.FREED:
+			return "freed"
+		BogChoreState.REJOINED:
+			return "rejoined"
 	return "unknown"
+
+
+func rejoined() -> bool:
+	return _state == BogChoreState.REJOINED
+
+
+func is_lowing() -> bool:
+	return _low_label != null and _low_label.visible
+
+
+## Horizontal distance from her to the centre of the other five (0 when unknown).
+func distance_to_herd() -> float:
+	if _cow == null or not is_instance_valid(_cow):
+		return 0.0
+	var c := _herd_point()
+	return Vector2(_cow.global_position.x - c.x, _cow.global_position.z - c.z).length()
 
 
 func cow_pos() -> Vector3:
@@ -183,7 +229,7 @@ func get_chore_cow() -> Node3D:
 
 
 func interact_prompt() -> String:
-	if _state == BogChoreState.DONE:
+	if _state != BogChoreState.BOGGED:
 		return ""
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player") as Node3D
@@ -197,11 +243,13 @@ func interact_prompt() -> String:
 
 
 func is_active() -> bool:
-	return _state != BogChoreState.DONE
+	return _state == BogChoreState.BOGGED
 
 
 func force_free() -> void:
 	if _cow == null or not is_instance_valid(_cow):
+		return
+	if _state != BogChoreState.BOGGED:
 		return
 	_goaded_while_bogged = true
 	_cow.global_position = _ground(FIRM_GROUND)
@@ -220,10 +268,17 @@ func force_state(state_name: String) -> void:
 				_cow.velocity = Vector3.ZERO
 				if "driven" in _cow:
 					_cow.set("driven", false)
+				if "bog_hold_still" in _cow:
+					_cow.set("bog_hold_still", true)
+				if _cow.has_method("set_home_spot"):
+					_cow.call("set_home_spot", _cow.global_position)
+				_setup_cow_ai()
 				if _cow.has_method("set_bogged"):
 					_cow.call("set_bogged", true)
-		"done":
+		"done", "freed":
 			force_free()
+		"rejoined":
+			force_rejoin()
 		_:
 			push_warning("OpeningBoggedCowChore.force_state unknown: " + state_name)
 
@@ -232,15 +287,51 @@ func debug_set_state(state_name: String) -> void:
 	force_state(state_name)
 
 
+## Debug / smoke: free her (if still bogged), set her down beside the herd idle, and rejoin.
+func force_rejoin() -> void:
+	if _cow == null or not is_instance_valid(_cow):
+		return
+	if _state == BogChoreState.BOGGED:
+		force_free()
+	if _state == BogChoreState.REJOINED:
+		return
+	_place_with_herd()
+	_rejoin()
+
+
+## Herd reset (R) in the set-sequence flow: once she's out of the bog she goes back to the
+## pasture with the rest and counts as rejoined (never re-bogged). Still bogged: left as is.
+func reset_with_herd() -> void:
+	if _state == BogChoreState.BOGGED or _cow == null or not is_instance_valid(_cow):
+		return
+	if _cow.has_method("reset_opening"):
+		_cow.call("reset_opening")
+	_place_with_herd()
+	if _state == BogChoreState.FREED:
+		_rejoin()
+
+
+func _place_with_herd() -> void:
+	var p := _ground(PASTURE_SPOT)
+	_cow.global_position = p
+	_cow.velocity = Vector3.ZERO
+	if _cow.has_method("stop_driven"):
+		_cow.call("stop_driven")
+	if _cow.has_method("set_bogged"):
+		_cow.call("set_bogged", false)
+	if _cow.has_method("set_home_spot"):
+		_cow.call("set_home_spot", p)
+
+
 # ---------------------------------------------------------------- bog / goad
 
 func _on_cow_goad_blocked(_cow_ref: Node3D, _kind: StringName) -> void:
-	if _state != BogChoreState.DONE:
+	if _state == BogChoreState.BOGGED:
 		_flash(_not_yet(), 2.5)
 
 
 func _on_cow_goaded(_cow_ref: Node3D, _kind: StringName) -> void:
-	if _state == BogChoreState.DONE:
+	if _state != BogChoreState.BOGGED:
 		return
 	_goaded_while_bogged = true
 	_flash("Keep goading — walk it onto firm ground.", 3.0)
@@ -248,14 +339,14 @@ func _on_cow_goaded(_cow_ref: Node3D, _kind: StringName) -> void:
 
 
 func _on_bog_entered(body: Node3D) -> void:
-	if body != _cow or _state == BogChoreState.DONE:
+	if body != _cow or _state != BogChoreState.BOGGED:
 		return
 	if _cow.has_method("set_bogged"):
 		_cow.call("set_bogged", true)
 
 
 func _on_bog_exited(body: Node3D) -> void:
-	if body != _cow or _state == BogChoreState.DONE:
+	if body != _cow or _state != BogChoreState.BOGGED:
 		return
 	if _cow.has_method("set_bogged"):
 		_cow.call("set_bogged", false)
@@ -263,7 +354,7 @@ func _on_bog_exited(body: Node3D) -> void:
 
 
 func _try_complete() -> void:
-	if _state == BogChoreState.DONE:
+	if _state != BogChoreState.BOGGED:
 		return
 	if not _gate_open():
 		return
@@ -275,15 +366,96 @@ func _try_complete() -> void:
 
 
 func _complete() -> void:
-	if _state == BogChoreState.DONE:
+	if _state != BogChoreState.BOGGED:
 		return
-	_state = BogChoreState.DONE
-	# Graze where she came free (goad exit or force_free), not back at the bog edge.
-	if _cow and is_instance_valid(_cow) and _cow.has_method("set_home_spot"):
-		_cow.call("set_home_spot", _cow.global_position)
-	_flash("Cow free of the bog.", 4.0)
-	print("OPENING_BOGGED_COW_SOFT_SUCCESS")
-	_report_done()
+	_state = BogChoreState.FREED
+	if _flow():
+		# Set-sequence flow: she's one of the six — her home is the herd at the pasture now
+		# (idle wander + goad path bias lead back there), not the free spot. Drive mode as is.
+		var herd := _herd_point()
+		if _cow and is_instance_valid(_cow):
+			if "bog_hold_still" in _cow:
+				_cow.set("bog_hold_still", false)  # a later bog visit = ordinary herd-cow bog
+			if _cow.has_method("set_home_spot"):
+				_cow.call("set_home_spot", Vector3(herd.x, _cow.global_position.y, herd.z))
+			if _cow.has_method("set_path_bias"):
+				_cow.call("set_path_bias", _collect_path_points(), herd)
+		_flash("She's free of the bog — drive her back to the herd at the pasture.", 4.5)
+		print("OPENING_BOGGED_COW_SOFT_SUCCESS")
+		print("OPENING_BOGGED_COW_FREED herd=%s" % herd.snapped(Vector3.ONE))
+	else:
+		# Standalone: graze where she came free (goad exit or force_free), not at the bog edge.
+		if _cow and is_instance_valid(_cow) and _cow.has_method("set_home_spot"):
+			_cow.call("set_home_spot", _cow.global_position)
+		_flash("Cow free of the bog.", 4.0)
+		print("OPENING_BOGGED_COW_SOFT_SUCCESS")
+		_state = BogChoreState.REJOINED
+
+
+func _check_rejoin() -> void:
+	if _cow == null or not is_instance_valid(_cow):
+		return
+	if distance_to_herd() <= REJOIN_RADIUS:
+		_rejoin()
+
+
+func _rejoin() -> void:
+	if _state == BogChoreState.REJOINED:
+		return
+	_state = BogChoreState.REJOINED
+	# Back in the herd: graze with them, and the lane path bias leads home to the pen again.
+	if _cow and is_instance_valid(_cow):
+		if _cow.has_method("set_home_spot"):
+			_cow.call("set_home_spot", _cow.global_position)
+		_setup_cow_ai()
+	_flash("She's back with the herd.", 4.0)
+	print("OPENING_BOGGED_COW_REJOINED dist=%.1f" % distance_to_herd())
+
+
+func _herd_point() -> Vector3:
+	if _director and _director.has_method("herd_centroid"):
+		return _director.call("herd_centroid")
+	return _ground(PASTURE_SPOT)
+
+
+## Set-sequence flow (rejoin required) vs the old standalone bog chore.
+func _flow() -> bool:
+	return _seq() != null
+
+
+# ---------------------------------------------------------------- lowing cue
+
+func _build_low_label() -> void:
+	_low_label = Label3D.new()
+	_low_label.name = "Lowing"
+	_low_label.text = "Mmmooo!"
+	# Heard, not seen: constant on-screen size and drawn through the rolls, so it reads as a sound
+	# cue from the pasture (~90 m) as well as at the bog edge.
+	_low_label.font_size = 40
+	_low_label.fixed_size = true
+	_low_label.pixel_size = 0.0016
+	_low_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_low_label.no_depth_test = true
+	_low_label.modulate = Color(1.0, 0.86, 0.6)
+	_low_label.outline_size = 12
+	_low_label.visible = false
+	add_child(_low_label)
+
+
+func _tick_lowing(delta: float) -> void:
+	if _low_label == null:
+		return
+	var on := false
+	if _state == BogChoreState.BOGGED and _cow and is_instance_valid(_cow) and _flow() and _gate_open():
+		_low_t = fposmod(_low_t + delta, LOW_PERIOD)
+		on = _low_t < LOW_ON
+		_low_label.global_position = _cow.global_position + Vector3(0.0, 2.3 + 0.25 * sin(_low_t * 5.0), 0.0)
+		if on and not _low_announced:
+			_low_announced = true
+			print("OPENING_BOGGED_COW_LOWING")
+	else:
+		_low_t = 0.0
+	_low_label.visible = on
 
 
 # ---------------------------------------------------------------- helpers
@@ -329,8 +501,3 @@ func _not_yet() -> String:
 	var seq := _seq()
 	return String(seq.call("not_yet_text")) if seq else ""
 
-
-func _report_done() -> void:
-	var seq := _seq()
-	if seq:
-		seq.call("complete_step", SEQ_STEP)

@@ -4,12 +4,15 @@ extends Node
 ##   1 maire  — talk to Máire at the door (her talk ends by giving the bucket job)
 ##   2 bucket — pick up the bucket, fill it at the spring scoop, pour it at the trough
 ##   3 knife  — cut the knife hitch
-##   4 dog    — walk the lane south and scare off the stray dog
-##   5 bog    — goad the bogged cow out
-##   6 drive  — stir the herd and drive it home (need_home in the pen)
-##   7 meal   — stow the goad and eat the meal
+##   4 drive  — bring the herd home. ONE step, no Máire trips inside it; in-drive beats run off
+##              the objective HUD line + chore flashes (OpeningDriveDirector.drive_beat()):
+##                walk_out → missing (one of the six is stuck in the bog; her lowing leads there)
+##                → free_her → rejoin (drive her back to the herd at the pasture) → stir
+##                → driving, with the stray-dog ambush on the lane (ambush / regather)
+##                → all 6 in the pen
+##   5 meal   — stow the goad and eat the meal, then Máire's closing line
 ##
-## After each step (2..7) completes, the next step stays LOCKED until Cian walks back to Máire:
+## After each step (2..5) completes, the next step stays LOCKED until Cian walks back to Máire:
 ## she waves while she has a line waiting and speaks it automatically when he comes within
 ## OpeningFamilyCaller.TALK_RADIUS (no E). Saying the line unlocks the step. After the meal she
 ## has one closing line. Chores query is_step_active(id) and report complete_step(id); their own
@@ -22,17 +25,15 @@ signal step_changed(step_id: StringName, briefed: bool)
 signal line_spoken(key: String, text: String)
 signal sequence_complete
 
-const STEP_IDS: Array[StringName] = [&"maire", &"bucket", &"knife", &"dog", &"bog", &"drive", &"meal"]
-const CLOSER_INDEX := 7
+const STEP_IDS: Array[StringName] = [&"maire", &"bucket", &"knife", &"drive", &"meal"]
+const CLOSER_INDEX := 5
 
 ## Máire's handoff line for each step that she hands out on Cian's return (step 2's job is given
 ## at the end of her door talk — see OpeningFamilyCaller.talk_lines).
 const HANDOFF_LINES := {
 	&"knife": "Good lad. Now the heifer's still tied at the post by the byre — cut her loose with your knife.",
-	&"dog": "There's a stray dog skulking on the lane south. Take the goad and run it off before it worries the herd.",
-	&"bog": "One of ours is stuck fast in the bog, east of the lane past the bend. Goad her out before she tires.",
-	&"drive": "Now fetch the herd home from the south pasture. Four head in the pen by the byre, at least.",
-	&"meal": "They're home, thank God. Put that goad away and come eat — your meal's by the door.",
+	&"drive": "Now bring the herd home from the south pasture. All six, mind — count them into the pen.",
+	&"meal": "All six home, thank God. Put that goad away and come eat — your meal's by the door.",
 }
 const CLOSER_LINE := "That's the morning's work done, and done well. Sit and rest a while, a stór."
 const IDLE_LINE := "Go on now — the work won't do itself."
@@ -41,8 +42,6 @@ const STEP_SHORT := {
 	&"maire": "talk to Máire",
 	&"bucket": "water the trough",
 	&"knife": "cut the heifer's tether",
-	&"dog": "see off the stray dog",
-	&"bog": "goad the bogged cow out",
 	&"drive": "bring the herd home",
 	&"meal": "eat your meal",
 }
@@ -211,10 +210,6 @@ func objective_text() -> String:
 			return "Water the trough: pick up the bucket by the byre.%s" % _dist_suffix(Vector3(5.2, 0, 2.5))
 		&"knife":
 			return "Cut the heifer's tether — the hitch post east of the byre trough. Draw the knife (2)."
-		&"dog":
-			return "Walk the lane south and scare off the stray dog — goad drawn (3).%s" % _dist_suffix(Vector3(-6.0, 0, 88.0))
-		&"bog":
-			return "Goad the bogged cow out — the bog east of the lane, past the bend.%s" % _dist_suffix(Vector3(27.5, 0, 116.0))
 		&"drive":
 			return _drive_text()
 		&"meal":
@@ -223,20 +218,35 @@ func objective_text() -> String:
 
 
 func _drive_text() -> String:
+	## In-drive beats (no Máire trips inside the drive step) — see OpeningDriveDirector.drive_beat().
 	var d := _group("opening_drive")
 	if d == null:
 		return "Bring the herd home from the south pasture."
-	match String(d.call("get_stage_name")):
+	var need := int(d.call("need_count"))
+	var home := int(d.call("home_count"))
+	match String(d.call("drive_beat")):
 		"walk_out":
 			return "Bring the herd home: walk the lane south to the pasture.  (pasture ~%d m)" % int(d.call("distance_to_herd"))
-		"at_herd":
-			return "Bring the herd home: draw the goad (3) and prod a cow (LMB / RMB) to stir them."
-	var s := "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre.  (home %d/%d)" % [
-		int(d.call("home_count")), int(d.get("need_home"))]
+		"missing":
+			return "Only five at the pasture — one's missing. Hark: lowing from the bog east of the lane, back past the bend.%s" % _dist_suffix(Vector3(d.call("bogged_cow_pos")))
+		"free_her":
+			return "There she is, stuck fast. Goad her out of the bog — goad drawn (3), prod her (LMB / RMB)."
+		"rejoin":
+			return "Drive her back to the herd at the pasture — walk behind her, goad drawn.  (herd ~%d m)" % int(d.call("bogged_cow_to_herd"))
+		"stir":
+			return "She's back with the herd. Draw the goad (3) and prod a cow (LMB / RMB) to start all six home."
+		"ambush":
+			return "A stray dog's at the herd! Scare it off — E or a goad prod, up close."
+		"regather":
+			return "Regather the strays — %d scattered off the lane. Goad them back to the herd.  (home %d/%d)" % [
+				int(d.call("scattered_count")), home, need]
+	var s := "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre.  (home %d/%d)" % [home, need]
 	if int(d.call("bogged_count")) > 0:
 		s += "  %d in the bog — goad them out!" % int(d.call("bogged_count"))
 	elif int(d.call("stalled_count")) > 0:
 		s += "  %d grazing — keep pushing." % int(d.call("stalled_count"))
+	if home > 0 and home < need:
+		s += "  All %d must be in the pen." % need
 	return s
 
 

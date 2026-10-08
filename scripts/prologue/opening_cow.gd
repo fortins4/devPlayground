@@ -14,6 +14,9 @@ extends "res://scripts/world/raid/raid_cow.gd"
 ##   driven by REAL horizontal ground speed (position delta per physics tick), swung in the
 ##   slope-leaned body frame. Legs stand still at idle / while bogged and ease back to neutral
 ##   (the bogged chore cow walks while she's being goaded out).
+## - Scatter (dog ambush): scatter_from() sends the cow off at a trot away from the dog for
+##   SCATTER_SECS, then she stands stale ("grazing — goad on", the existing stalled-drove state)
+##   until Cian pushes her again; `scattered` clears once she's fresh again (regathered).
 
 signal goaded(cow: Node3D, kind: StringName)
 ## Goad landed while goad_locked (set sequence: this cow's step isn't live yet).
@@ -24,6 +27,11 @@ const FRESH_FULL_SECS := 4.5
 const BOG_DRAIN := 2.6
 const BOG_BIAS_SCALE := 0.35
 const SLOT_WALK_SPEED := 1.3
+## Dog-ambush scatter: flight speed (m/s, under DRIVE_SPEED) and duration → ~8 m (mostly sideways off the lane).
+const SCATTER_SPEED := 2.7
+const SCATTER_SECS := 3.2
+## Regathered once a push makes her this fresh again after the flight.
+const REGATHER_FRESH := 0.25
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 ## Below the walk surface by more than this (m) → snap back onto it (teleport guard).
 const SINK_GUARD := 0.25
@@ -81,6 +89,10 @@ var bogged: bool = false
 var bog_hold_still: bool = false
 ## Set by the opening set sequence: goads bounce off (no impulse / drive / stir) until unlocked.
 var goad_locked: bool = false
+## Dog ambush: scattered off the lane, needs regathering (cleared when pushed fresh again).
+var scattered: bool = false
+var _scatter_t: float = 0.0
+var _scatter_dir: Vector3 = Vector3.ZERO
 var start_position: Vector3 = Vector3.ZERO
 var _start_basis: Basis = Basis.IDENTITY
 var _pen_slot: Vector3 = Vector3.ZERO
@@ -155,9 +167,46 @@ func reset_opening() -> void:
 	global_transform.basis = _start_basis
 	bogged = false
 	_has_slot = false
+	scattered = false
+	_scatter_t = 0.0
+
+
+## Dog ambush: bolt away from src for SCATTER_SECS, then stand stale until regathered.
+## Uses the existing drove state (driven, freshness 0 = stalled); only the flight is new.
+func scatter_from(src: Vector3) -> void:
+	if delivered:
+		return
+	var away := global_position - src
+	away.y = 0.0
+	if away.length_squared() < 0.04:
+		away = Vector3(1.0, 0.0, 0.0)
+	away = away.normalized()
+	# Fan out a little by cow_id so two scattering cows don't stack.
+	_scatter_dir = away.rotated(Vector3.UP, float((cow_id % 3) - 1) * 0.35)
+	_scatter_t = SCATTER_SECS
+	_goad_vel = Vector3.ZERO
+	herded = true
+	driven = true
+	_driven_timer = 0.0
+	scattered = true
+	_flash_react(&"heavy")
+
+
+## Dog ambush: the rest of the herd balks — drive freshness drops to stale (stops on the spot).
+func balk() -> void:
+	if delivered or not driven:
+		return
+	_driven_timer = 0.0
+	_goad_vel = Vector3.ZERO
+
+
+func is_scattering() -> bool:
+	return _scatter_t > 0.0
 
 
 func _path_bias_velocity() -> Vector3:
+	if _scatter_t > 0.0:
+		return _scatter_dir * SCATTER_SPEED
 	var v: Vector3 = super._path_bias_velocity()
 	var k := drive_freshness()
 	if bogged:
@@ -183,6 +232,12 @@ func _physics_process(delta: float) -> void:
 			global_position = Vector3(hold_xz.x, global_position.y, hold_xz.z)
 		if bogged and driven and not delivered:
 			_driven_timer = maxf(0.0, _driven_timer - delta * BOG_DRAIN)
+		if _scatter_t > 0.0:
+			_scatter_t = maxf(0.0, _scatter_t - delta)
+			if _scatter_t <= 0.0:
+				_driven_timer = 0.0  # stand stale where the flight ended
+		elif scattered and (delivered or drive_freshness() >= REGATHER_FRESH):
+			scattered = false
 		_tick_label()
 	_tick_slope_tilt(delta)
 	_tick_gait(delta)
@@ -345,6 +400,9 @@ func _tick_label() -> void:
 	if bogged:
 		label.text = "bogged!"
 		label.modulate = Color(0.95, 0.55, 0.35)
+	elif scattered:
+		label.text = "scattered — goad back"
+		label.modulate = Color(0.95, 0.62, 0.4)
 	elif is_stalled():
 		label.text = "grazing — goad on"
 		label.modulate = Color(0.85, 0.8, 0.6)

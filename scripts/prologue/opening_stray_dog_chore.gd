@@ -1,9 +1,16 @@
 extends Node3D
 class_name OpeningStrayDogChore
 ## Greybox stray dog on the opening lane — scare it off with the goad (E or prod).
-## Additive soft cue; does not gate cattle soft success.
+## Does not gate cattle success.
+##
+## Set-sequence flow: the dog is part of the drive step (step 4). It stays hidden and inert in
+## the hedge (quiet walk out) until the director springs the AMBUSH on the way home
+## (trigger_ambush): it breaks from the hedge by the old spot between Bend4 and Bend5, dashes at
+## the herd (CHARGING), the herd balks and the nearest head scatter (director.ambush_scatter),
+## then it MENACES until Cian scares it off (E / goad prod up close) → FLEEING → DONE.
+## Without a sequence (standalone) it lurks visibly at its spot like before.
 
-enum DogState { LURKING, MENACING, FLEEING, DONE }
+enum DogState { LURKING, CHARGING, MENACING, FLEEING, DONE }
 
 const NOTICE_RANGE := 10.0
 const SCARE_RANGE := 4.0
@@ -11,6 +18,9 @@ const PROD_SCARE_RANGE := 5.0
 ## West of lane between Bend4 (−12,70) and Bend5 (10,92) — clear of bog/pasture.
 const DOG_SPAWN := Vector3(-6.0, 0.0, 88.0)
 const FLEE_TARGET := Vector3(-48.0, 0.0, 70.0)
+## Ambush dash from the hedge to just short of the herd.
+const CHARGE_SECS := 1.3
+const CHARGE_STOP_SHORT := 3.0
 ## The dog is not a physics body: every move rests it on the shared OpeningTerrain surface
 ## (its flee line runs up onto the near west roll).
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
@@ -20,7 +30,7 @@ const C_HIDE_DARK := Color(0.28, 0.24, 0.20)
 const C_MUZZLE := Color(0.55, 0.48, 0.40)
 const C_EYE := Color(0.12, 0.10, 0.08)
 
-const SEQ_STEP := &"dog"
+const SEQ_STEP := &"drive"
 
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 
@@ -35,6 +45,12 @@ var _menace_flashed: bool = false
 var _flee_t: float = 0.0
 var _flee_from: Vector3 = Vector3.ZERO
 var _bark_bob_t: float = 0.0
+## Set-sequence flow: true once the ambush is sprung (or a debug force_state shows the dog).
+var _armed: bool = false
+var _ambush: bool = false
+var _charge_t: float = 0.0
+var _charge_from: Vector3 = Vector3.ZERO
+var _charge_to: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -53,7 +69,7 @@ func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player") as Node3D
 	if _state == DogState.LURKING:
-		# Hidden and inert on the lane until Máire sends Cian after it (step 4).
+		# Hidden and inert in the hedge until the drive ambush springs it (quiet walk out).
 		var open := _gate_open()
 		if _dog and _dog.visible != open:
 			_dog.visible = open
@@ -62,6 +78,8 @@ func _process(delta: float) -> void:
 	match _state:
 		DogState.LURKING:
 			_tick_lurk()
+		DogState.CHARGING:
+			_tick_charge(delta)
 		DogState.MENACING:
 			_tick_menace(delta)
 		DogState.FLEEING:
@@ -87,6 +105,8 @@ func dog_state() -> String:
 	match _state:
 		DogState.LURKING:
 			return "lurking"
+		DogState.CHARGING:
+			return "charging"
 		DogState.MENACING:
 			return "menacing"
 		DogState.FLEEING:
@@ -106,8 +126,49 @@ func spawn_pos() -> Vector3:
 	return DOG_SPAWN
 
 
+## Ambush sprung and the dog still at the herd (charging or menacing).
+func is_threat() -> bool:
+	return _state == DogState.CHARGING or _state == DogState.MENACING
+
+
+func ambush_fired() -> bool:
+	return _ambush
+
+
+## Drive ambush: break from the hedge and dash at the herd near target.
+func trigger_ambush(target: Vector3) -> bool:
+	if _state != DogState.LURKING or _ambush:
+		return false
+	_armed = true
+	_ambush = true
+	_state = DogState.CHARGING
+	_menace_flashed = true
+	_charge_t = 0.0
+	_charge_from = _grounded(DOG_SPAWN)
+	var to_dog := _charge_from - target
+	to_dog.y = 0.0
+	var stop := CHARGE_STOP_SHORT if to_dog.length() > CHARGE_STOP_SHORT else 0.0
+	_charge_to = _grounded(target + (to_dog.normalized() * stop if to_dog.length() > 0.01 else Vector3.ZERO))
+	if _dog:
+		_dog.visible = true
+		_dog.global_position = _charge_from
+	if _bark:
+		_bark.text = "WOOF! WOOF!"
+		_bark.visible = true
+	_flash("A stray dog breaks from the hedge — the herd balks!", 4.0)
+	print("OPENING_STRAY_DOG_AMBUSH from=%s to=%s" % [_charge_from.snapped(Vector3.ONE * 0.1), _charge_to.snapped(Vector3.ONE * 0.1)])
+	return true
+
+
+## The herd made it home with the dog still about: it slinks off on its own.
+func give_up() -> void:
+	if _state == DogState.MENACING or _state == DogState.CHARGING:
+		_begin_flee(false)
+		print("OPENING_STRAY_DOG_GAVE_UP")
+
+
 func interact_prompt() -> String:
-	if _state == DogState.DONE or _state == DogState.FLEEING:
+	if _state == DogState.DONE or _state == DogState.FLEEING or _state == DogState.CHARGING:
 		return ""
 	if _state == DogState.LURKING and not _gate_open():
 		return ""
@@ -162,7 +223,7 @@ func try_interact() -> bool:
 
 ## Smoke / capture: simulate a goad prod scare near the dog.
 func try_prod_scare() -> bool:
-	if _state == DogState.DONE or _state == DogState.FLEEING:
+	if _state == DogState.DONE or _state == DogState.FLEEING or _state == DogState.CHARGING:
 		return false
 	if _state == DogState.LURKING and not _gate_open():
 		return false
@@ -182,6 +243,28 @@ func _tick_lurk() -> void:
 		return
 	if _near(_player.global_position, dog_pos(), NOTICE_RANGE):
 		_enter_menacing(true)
+
+
+func _tick_charge(delta: float) -> void:
+	_charge_t += delta
+	_bark_bob_t += delta
+	var k := clampf(_charge_t / CHARGE_SECS, 0.0, 1.0)
+	if _dog:
+		_dog.global_position = _grounded(_charge_from.lerp(_charge_to, k))
+		var dir := _charge_to - _charge_from
+		dir.y = 0.0
+		if dir.length() > 0.1:
+			_dog.look_at(_dog.global_position + dir.normalized(), Vector3.UP)
+	if _bark:
+		_bark.visible = true
+		_bark.position.y = 1.35 + sin(_bark_bob_t * 9.0) * 0.06
+	if k >= 1.0:
+		_state = DogState.MENACING
+		if _bark:
+			_bark.text = "woof!"
+		if _director and _director.has_method("ambush_scatter"):
+			_director.call("ambush_scatter", dog_pos())
+		print("OPENING_STRAY_DOG_MENACING")
 
 
 func _tick_menace(delta: float) -> void:
@@ -235,7 +318,7 @@ func _enter_menacing(announce: bool) -> void:
 
 
 func _try_scare_from_e() -> bool:
-	if _state == DogState.DONE or _state == DogState.FLEEING:
+	if _state == DogState.DONE or _state == DogState.FLEEING or _state == DogState.CHARGING:
 		return false
 	if _state == DogState.LURKING and not _gate_open():
 		return false
@@ -262,7 +345,7 @@ func _begin_flee(announce: bool) -> void:
 		_bark.text = "yelp!"
 		_bark.visible = true
 	if announce:
-		_flash("Dog bolts — herd's clear of the stray.", 3.5)
+		_flash("Dog bolts — now regather the herd." if _ambush else "Dog bolts — herd's clear of the stray.", 3.5)
 		print("OPENING_STRAY_DOG_FLEEING")
 
 
@@ -277,10 +360,11 @@ func _finish_gone(announce: bool) -> void:
 		_bark.visible = false
 	if announce:
 		print("OPENING_STRAY_DOG_SOFT_SUCCESS")
-	_report_done()
 
 
 func _set_lurking() -> void:
+	# Debug / smoke path: shows the dog at its hedge spot with the old notice → menace behaviour.
+	_armed = true
 	_state = DogState.LURKING
 	_menace_flashed = false
 	_flee_t = 0.0
@@ -403,18 +487,14 @@ func _seq() -> Node:
 	return _sequence
 
 
-## Open when there is no sequence (other scenes) or this chore's step is the live one.
+## Open when there is no sequence (other scenes), or the drive step is live and the ambush has
+## sprung (or a debug force_state armed it).
 func _gate_open() -> bool:
 	var seq := _seq()
-	return seq == null or bool(seq.call("is_step_active", SEQ_STEP))
+	return seq == null or (_armed and bool(seq.call("is_step_active", SEQ_STEP)))
 
 
 func _not_yet() -> String:
 	var seq := _seq()
 	return String(seq.call("not_yet_text")) if seq else ""
 
-
-func _report_done() -> void:
-	var seq := _seq()
-	if seq:
-		seq.call("complete_step", SEQ_STEP)
