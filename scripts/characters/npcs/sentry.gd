@@ -2,8 +2,6 @@ extends CharacterBody3D
 ## Stationary watchman greybox: detection by default. Walks to bodies during
 ## investigation polish. Optional raid-combat chase/ATTACK when RaidHeatBridge
 ## crosses the hot-heat threshold (raid stays completable).
-## Optional patrol: give patrol_points (world XZ) and he walks them while
-## UNAWARE, pausing at each. Suspicion stops him and turns him to look.
 
 const MOVE_SPEED := 2.55
 const INVESTIGATE_SPEED := 2.05
@@ -12,14 +10,6 @@ const RETURN_SPEED := 1.85
 const ATTACK_RANGE := 1.95
 const ATTACK_COOLDOWN := 1.75
 const AGGRO_RANGE := 28.0
-
-## World-space waypoints walked in a loop while unaware. Empty = stationary post.
-@export var patrol_points: PackedVector3Array = PackedVector3Array()
-@export var patrol_speed: float = 1.35
-@export var patrol_pause: float = 1.2
-## Give him a CombatSystem + hit/hurt boxes at spawn (not raid mode), so player
-## strikes land on him. Off by default: stealth-lane sentries stay as they were.
-@export var combat_ready: bool = false
 
 @onready var sensor: Node3D = $DetectionSensor
 @onready var visual: Node3D = $Visual
@@ -41,10 +31,6 @@ var _returning_to_post: bool = false
 var _investigate_label: Label3D
 var _telegraph_pulse: float = 0.0
 
-## Patrol
-var _patrol_index: int = 0
-var _patrol_wait: float = 0.0
-
 
 func _ready() -> void:
 	_rest_yaw = rotation.y
@@ -54,12 +40,10 @@ func _ready() -> void:
 		sensor.awareness_changed.connect(_on_awareness_changed)
 	_player = get_tree().get_first_node_in_group("player") as Node3D
 	_ensure_investigate_label()
-	if combat_ready:
-		ensure_hittable()
 
 
 ## Hit/hurt boxes + a CombatSystem (team 1) without entering raid combat, so a
-## player strike can land and stagger. Boxes first, so CombatSystem._ready binds them.
+## bog-ambush strike can land and stagger. Boxes first, so CombatSystem._ready binds them.
 func ensure_hittable() -> Node:
 	_ensure_hit_hurt_boxes()
 	if _combat == null:
@@ -74,10 +58,6 @@ func ensure_hittable() -> Node:
 			_combat.set("show_damage_numbers", true)
 			add_child(_combat)
 	return _combat
-
-
-func is_patrolling() -> bool:
-	return not patrol_points.is_empty()
 
 
 func begin_body_investigate(corpse: Node3D, remaining: float = -1.0) -> void:
@@ -185,17 +165,13 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 
-	var aw = sensor.get("awareness") if sensor else null
-	var staggered := _combat != null and _combat.has_method("is_staggered") and bool(_combat.call("is_staggered"))
-	if is_patrolling() and aw != null and int(aw) == 0 and not staggered:
-		_patrol_tick(delta)
-		move_and_slide()
-		return
-
 	velocity.x = move_toward(velocity.x, 0.0, INVESTIGATE_SPEED * 6.0 * delta)
 	velocity.z = move_toward(velocity.z, 0.0, INVESTIGATE_SPEED * 6.0 * delta)
 	move_and_slide()
 
+	if sensor == null:
+		return
+	var aw = sensor.get("awareness")
 	if aw == null:
 		return
 	# Soft face last-known / player when suspicious or alert.
@@ -205,33 +181,8 @@ func _physics_process(delta: float) -> void:
 		if to_p.length_squared() > 0.01:
 			var target_yaw := atan2(-to_p.x, -to_p.z)
 			rotation.y = lerp_angle(rotation.y, target_yaw, 2.2 * delta)
-	elif int(aw) == 0 and not is_patrolling():
+	elif int(aw) == 0:
 		rotation.y = lerp_angle(rotation.y, _rest_yaw, 1.2 * delta)
-
-
-func _patrol_tick(delta: float) -> void:
-	if _patrol_wait > 0.0:
-		_patrol_wait = maxf(0.0, _patrol_wait - delta)
-		velocity.x = move_toward(velocity.x, 0.0, patrol_speed * 6.0 * delta)
-		velocity.z = move_toward(velocity.z, 0.0, patrol_speed * 6.0 * delta)
-		# Look along the next leg while paused.
-		var nxt := patrol_points[_patrol_index] - global_position
-		nxt.y = 0.0
-		if nxt.length_squared() > 0.01:
-			rotation.y = lerp_angle(rotation.y, atan2(-nxt.x, -nxt.z), 2.0 * delta)
-		return
-	_patrol_index = clampi(_patrol_index, 0, patrol_points.size() - 1)
-	var to_pt := patrol_points[_patrol_index] - global_position
-	to_pt.y = 0.0
-	var dist := to_pt.length()
-	if dist < 0.3:
-		_patrol_index = (_patrol_index + 1) % patrol_points.size()
-		_patrol_wait = patrol_pause
-		return
-	var dir := to_pt / dist
-	rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z), 5.0 * delta)
-	velocity.x = dir.x * patrol_speed
-	velocity.z = dir.z * patrol_speed
 
 
 func _investigate_tick(delta: float) -> void:

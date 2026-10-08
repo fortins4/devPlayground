@@ -141,8 +141,12 @@ script = ExtResource("8_bog")
 label_text = "Bog — hold-drag · release to hide"
 hide_sink_depth = 1.35
 hide_duration = 1.4
+deep_water = true
+water_level = 0.06
+deep_radius = 2.2
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="StealthLane/BogZone"]
+visible = false
 mesh = SubResource("BoxMesh_bog")
 surface_material_override/0 = SubResource("Mat_bog")
 
@@ -181,8 +185,12 @@ script = ExtResource("8_bog")
 label_text = "NE bog pocket (wetland)"
 hide_sink_depth = 1.35
 hide_duration = 1.4
+deep_water = true
+water_level = 0.06
+deep_radius = 1.95
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="BogPocketNE"]
+visible = false
 mesh = SubResource("BoxMesh_bog_ne")
 surface_material_override/0 = SubResource("Mat_bog_ne")
 
