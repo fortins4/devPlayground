@@ -42,10 +42,28 @@ const BOG_HUMMOCK := 0.2     # hummock relief inside the dip (± m)
 const BOG_WATER_Y := -0.53
 
 static var _bog_noise: FastNoiseLite = null
+static var _deco_noises: Dictionary = {}  # seed → FastNoiseLite
 static var _caps: Array = []  # [{cx, cz, rx, rz, ry, sink, color, kind, name}]
 static var _mouth_x: float = -28.0
 static var _heights: PackedFloat32Array = PackedFloat32Array()
 static var _baked_for: float = NAN
+
+## Decorative west-of-lane bog patches (organic outline + shallow dip + paint). Visual only —
+## no stuck/slow logic. Sizes match the old flat squares; shallower dip than the main bog.
+## Keys: cx, cz, r, extent, blend, feather, dip, hummock, ease, seed, phase, water_rel (pool
+## surface this far below the undipped ground — only hollows deeper than it flood).
+const DECO_BOGS: Array = [
+	{  # nearer patch, west of Bend5 (was 14×10 square at (-10, 100))
+		"cx": -14.0, "cz": 102.0, "r": 5.6, "extent": 9.0,
+		"blend": 1.6, "feather": 0.5, "dip": 0.30, "hummock": 0.14, "ease": 2.5,
+		"seed": 5521, "phase": 1.3, "water_rel": 0.33,
+	},
+	{  # farther patch, west of Bend8 (was 18×14 square at (-55, 160))
+		"cx": -55.0, "cz": 160.0, "r": 7.2, "extent": 11.5,
+		"blend": 1.8, "feather": 0.55, "dip": 0.32, "hummock": 0.14, "ease": 2.7,
+		"seed": 7733, "phase": 4.1, "water_rel": 0.38,
+	},
+]
 
 
 ## Rebuild cap list (PastureMouth x moves the mouth berms). Invalidates the baked grid.
@@ -158,7 +176,7 @@ static func height_at(x: float, z: float) -> float:
 		var f := cap_value(cap, x, z)
 		if f > acc - FILLET:
 			acc = _smax(acc, f, FILLET)
-	return acc - bog_depth(x, z)
+	return acc - bog_depth(x, z) - deco_bog_depth(x, z)
 
 
 # ---------------------------------------------------------------- bog patch
@@ -212,6 +230,80 @@ static func bog_depth(x: float, z: float) -> float:
 	return prof * (BOG_DIP - hum)
 
 
+# ---------------------------------------------------------------- decorative west bog patches
+
+static func deco_bogs() -> Array:
+	return DECO_BOGS
+
+
+static func _deco_noise(seed_val: int) -> FastNoiseLite:
+	if not _deco_noises.has(seed_val):
+		var n := FastNoiseLite.new()
+		n.seed = seed_val
+		n.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		n.frequency = 0.18
+		n.fractal_type = FastNoiseLite.FRACTAL_FBM
+		n.fractal_octaves = 2
+		_deco_noises[seed_val] = n
+	return _deco_noises[seed_val]
+
+
+## Signed edge distance for decorative patch `p`: + inside, − outside.
+static func deco_bog_edge(p: Dictionary, x: float, z: float) -> float:
+	var dx := x - float(p["cx"])
+	var dz := z - float(p["cz"])
+	var d := sqrt(dx * dx + dz * dz)
+	var extent := float(p["extent"])
+	if d > extent:
+		return -(d - extent) - 2.0
+	var a := atan2(dz, dx)
+	var phase := float(p["phase"])
+	var r := float(p["r"]) * (1.0 + 0.17 * sin(3.0 * a + 0.6 + phase)
+		+ 0.10 * sin(5.0 * a + 2.4 + phase * 0.7)
+		+ 0.05 * sin(9.0 * a + 1.1 + phase * 1.3))
+	r += 1.0 * _deco_noise(int(p["seed"])).get_noise_2d(x, z)
+	return r - d
+
+
+static func deco_bog_mask_one(p: Dictionary, x: float, z: float) -> float:
+	return smoothstep(-float(p["feather"]), float(p["blend"]), deco_bog_edge(p, x, z))
+
+
+## Soft mask across every decorative patch (for vertex-colour blend). Max of individuals.
+static func deco_bog_mask(x: float, z: float) -> float:
+	var best := 0.0
+	for p in DECO_BOGS:
+		var dx := x - float(p["cx"])
+		var dz := z - float(p["cz"])
+		if dx * dx + dz * dz > float(p["extent"]) * float(p["extent"]):
+			continue
+		best = maxf(best, deco_bog_mask_one(p, x, z))
+	return best
+
+
+static func deco_bog_depth_one(p: Dictionary, x: float, z: float) -> float:
+	var dx := x - float(p["cx"])
+	var dz := z - float(p["cz"])
+	var extent := float(p["extent"])
+	if dx * dx + dz * dz > extent * extent:
+		return 0.0
+	var e := deco_bog_edge(p, x, z)
+	if e <= -float(p["feather"]):
+		return 0.0
+	var prof := smoothstep(-float(p["feather"]), float(p["ease"]), e)
+	var hum := float(p["hummock"]) * _deco_noise(int(p["seed"])).get_noise_2d(
+		x * 1.25 + 40.0, z * 1.25 - 17.0) * 1.8
+	return prof * (float(p["dip"]) - hum)
+
+
+## Sum of decorative dips at xz (0 outside every patch).
+static func deco_bog_depth(x: float, z: float) -> float:
+	var acc := 0.0
+	for p in DECO_BOGS:
+		acc += deco_bog_depth_one(p, x, z)
+	return acc
+
+
 ## Index of the cap that dominates xz (highest signed value), or -1 on open field.
 static func dominant_cap(x: float, z: float) -> int:
 	_ensure()
@@ -260,6 +352,17 @@ static func bake() -> PackedFloat32Array:
 		var z := MIN_Z + float(iz) * STEP
 		for ix in range(bx0, bx1 + 1):
 			hs[iz * w + ix] -= bog_depth(MIN_X + float(ix) * STEP, z)
+	# Decorative west-of-lane bog dips (same order as height_at).
+	for p in DECO_BOGS:
+		var ex := float(p["extent"])
+		var dx0 := maxi(0, int(floor((float(p["cx"]) - ex - MIN_X) / STEP)))
+		var dx1 := mini(w - 1, int(ceil((float(p["cx"]) + ex - MIN_X) / STEP)))
+		var dz0 := maxi(0, int(floor((float(p["cz"]) - ex - MIN_Z) / STEP)))
+		var dz1 := mini(d - 1, int(ceil((float(p["cz"]) + ex - MIN_Z) / STEP)))
+		for iz in range(dz0, dz1 + 1):
+			var z := MIN_Z + float(iz) * STEP
+			for ix in range(dx0, dx1 + 1):
+				hs[iz * w + ix] -= deco_bog_depth_one(p, MIN_X + float(ix) * STEP, z)
 	_heights = hs
 	_baked_for = _mouth_x
 	return _heights

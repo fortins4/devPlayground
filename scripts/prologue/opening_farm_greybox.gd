@@ -181,8 +181,9 @@ func _build_ground() -> void:
 func _bog_ground(x: float, z: float, h: float) -> Color:
 	var n := Terrain._bnoise().get_noise_2d(x * 0.9 + 100.0, z * 0.9 - 60.0)
 	var c := C_BOG_MOSS.lerp(C_BOG_PEAT, clampf(0.5 + n * 1.4, 0.0, 1.0))
-	# Wet floor reads darker: up to ~35 % darker near the water line.
-	var wet := clampf((-h - 0.2) / maxf(-Terrain.BOG_WATER_Y - 0.2, 0.01), 0.0, 1.0)
+	# Wet floor reads darker from dip depth (works for the main bog and the decorative patches).
+	var depth := Terrain.bog_depth(x, z) + Terrain.deco_bog_depth(x, z)
+	var wet := clampf((depth - 0.12) / 0.35, 0.0, 1.0)
 	return c.darkened(0.35 * wet)
 
 
@@ -223,6 +224,10 @@ func _build_terrain_mesh(hs: PackedFloat32Array, w: int, d: int) -> void:
 				var bm := Terrain.bog_mask(x, z)
 				if bm > 0.0:
 					c = c.lerp(_bog_ground(x, z, h), bm)
+			# Decorative west-of-lane bog patches (same moss/peat fade, no square overlays).
+			var dm := Terrain.deco_bog_mask(x, z)
+			if dm > 0.0:
+				c = c.lerp(_bog_ground(x, z, h), dm)
 			cols[i] = c
 			var hl := hs[iz * w + maxi(ix - 1, 0)]
 			var hr := hs[iz * w + mini(ix + 1, w - 1)]
@@ -257,7 +262,7 @@ func _terrain_tile(root: Node3D, hs: PackedFloat32Array, cols: PackedColorArray,
 			verts.append(Vector3(Terrain.MIN_X + float(ix) * step, hs[i], Terrain.MIN_Z + float(iz) * step))
 			vn.append(nrms[i])
 			vc.append(cols[i])
-			if hs[i] > 0.0005 or cols[i] != C_GRASS:
+			if absf(hs[i]) > 0.0005 or cols[i] != C_GRASS:
 				flat = false
 	var idx := PackedInt32Array()
 	if flat:
@@ -440,9 +445,9 @@ func _build_bog() -> void:
 	## drops below the water line, then tussocks, rush clumps and bog cotton scattered by the mask.
 	_build_bog_water()
 	_build_bog_plants()
-	# Extra visual bog patches west of the lane (draped on whatever ground they sit on).
-	_build_bog_patch(Vector3(-10.0, 0.0, 100.0), Vector3(14.0, 2.0, 10.0), 5521)
-	_build_bog_patch(Vector3(-55.0, 0.0, 160.0), Vector3(18.0, 2.0, 14.0), 7733)
+	# Decorative west-of-lane bog patches: same organic treatment (shallower dip, no stuck logic).
+	for p in Terrain.deco_bogs():
+		_build_deco_bog_patch(p)
 
 
 func _build_bog_water() -> void:
@@ -561,27 +566,137 @@ func _st_append(tools: Dictionary, col: Color, mesh: Mesh, xf: Transform3D) -> v
 	(tools[key][0] as SurfaceTool).append_from(mesh, 0, xf)
 
 
-func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
-	var half := size * 0.5
-	var box := AABB(center - half, size)
-	_drape_rect(Vector3(center.x, 0.0, center.z), size.x, size.z, 0.0, 0.03, C_BOG)
+func _build_deco_bog_patch(p: Dictionary) -> void:
+	## One decorative organic bog: pools where the shallow dip is deep enough, plus a few
+	## tussocks / rush clumps / bog cotton. No flat square, slab or rim — paint is in the terrain.
+	_build_deco_bog_water(p)
+	_build_deco_bog_plants(p)
+
+
+func _build_deco_bog_water(p: Dictionary) -> void:
+	## These patches sit on hill skirts, so one level sheet would float over the downhill side.
+	## Instead the water surface follows the UNDIPPED ground, water_rel below it, on the same grid
+	## and diagonal as the terrain. It only rises above the (dipped) ground where the dip is deeper
+	## than water_rel, so the terrain clips it into pools in the hollows between the hummocks.
+	var cx := float(p["cx"])
+	var cz := float(p["cz"])
+	var water_rel := float(p["water_rel"])
+	var e := int(ceil(float(p["extent"])))
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var idx := PackedInt32Array()
+	for iz in range(-e, e):
+		for ix in range(-e, e):
+			var x0 := cx + float(ix)
+			var z0 := cz + float(iz)
+			var cs := [Vector2(x0, z0), Vector2(x0 + 1.0, z0), Vector2(x0, z0 + 1.0), Vector2(x0 + 1.0, z0 + 1.0)]
+			var wet := false
+			var ws: Array[float] = []
+			for c: Vector2 in cs:
+				var dep := Terrain.deco_bog_depth_one(p, c.x, c.y)
+				ws.append(_ground_y(Vector3(c.x, 0, c.y)) + dep - water_rel)
+				if dep > water_rel + 0.005:
+					wet = true
+			if not wet:
+				continue
+			var b := verts.size()
+			for k in 4:
+				verts.append(Vector3(cs[k].x, ws[k], cs[k].y))
+				norms.append(Vector3.UP)
+			idx.append_array([b, b + 1, b + 2, b + 1, b + 3, b + 2])
+	if verts.is_empty():
+		return
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.name = "DecoBogWater"
+	mi.mesh = am
+	var m := StandardMaterial3D.new()
+	m.albedo_color = C_BOG_POOL
+	# Pools follow the skirt slope: keep specular low so grazing views never go sky-pale.
+	m.roughness = 0.6
+	m.metallic_specular = 0.05
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = m
+	_gen.add_child(mi)
+
+
+func _build_deco_bog_plants(p: Dictionary) -> void:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = seed_val
-	for i in 5:
-		var px := rng.randf_range(box.position.x + 2.0, box.end.x - 2.0)
-		var pz := rng.randf_range(box.position.z + 2.0, box.end.z - 2.0)
-		var sx := rng.randf_range(1.0, 2.2)
-		var sz := rng.randf_range(0.8, 1.7)
-		_drape_disc(Vector3(px, 0.0, pz), sx, sz, 0.06, C_BOG_WATER)
-	for i in 28:
-		var px := rng.randf_range(box.position.x, box.end.x)
-		var pz := rng.randf_range(box.position.z, box.end.z)
-		var h := rng.randf_range(0.55, 1.2)
-		_mesh_box(_gen, _on_ground(Vector3(px, h * 0.5 - 0.05, pz)), Vector3(0.08, h, 0.08), C_REED)
-	for i in 10:
-		var px := rng.randf_range(box.position.x, box.end.x)
-		var pz := rng.randf_range(box.position.z, box.end.z)
-		_mesh_sphere(_gen, _on_ground(Vector3(px, 0.35, pz)), 0.12, C_STAKE_TOP)
+	rng.seed = int(p["seed"])
+	var tools := {}
+	var sphere := SphereMesh.new()
+	sphere.radius = 1.0
+	sphere.height = 2.0
+	sphere.radial_segments = 8
+	sphere.rings = 4
+	var blade := BoxMesh.new()
+	blade.size = Vector3.ONE
+	var ext := float(p["extent"])
+	var cx := float(p["cx"])
+	var cz := float(p["cz"])
+	var water_rel := float(p["water_rel"])
+	var want_t := 18
+	var want_r := 10
+	var placed_t := 0
+	var placed_r := 0
+	var tries := 0
+	while (placed_t < want_t or placed_r < want_r) and tries < 1200:
+		tries += 1
+		var pos := Vector3(cx + rng.randf_range(-ext, ext), 0.0, cz + rng.randf_range(-ext, ext))
+		var msk := Terrain.deco_bog_mask_one(p, pos.x, pos.z)
+		if msk < 0.08:
+			continue
+		var gy := _ground_y(pos)
+		var depth := Terrain.deco_bog_depth_one(p, pos.x, pos.z)
+		if depth > water_rel - 0.02:
+			continue  # open water / pool
+		var keep := 0.2 + 0.8 * msk
+		if rng.randf() > keep:
+			continue
+		if placed_t < want_t and (placed_r >= want_r or rng.randf() < 0.6):
+			var r := rng.randf_range(0.22, 0.48) * (0.6 + 0.4 * msk)
+			var col: Color = C_TUSSOCK[rng.randi() % C_TUSSOCK.size()]
+			var xf := Transform3D(
+				Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(
+					Vector3(r, r * rng.randf_range(0.45, 0.7), r * rng.randf_range(0.8, 1.2))),
+				Vector3(pos.x, gy - r * 0.12, pos.z))
+			_st_append(tools, col, sphere, xf)
+			placed_t += 1
+		elif placed_r < want_r and msk > 0.25:
+			var blades := rng.randi_range(5, 9)
+			for b in blades:
+				var hh := rng.randf_range(0.4, 1.0)
+				var off := Vector3(rng.randf_range(-0.22, 0.22), 0.0, rng.randf_range(-0.22, 0.22))
+				var tilt := Basis.from_euler(Vector3(rng.randf_range(-0.3, 0.3), rng.randf() * TAU, rng.randf_range(-0.3, 0.3)))
+				var base := Vector3(pos.x, gy - 0.05, pos.z) + off
+				var xf := Transform3D(tilt.scaled(Vector3(0.03, hh, 0.03)), base + tilt * Vector3(0, hh * 0.5, 0))
+				_st_append(tools, C_RUSH[rng.randi() % C_RUSH.size()], blade, xf)
+			placed_r += 1
+	# Bog cotton on the drier hummocks.
+	for i in 8:
+		var pos := Vector3(cx + rng.randf_range(-ext, ext), 0.0, cz + rng.randf_range(-ext, ext))
+		if Terrain.deco_bog_mask_one(p, pos.x, pos.z) < 0.45:
+			continue
+		if Terrain.deco_bog_depth_one(p, pos.x, pos.z) > water_rel - 0.04:
+			continue
+		var xf := Transform3D(Basis().scaled(Vector3.ONE * 0.07),
+			Vector3(pos.x, _ground_y(pos) + rng.randf_range(0.2, 0.4), pos.z))
+		_st_append(tools, C_STAKE_TOP, sphere, xf)
+	for key in tools:
+		var st: SurfaceTool = tools[key][0]
+		st.generate_normals()
+		var mi := MeshInstance3D.new()
+		mi.name = "DecoBogPlants"
+		mi.mesh = st.commit()
+		mi.material_override = _mat(tools[key][1])
+		_gen.add_child(mi)
+	print("OPENING_DECO_BOG cx=%.1f cz=%.1f tussocks=%d rush_clumps=%d" % [cx, cz, placed_t, placed_r])
 
 
 func _back_gap_x() -> float:
