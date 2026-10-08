@@ -7,6 +7,12 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	# Fail fast: a failed assert stops this coroutine without reaching quit(),
+	# which left headless Godot hanging. Same asserts; the watchdog just exits.
+	create_timer(45.0).timeout.connect(func() -> void:
+		push_error("SEATED_RIDER_SMOKE_TIMEOUT")
+		quit(1)
+	)
 	var packed := load("res://scenes/main/main.tscn") as PackedScene
 	assert(packed != null)
 	var main := packed.instantiate()
@@ -84,11 +90,20 @@ func _run() -> void:
 		await physics_frame
 
 	assert(not bool(player.call("is_mounted_on_horse")), "expected dismounted")
+	if bool(player.call("is_mounted_on_horse")):
+		quit(1)
+		return
 	state = loco.call("current_state")
 	print("SMOKE dismount state=", state)
 	assert(state == &"idle" or state == &"walk" or state == &"turn", "expected foot loco state after dismount")
+	if state != &"idle" and state != &"walk" and state != &"turn":
+		quit(1)
+		return
 
 	# Thighs should no longer be locked astride
 	assert(absf(lt.rotation.x) < deg_to_rad(25.0), "left thigh should leave seated pitch")
+	if absf(lt.rotation.x) >= deg_to_rad(25.0):
+		quit(1)
+		return
 	print("SEATED_RIDER_SMOKE_OK")
 	quit(0)

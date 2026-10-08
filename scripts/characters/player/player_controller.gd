@@ -516,12 +516,15 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 	if guard_step:
 		locomotion.release_attack_lock()
 		_forget_guard_legs()
+	# Look-guard is live via combat additives on the arms / shaft; it must NOT
+	# put the loco FSM into "attack". That state is for strikes, charges, and
+	# hurt only — otherwise a standing goad-ready reads as stuck mid-attack
+	# (and a dismount never lands back in idle/walk/turn).
 	var attacking := combat != null and (
 		combat.is_attacking
 		or combat.is_charging
 		or _goad_release_live
 		or _hurt_reacting
-		or (combat.is_shaft_blocking and not guard_step)
 	)
 	var local_dir := Vector3.ZERO
 	var input_dir := _move_vector()
@@ -611,11 +614,12 @@ func _apply_shaft_block_pose() -> void:
 	if locomotion == null:
 		return
 	_goad_swing_held = false
+	# Guard never owns the attack lock. Walking already released it; standing
+	# used to refresh lock_attack(0.12) every frame so current_state() stuck
+	# on "attack" with the goad up (look-guard). Feet plant via the pose's own
+	# leg additives instead.
+	locomotion.release_attack_lock()
 	var stepping := _guard_wants_steps(Vector2(velocity.x, velocity.z).length())
-	if stepping:
-		locomotion.release_attack_lock()
-	else:
-		locomotion.lock_attack(0.12)
 	# Coming out of the sprint carry: that blend owns the body until the
 	# shaft is back in both hands (it starts / finishes in _tick_sprint_carry).
 	if _carry_state != CARRY_NONE and not _carry_must_abort():
@@ -4092,6 +4096,12 @@ func prepare_for_mount(horse: Node3D) -> void:
 	if is_dragging():
 		end_drag()
 	_discard_attack_buffer(&"mount")
+	# Melee / look-guard are off while mounted (slice rule). Clear any live
+	# shaft-block so it does not carry a stale "attack" lock across the seat.
+	if combat:
+		combat.set_shaft_block(false)
+		if combat.is_charging:
+			combat.cancel_charge()
 	is_mounted = true
 	mounted_horse = horse
 	is_crouching = false
@@ -4102,6 +4112,7 @@ func prepare_for_mount(horse: Node3D) -> void:
 	_apply_crouch_visual(1.0)
 	# Immediate seated bind pose (hips down / legs astride) — skips on-foot loco.
 	if locomotion:
+		locomotion.release_attack_lock()
 		locomotion.tick_mounted(0.0, 0.0, false)
 
 
@@ -4109,8 +4120,12 @@ func clear_mount() -> void:
 	is_mounted = false
 	mounted_horse = null
 	velocity = Vector3.ZERO
-	# Restore on-foot rest pose so walk cycles resume cleanly.
+	_goad_release_live = false
+	_swing_arc_live = false
+	# Restore on-foot rest pose so walk cycles resume cleanly. Look-guard
+	# re-arms on the next _tick_shaft_block without forcing the attack loco state.
 	if locomotion:
+		locomotion.release_attack_lock()
 		locomotion.reset_to_rest()
 
 
