@@ -228,7 +228,7 @@ func _drive_text() -> String:
 		"walk_out":
 			return "Bring the herd home: walk the lane south to the pasture.  (pasture ~%d m)" % int(d.call("distance_to_herd"))
 		"missing":
-			return "Only five at the pasture — one's missing. Hark: lowing from the bog east of the lane, back past the bend.%s" % _dist_suffix(Vector3(d.call("bogged_cow_pos")))
+			return "Only five at the pasture — one's missing. Hark: lowing from beyond the pasture, past the grazing herd — over the south ridge.%s" % _dist_suffix(Vector3(d.call("bogged_cow_pos")))
 		"free_her":
 			return "There she is, stuck fast. Goad her out of the bog — goad drawn (3), prod her (LMB / RMB)."
 		"rejoin":

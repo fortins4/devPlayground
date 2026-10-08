@@ -77,6 +77,10 @@ static func _define_caps() -> void:
 	# Pasture side banks — long low N–S hedge-bank berms.
 	_hill("pasture_bank_e", Vector3(-8.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_HEDGE)
 	_hill("pasture_bank_w", Vector3(-42.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_HEDGE)
+	# South ridge behind the pasture — screens the back paddock (and its bog) from the lane and
+	# the pasture mouth. Raised-cosine profile: crest 4.5 m, flanks ≤ ~33° (walkable for cattle,
+	# floor_max_angle 47°); the back-paddock gap in the pasture's south rail sits at its north toe.
+	_ridge("pasture_south_ridge", Vector3(-25.0, 0.0, 219.0), 16.0, 14.0, 13.0, 4.5, C_BANK.lightened(0.04))
 	# --- Far farmland swells (old _build_ground sphere swells: r 34, centre 6 m below, squash).
 	for s in [Vector3(80, 0, 10), Vector3(-60, 0, 130), Vector3(90, 0, 150), Vector3(-120, 0, -30), Vector3(70, 0, 210)]:
 		_caps.append({
@@ -94,6 +98,17 @@ static func _hill(nm: String, c: Vector3, r: float, scl: Vector3, color: Color) 
 	})
 
 
+## Long bank with a flat-topped crest: |x - cx| <= half_len is full height, then a raised-cosine
+## fall over `fall` m; across (z) a raised-cosine profile of half-width rz. Offset by -FILLET so the
+## soft union meets the flat field with no step at the cap's edge.
+static func _ridge(nm: String, c: Vector3, half_len: float, fall: float, rz: float, crest: float, color: Color) -> void:
+	_caps.append({
+		"name": nm, "kind": "ridge", "cx": c.x, "cz": c.z,
+		"rx": half_len + fall, "rz": rz, "ry": crest, "sink": 0.0, "color": color,
+		"half_len": half_len, "fall": fall,
+	})
+
+
 static func caps() -> Array:
 	_ensure()
 	return _caps
@@ -101,6 +116,13 @@ static func caps() -> Array:
 
 ## Signed cap height (negative = below grade) at xz for one cap.
 static func cap_value(cap: Dictionary, x: float, z: float) -> float:
+	if String(cap["kind"]) == "ridge":
+		var uz := absf(z - float(cap["cz"])) / float(cap["rz"])
+		var ux := maxf(0.0, absf(x - float(cap["cx"])) - float(cap["half_len"])) / float(cap["fall"])
+		if uz >= 1.0 or ux >= 1.0:
+			return -FILLET - 1.0
+		var k := (1.0 + cos(PI * uz)) * 0.5 * (1.0 + cos(PI * ux)) * 0.5
+		return (float(cap["ry"]) + FILLET) * k - FILLET
 	var dx: float = (x - float(cap["cx"])) / float(cap["rx"])
 	var dz: float = (z - float(cap["cz"])) / float(cap["rz"])
 	var rem := 1.0 - dx * dx - dz * dz

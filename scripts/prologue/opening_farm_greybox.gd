@@ -52,6 +52,12 @@ const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 const TERRAIN_TILE := 48
 ## Draped overlays / walls are cut into pieces no longer than this (m) so they hug curvature.
 const DRAPE_STEP := 2.4
+## Back paddock (behind the pasture's south ridge, holds the bog): gap half-width in the pasture's
+## south rail + hedge, and the paddock's hedged extent.
+const BACK_GAP_HALF := 3.0
+const PADDOCK_X0 := -54.0
+const PADDOCK_X1 := 10.0
+const PADDOCK_Z1 := 256.0
 
 var _mats: Dictionary = {}
 var _gen: Node3D = null
@@ -377,7 +383,11 @@ func _build_pasture() -> void:
 	_rail(Vector3(mouth_x + 4.0, 0, z0), Vector3(x1, 0, z0))
 	_rail(Vector3(x0, 0, z0), Vector3(x0, 0, z1))
 	_rail(Vector3(x1, 0, z0), Vector3(x1, 0, z1))
-	_rail(Vector3(x0, 0, z1), Vector3(x1, 0, z1))
+	# South rail with a gap into the back paddock (over the south ridge to the bog), lined up
+	# with the bog so a freed cow walks straight back to the herd.
+	var gx := _back_gap_x()
+	_rail(Vector3(x0, 0, z1), Vector3(gx - BACK_GAP_HALF, 0, z1))
+	_rail(Vector3(gx + BACK_GAP_HALF, 0, z1), Vector3(x1, 0, z1))
 	# Water trough + rubbing stone.
 	# Both sit on the pasture side banks — rest them on the surface (sunk a touch, no float).
 	_solid_box(_gen, _on_ground(Vector3(x1 - 4.0, 0.3, c.z + 4.0)), Vector3(2.6, 0.7, 0.9), C_TRUNK)
@@ -385,8 +395,8 @@ func _build_pasture() -> void:
 
 
 func _build_bog() -> void:
-	## Bog edge rests on the ground it sits on (the east roll's skirt runs under its east half).
-	var box := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
+	## Bog in the back paddock behind the pasture's south ridge, resting on the ground it sits on.
+	var box := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0))
 	var c := box.get_center()
 	_drape_rect(Vector3(c.x, 0.0, c.z), box.size.x, box.size.z, 0.0, 0.03, C_BOG)
 	var rng := RandomNumberGenerator.new()
@@ -435,6 +445,10 @@ func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
 		_mesh_sphere(_gen, _on_ground(Vector3(px, 0.35, pz)), 0.12, C_STAKE_TOP)
 
 
+func _back_gap_x() -> float:
+	return _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0)).get_center().x
+
+
 func _build_edges() -> void:
 	## Field boundaries are solid and follow the ground: each run is cut into short pieces that
 	## sit on (and slightly into) the terrain, so they climb over the rolls they cross.
@@ -446,13 +460,19 @@ func _build_edges() -> void:
 	_drape_wall(Vector3(42.0, 0, -20.0), Vector3(42.0, 0, 200.0), 1.6, 1.8, C_HEDGE)
 	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
 	var sz := pas.end.z + 3.0
-	var half_w := (pas.size.x + 18.0) * 0.5
-	_drape_wall(Vector3(pas.get_center().x - half_w, 0, sz), Vector3(pas.get_center().x + half_w, 0, sz), 1.6, 1.8, C_HEDGE)
+	# South hedge behind the pasture, with the back-paddock gap; the paddock beyond is hedged on
+	# its other three sides (holds the bog, screened from the lane by the south ridge).
+	var gx := _back_gap_x()
+	_drape_wall(Vector3(PADDOCK_X0, 0, sz), Vector3(gx - BACK_GAP_HALF, 0, sz), 1.6, 1.8, C_HEDGE)
+	_drape_wall(Vector3(gx + BACK_GAP_HALF, 0, sz), Vector3(PADDOCK_X1, 0, sz), 1.6, 1.8, C_HEDGE)
+	_drape_wall(Vector3(PADDOCK_X0, 0, sz), Vector3(PADDOCK_X0, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
+	_drape_wall(Vector3(PADDOCK_X1, 0, sz), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
+	_drape_wall(Vector3(PADDOCK_X0, 0, PADDOCK_Z1), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
 	# North hedge behind the farmstead.
 	_drape_wall(Vector3(-35.0, 0, -14.0), Vector3(35.0, 0, -14.0), 1.4, 1.8, C_HEDGE)
-	# Short ditch along the bog's lane side (visual cue: "wet ground starts here").
-	var box := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
-	_drape_rect(Vector3(box.position.x - 0.6, 0.0, box.get_center().z), 1.0, box.size.z + 2.0, 0.0, 0.025, C_DITCH)
+	# Short ditch along the bog's herd-facing (north) side (visual cue: "wet ground starts here").
+	var box := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0))
+	_drape_rect(Vector3(box.get_center().x, 0.0, box.position.z - 0.6), box.size.x + 2.0, 1.0, 0.0, 0.025, C_DITCH)
 
 
 func _build_ringfort(center: Vector3, radius: float) -> void:
@@ -499,7 +519,7 @@ func _build_trees(path: Array[Vector3]) -> void:
 			continue
 		if p.x > -18.0 and p.x < 20.0 and p.z > -10.0 and p.z < 18.0:
 			continue  # farmstead
-		var bog := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0)).grow(1.0)
+		var bog := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0)).grow(1.0)
 		var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0)).grow(1.0)
 		if _in_xz(bog, p) or _in_xz(pas, p):
 			continue
@@ -522,7 +542,7 @@ func _build_labels(path: Array[Vector3]) -> void:
 	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
 	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
 	_label(_on_ground(Vector3(pas.get_center().x, 4.5, pas.get_center().z - 6.0)), "Secluded pasture", 46, Color(0.85, 0.95, 0.7))
-	var bog := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
+	var bog := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0))
 	_label(_on_ground(Vector3(bog.get_center().x, 2.6, bog.get_center().z)), "Bog edge — cattle bog down here", 34, Color(0.75, 0.85, 0.6))
 	_label(_on_ground(Vector3(-27.0, 2.4, 40.0)), "Ditch (farm edge)", 30, Color(0.7, 0.8, 0.6))
 	if path.size() >= 2:

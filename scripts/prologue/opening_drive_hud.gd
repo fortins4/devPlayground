@@ -24,33 +24,41 @@ func _ready() -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
-	_objective = _make_label(root, 20, Color(0.96, 0.9, 0.7))
+	# Objective: larger glyphs + a thinner outline (and a drop shadow) so key digits keep their open
+	# shapes — at 20 px with a 5 px outline a "(3)" filled in and read as "(5)" once scaled down.
+	_objective = _make_label(root, 24, Color(0.96, 0.9, 0.7), 3)
+	_objective.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
+	_objective.add_theme_constant_override("shadow_offset_x", 2)
+	_objective.add_theme_constant_override("shadow_offset_y", 2)
 	_objective.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_objective.offset_left = 18
 	_objective.offset_right = -18
-	_objective.offset_top = 14
-	_objective.offset_bottom = 70
+	_objective.offset_top = 12
+	_objective.offset_bottom = 100
 	_objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_objective.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_status = _make_label(root, 18, Color(0.8, 0.95, 0.65))
+	_status = _make_label(root, 18, Color(0.8, 0.95, 0.65), 4)
 	_status.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_status.offset_left = -360
 	_status.offset_right = -18
-	_status.offset_top = 78
-	_status.offset_bottom = 140
+	_status.offset_top = 104
+	_status.offset_bottom = 166
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_weapon = _make_label(root, 18, Color(0.92, 0.86, 0.66))
+	_weapon = _make_label(root, 18, Color(0.92, 0.86, 0.66), 4)
 	_weapon.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_weapon.offset_left = 18
-	_weapon.offset_top = 78
+	_weapon.offset_top = 104
 	_weapon.offset_right = 420
-	_weapon.offset_bottom = 110
-	_flash = _make_label(root, 22, Color(1.0, 0.9, 0.5))
+	_weapon.offset_bottom = 136
+	_flash = _make_label(root, 23, Color(1.0, 0.9, 0.5), 3)
+	_flash.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
+	_flash.add_theme_constant_override("shadow_offset_x", 2)
+	_flash.add_theme_constant_override("shadow_offset_y", 2)
 	_flash.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_flash.offset_left = -480
-	_flash.offset_right = 480
-	_flash.offset_top = 150
-	_flash.offset_bottom = 190
+	_flash.offset_left = -500
+	_flash.offset_right = 500
+	_flash.offset_top = 172
+	_flash.offset_bottom = 214
 	_flash.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner = _make_label(root, 34, Color(0.8, 0.97, 0.6))
 	_banner.set_anchors_preset(Control.PRESET_CENTER)
@@ -67,7 +75,7 @@ func _ready() -> void:
 	_controls.offset_top = -36
 	_controls.offset_bottom = -10
 	_controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
+	_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 2 knife · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	call_deferred("_bind")
 
 
@@ -113,9 +121,9 @@ func _process(_delta: float) -> void:
 		or _chore_active(_dog_chore)
 		or _chore_active(_meal_chore)
 	):
-		_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
+		_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 2 knife · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	else:
-		_controls.text = "WASD move · Shift sprint · mouse look · 3 goad · 2 knife · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
+		_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 2 knife · 3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
 	var player := get_tree().get_first_node_in_group("player")
 	var combat := player.get_node_or_null("CombatSystem") if player else null
 	if combat and combat.has_method("weapon_name"):
@@ -142,12 +150,12 @@ func _on_stage(_stage: int, stage_name: String) -> void:
 		_banner.visible = false
 
 
-func _make_label(parent: Control, size: int, color: Color) -> Label:
+func _make_label(parent: Control, size: int, color: Color, outline: int = 5) -> Label:
 	var l := Label.new()
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	l.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.04, 0.9))
-	l.add_theme_constant_override("outline_size", 5)
+	l.add_theme_constant_override("outline_size", outline)
 	parent.add_child(l)
 	return l

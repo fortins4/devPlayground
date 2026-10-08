@@ -1,26 +1,34 @@
 extends Node3D
 class_name OpeningBoggedCowChore
-## Drive beat: one of the SIX herd cows starts bogged at the lane-facing bog edge (the director
-## counts her as the herd's 6th head; the Herd node holds the other five at the pasture).
+## Drive beat: one of the SIX herd cows starts bogged in the back paddock BEYOND the pasture —
+## behind the south ridge, on the far side of the five grazing cows from the lane, with no line
+## of sight from the lane or the pasture mouth (the director counts her as the herd's 6th head;
+## the Herd node holds the other five at the pasture). She stays hidden, silent and unfreeable
+## until the missing-cow beat (the player reaching the herd during the drive step).
 ## Player goads her onto firm ground (freed only after at least one goad while bogged, then
 ## leaving the bog). In the set-sequence flow she must then be driven back to the herd at the
 ## pasture: she REJOINS once she's within REJOIN_RADIUS of the other five's centre. Until then
 ## her home (idle wander + path bias) is the herd, not the free spot. Without a sequence (old
 ## standalone behaviour) she re-homes where she came free and counts as rejoined at once.
-## While bogged and the drive is live she lows (Label3D "Mooo!" pulse) so the bog is findable.
+## While bogged and the missing-cow beat is open she lows: a positional AudioStreamPlayer3D moo
+## (procedurally generated WAV) every LOW_PERIOD s plus the Label3D "Mmmooo!" pulse, so the
+## sound leads past the herd and over the ridge. Both stop once she's freed.
 
 enum BogChoreState { BOGGED, FREED, REJOINED }
 
 const COW_SCENE := preload("res://scenes/prologue/opening_cow.tscn")
 const INTERACT_RANGE := 8.0
-## BogZone center/size from opening_cattle_drive (transform 34,1,118 · box 20×20).
-const BOG_CENTER := Vector3(34.0, 0.0, 118.0)
+## BogZone center/size from opening_cattle_drive (transform -25,3.5,242 · box 20×20): the back
+## paddock behind the pasture's south ridge (OpeningTerrain "pasture_south_ridge").
+const BOG_CENTER := Vector3(-25.0, 0.0, 242.0)
 const BOG_HALF_XZ := Vector3(10.0, 0.0, 10.0)
-## West (lane-facing) bog edge — readable from Bend6 (~-2,118).
-## Y is height above the local ground: the bog edge sits on the east roll's skirt, so the cow
-## is placed on the OpeningTerrain surface (see _ground()).
-const COW_SPAWN := Vector3(27.5, 0.1, 116.0)
-const FIRM_GROUND := Vector3(18.0, 0.1, 116.0)
+## North (herd-facing) bog edge, 3.5 m in — same margin as the old lane-side spawn, so the
+## goad-out is unchanged, just pointed north toward the ridge and the herd.
+## Y is height above the local ground (the cow is placed on the OpeningTerrain surface).
+const COW_SPAWN := Vector3(-25.0, 0.1, 235.5)
+const FIRM_GROUND := Vector3(-25.0, 0.1, 228.0)
+## Gap in the pasture's south rail + hedge (greybox BACK_GAP) — a freed cow's way back.
+const BACK_GAP := Vector3(-25.0, 0.0, 207.5)
 ## She rejoins within this horizontal distance of the other five's centre (pasture herd spreads
 ## ~8.5 m from its centre while grazing).
 const REJOIN_RADIUS := 12.0
@@ -28,6 +36,12 @@ const REJOIN_RADIUS := 12.0
 const PASTURE_SPOT := Vector3(-23.0, 0.1, 200.0)
 const LOW_PERIOD := 4.0
 const LOW_ON := 1.7
+## Moo: AudioStreamPlayer3D, inverse-distance falloff (audible past the herd, ~45 m off).
+const MOO_UNIT_SIZE := 14.0
+const MOO_MAX_DISTANCE := 160.0
+const MOO_RATE := 22050
+const MOO_SECS := 1.5
+static var _moo_stream: AudioStreamWAV = null
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 @export var bog_zone_path: NodePath = ^"../BogZone"
@@ -49,12 +63,15 @@ var _prompt_near: bool = false
 var _low_label: Label3D = null
 var _low_t: float = 0.0
 var _low_announced: bool = false
+var _moo: AudioStreamPlayer3D = null
+var _moo_count: int = 0
 
 
 func _ready() -> void:
 	add_to_group("opening_bogged_cow")
 	_spawn_cow()
 	_build_low_label()
+	_build_moo()
 	call_deferred("_bind")
 
 
@@ -86,11 +103,12 @@ func _flash_intro() -> void:
 		_intro_flashed = true
 		return
 	_intro_flashed = true
-	_flash("A cow's stuck in the bog — goad it onto the lane.", 4.5)
+	_flash("A cow's stuck in the bog — goad it onto firm ground.", 4.5)
 
 
 func _process(delta: float) -> void:
 	_tick_lowing(delta)
+	_sync_hidden()
 	if _state != BogChoreState.BOGGED:
 		if _cow and is_instance_valid(_cow) and bool(_cow.get("goad_locked")):
 			_cow.set("goad_locked", false)
@@ -127,8 +145,10 @@ func _spawn_cow() -> void:
 	# Stuck from the first physics frame (_bind re-asserts it once deferred setup runs).
 	if _cow.has_method("set_bogged"):
 		_cow.call("set_bogged", true)
-	# Face toward the lane (west).
-	_cow.rotation.y = PI * 0.5
+	# Face north, over the ridge toward the herd.
+	_cow.rotation.y = 0.0
+	# Hidden until the missing-cow beat (set-sequence flow); _sync_hidden reveals her.
+	_cow.visible = false
 	if _cow.has_signal("goaded"):
 		_cow.connect("goaded", _on_cow_goaded)
 	if _cow.has_signal("goad_blocked"):
@@ -142,7 +162,7 @@ func _setup_cow_ai() -> void:
 		_player = get_tree().get_first_node_in_group("player") as Node3D
 	if _cow.has_method("set_player"):
 		_cow.call("set_player", _player)
-	# Bias toward home so a goad walks it west out of the bog onto the lane.
+	# Bias toward home so a goad walks her north out of the bog, over the ridge toward the herd.
 	var path: Array = _collect_path_points()
 	var home := Vector3(7.0, 0.0, 6.5)
 	if _director and _director.has_method("home_center"):
@@ -201,6 +221,26 @@ func is_lowing() -> bool:
 	return _low_label != null and _low_label.visible
 
 
+## Positional moo currently sounding (AudioStreamPlayer3D).
+func is_lowing_audio() -> bool:
+	return _moo != null and _moo.playing
+
+
+## Moos started so far (smokes: repeats while bogged, none after the free).
+func moo_count() -> int:
+	return _moo_count
+
+
+func moo_player() -> AudioStreamPlayer3D:
+	return _moo
+
+
+## Her beat is live: no sequence (standalone), or the drive step is active AND the player has
+## reached the herd (missing-cow beat). Before that she's hidden, silent, and can't be freed.
+func beat_open() -> bool:
+	return _gate_open()
+
+
 ## Horizontal distance from her to the centre of the other five (0 when unknown).
 func distance_to_herd() -> float:
 	if _cow == null or not is_instance_valid(_cow):
@@ -238,8 +278,8 @@ func interact_prompt() -> String:
 	if not _near(_player.global_position, _cow.global_position, INTERACT_RANGE):
 		return ""
 	if not _gate_open():
-		return _not_yet()
-	return "Goad the bogged cow onto the lane (3 · LMB)"
+		return "" if not _cow.visible else _not_yet()
+	return "Goad her out of the bog onto firm ground (3 goad · LMB / RMB)"
 
 
 func is_active() -> bool:
@@ -326,7 +366,8 @@ func _place_with_herd() -> void:
 # ---------------------------------------------------------------- bog / goad
 
 func _on_cow_goad_blocked(_cow_ref: Node3D, _kind: StringName) -> void:
-	if _state == BogChoreState.BOGGED:
+	# Hidden (before the missing-cow beat): no flash — nothing there to see yet.
+	if _state == BogChoreState.BOGGED and _cow and _cow.visible:
 		_flash(_not_yet(), 2.5)
 
 
@@ -379,7 +420,8 @@ func _complete() -> void:
 			if _cow.has_method("set_home_spot"):
 				_cow.call("set_home_spot", Vector3(herd.x, _cow.global_position.y, herd.z))
 			if _cow.has_method("set_path_bias"):
-				_cow.call("set_path_bias", _collect_path_points(), herd)
+				# Over the ridge and through the back gap, then the herd.
+				_cow.call("set_path_bias", [BACK_GAP], herd)
 		_flash("She's free of the bog — drive her back to the herd at the pasture.", 4.5)
 		print("OPENING_BOGGED_COW_SOFT_SUCCESS")
 		print("OPENING_BOGGED_COW_FREED herd=%s" % herd.snapped(Vector3.ONE))
@@ -442,19 +484,86 @@ func _build_low_label() -> void:
 	add_child(_low_label)
 
 
+func _build_moo() -> void:
+	_moo = AudioStreamPlayer3D.new()
+	_moo.name = "Moo"
+	_moo.stream = _moo_wav()
+	_moo.unit_size = MOO_UNIT_SIZE
+	_moo.max_distance = MOO_MAX_DISTANCE
+	_moo.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	_moo.volume_db = 3.0
+	_moo.panning_strength = 1.0
+	add_child(_moo)
+
+
+## Placeholder moo, generated once: ~1.5 s, 16-bit mono. Glottal-ish harmonic stack on a low
+## fundamental that rises then sags (≈95 → 140 → 85 Hz, slight vibrato), shaped by a formant
+## that opens from a closed "mm" (~260 Hz) to an "ooo/aa" (~620 Hz) and back, soft attack/decay.
+static func _moo_wav() -> AudioStreamWAV:
+	if _moo_stream != null:
+		return _moo_stream
+	var n := int(MOO_RATE * MOO_SECS)
+	var data := PackedByteArray()
+	data.resize(n * 2)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / MOO_RATE
+		var u := t / MOO_SECS
+		var f0 := 95.0 + 48.0 * sin(PI * minf(u * 1.35, 1.0)) - 14.0 * u + 1.8 * sin(TAU * 5.5 * t)
+		phase += TAU * f0 / MOO_RATE
+		var formant := lerpf(260.0, 620.0, smoothstep(0.08, 0.4, u)) - 240.0 * smoothstep(0.75, 1.0, u)
+		var s := 0.0
+		for h in range(1, 10):
+			var fh := f0 * h
+			var w := exp(-pow((fh - formant) / 170.0, 2.0)) + 0.35 * exp(-pow((fh - 1100.0) / 260.0, 2.0))
+			w += 0.45 / h
+			s += w * sin(phase * h)
+		var env := smoothstep(0.0, 0.14, t) * (1.0 - smoothstep(MOO_SECS - 0.4, MOO_SECS, t))
+		s *= env * 0.32
+		data.encode_s16(i * 2, clampi(int(s * 32767.0), -32768, 32767))
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = MOO_RATE
+	wav.stereo = false
+	wav.data = data
+	_moo_stream = wav
+	return wav
+
+
+## Set-sequence flow: she (and her "bogged!" tag) stay invisible until the missing-cow beat.
+func _sync_hidden() -> void:
+	if _cow == null or not is_instance_valid(_cow):
+		return
+	var want := _state != BogChoreState.BOGGED or not _flow() or _gate_open()
+	if _cow.visible != want:
+		_cow.visible = want
+		if want:
+			print("OPENING_BOGGED_COW_REVEALED")
+
+
 func _tick_lowing(delta: float) -> void:
 	if _low_label == null:
 		return
 	var on := false
 	if _state == BogChoreState.BOGGED and _cow and is_instance_valid(_cow) and _flow() and _gate_open():
+		var prev := _low_t
 		_low_t = fposmod(_low_t + delta, LOW_PERIOD)
 		on = _low_t < LOW_ON
+		if _moo:
+			_moo.global_position = _cow.global_position + Vector3(0.0, 1.3, 0.0)
+			if _low_t < prev or (prev == 0.0 and not _moo.playing):
+				_moo.play()
+				_moo_count += 1
+				if _moo_count == 1:
+					print("OPENING_BOGGED_COW_MOO_AUDIO")
 		_low_label.global_position = _cow.global_position + Vector3(0.0, 2.3 + 0.25 * sin(_low_t * 5.0), 0.0)
 		if on and not _low_announced:
 			_low_announced = true
 			print("OPENING_BOGGED_COW_LOWING")
 	else:
 		_low_t = 0.0
+		if _moo and _moo.playing:
+			_moo.stop()
 	_low_label.visible = on
 
 
@@ -491,10 +600,15 @@ func _seq() -> Node:
 	return _sequence
 
 
-## Open when there is no sequence (other scenes) or this chore's step is the live one.
+## Open when there is no sequence (other scenes), or this chore's step is the live one AND the
+## missing-cow beat has opened (player reached the herd on the drive — director latch).
 func _gate_open() -> bool:
 	var seq := _seq()
-	return seq == null or bool(seq.call("is_step_active", SEQ_STEP))
+	if seq == null:
+		return true
+	if not bool(seq.call("is_step_active", SEQ_STEP)):
+		return false
+	return _director == null or not _director.has_method("missing_beat_open") or bool(_director.call("missing_beat_open"))
 
 
 func _not_yet() -> String:

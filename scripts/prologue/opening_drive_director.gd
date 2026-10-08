@@ -61,6 +61,8 @@ const FREE_HER_RADIUS := 16.0
 const STUCK_SECS := 6.0
 const STUCK_MOVE := 0.6
 const PEN_RECHECK_SECS := 0.5
+## Just inside the pasture's south (back-paddock) gap — rescue spot for her if pinned on the ridge.
+const BACK_GAP_IN := Vector3(-25.0, 0.0, 202.0)
 
 var stage: Stage = Stage.WALK_OUT
 var succeeded: bool = false
@@ -85,6 +87,9 @@ var _ambush_fired: bool = false
 var _pen_recheck_t: float = 0.0
 var _stuck_ref: Dictionary = {}  # cow → [anchor_pos, secs]
 var _beat: String = ""
+## Missing-cow beat latch: set the first time the player reaches the herd while the drive step is
+## live (survives R / T). Until then the bogged cow is hidden, silent and can't be freed.
+var _missing_seen: bool = false
 
 
 func _ready() -> void:
@@ -144,6 +149,7 @@ func _process(delta: float) -> void:
 	if _pen_recheck_t <= 0.0:
 		_pen_recheck_t = PEN_RECHECK_SECS
 		_recheck_pen()
+	_tick_missing_beat()
 	_check_success()
 	_tick_ambush()
 	_tick_unstick(delta)
@@ -278,9 +284,11 @@ func drive_beat() -> String:
 		return "success"
 	match bogged_cow_state():
 		"bogged":
+			if not _missing_seen:
+				return "walk_out"
 			if _player and _bog_cow and _hdist(_player.global_position, _bog_cow.global_position) <= FREE_HER_RADIUS:
 				return "free_her"
-			return "walk_out" if stage == Stage.WALK_OUT else "missing"
+			return "missing"
 		"freed":
 			return "rejoin"
 	if _dog and _dog.has_method("is_threat") and bool(_dog.call("is_threat")):
@@ -357,6 +365,28 @@ func status_text() -> String:
 	if scattered_count() > 0:
 		s += "\nScattered %d — regather" % scattered_count()
 	return s
+
+
+## The missing-cow beat has opened (player reached the herd on the drive step).
+func missing_beat_open() -> bool:
+	return _missing_seen
+
+
+## Smoke / capture helper: open the missing-cow beat as if the player had reached the herd.
+func debug_open_missing_beat() -> void:
+	if not _missing_seen:
+		_missing_seen = true
+		print("OPENING_DRIVE_MISSING_BEAT_OPEN debug=true")
+
+
+func _tick_missing_beat() -> void:
+	if _missing_seen or _player == null or not is_instance_valid(_player):
+		return
+	if not bool(_seq().call("is_step_active", &"drive")):
+		return
+	if _hdist(_player.global_position, herd_centroid()) <= at_herd_radius:
+		_missing_seen = true
+		print("OPENING_DRIVE_MISSING_BEAT_OPEN player=%s" % _player.global_position.snapped(Vector3.ONE))
 
 
 func flash_text() -> String:
@@ -710,7 +740,8 @@ func _tick_unstick(delta: float) -> void:
 func _out_of_bounds(p: Vector3) -> bool:
 	if p.y < Terrain.surface_y(p.x, p.z) - 2.0:
 		return true
-	if p.x > 41.0 or p.z < -13.0 or p.z > 207.0 or p.x < -60.0:
+	# z up to the back paddock's south hedge (bog behind the pasture's south ridge).
+	if p.x > 41.0 or p.z < -13.0 or p.z > 257.0 or p.x < -60.0:
 		return true
 	return p.x < -25.0 and p.z < 140.0  # beyond the west ditch bank
 
@@ -724,6 +755,8 @@ func _rescue(cow: Node3D, why: String) -> void:
 		if d < best_d:
 			best_d = d
 			best = m
+	if cow == _bog_cow and bogged_cow_state() == "freed" and cow.global_position.z > 200.0:
+		best = BACK_GAP_IN  # pinned on her way back over the ridge: just inside the pasture gap
 	cow.global_position = Terrain.surface_point(best, 0.1)
 	cow.set("velocity", Vector3.ZERO)
 	_stuck_ref.erase(cow)
