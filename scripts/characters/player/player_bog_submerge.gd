@@ -603,7 +603,10 @@ func _build_hud() -> void:
 	_hud_label.add_theme_font_size_override("font_size", 20)
 	_hud_label.add_theme_color_override("font_color", Color(0.86, 0.93, 0.95))
 	_hud_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_hud_label.add_theme_constant_override("outline_size", 4)
+	_hud_label.add_theme_constant_override("outline_size", 2)
+	_hud_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
+	_hud_label.add_theme_constant_override("shadow_offset_x", 2)
+	_hud_label.add_theme_constant_override("shadow_offset_y", 2)
 	_hud_root.add_child(_hud_label)
 	_hud_bar = ProgressBar.new()
 	_hud_bar.min_value = 0.0

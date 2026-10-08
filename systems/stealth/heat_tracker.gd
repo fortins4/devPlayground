@@ -424,18 +424,22 @@ func _nudge_sentry_suspicious(sentry: Node) -> void:
 func _ensure_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "HeatHUDLayer"
-	layer.layer = 20
+	# Under the cattle-raid HUD (12): the heat column's second line sits on the raid hint's row,
+	# and the hint ("Goad (3) ...") must stay on top to read. Still above combat (10) / band (8).
+	layer.layer = 11
 	add_child(layer)
 	_hud_label = Label.new()
 	_hud_label.name = "HeatLabel"
 	_hud_label.position = Vector2(16, 14)
 	_hud_label.add_theme_font_size_override("font_size", 22)
+	_legible(_hud_label, 3)
 	layer.add_child(_hud_label)
 	_progress_label = Label.new()
 	_progress_label.name = "InvestigateProgressLabel"
 	_progress_label.position = Vector2(16, 52)
 	_progress_label.add_theme_font_size_override("font_size", 18)
 	_progress_label.add_theme_color_override("font_color", Color(0.95, 0.85, 0.35))
+	_legible(_progress_label, 2)
 	_progress_label.visible = false
 	layer.add_child(_progress_label)
 	_progress_bar = ProgressBar.new()
@@ -452,8 +456,19 @@ func _ensure_hud() -> void:
 	_banner.name = "HeatBanner"
 	_banner.position = Vector2(16, 102)
 	_banner.add_theme_font_size_override("font_size", 26)
+	_legible(_banner, 3)
 	_banner.visible = false
 	layer.add_child(_banner)
+
+
+## Thin dark outline + drop shadow (no outline before: pale text vanished on the sky). Kept thin
+## relative to the glyph so digits keep their open shapes.
+func _legible(l: Label, outline: int) -> void:
+	l.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.04, 0.9))
+	l.add_theme_constant_override("outline_size", outline)
+	l.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
+	l.add_theme_constant_override("shadow_offset_x", 2)
+	l.add_theme_constant_override("shadow_offset_y", 2)
 
 
 func _ensure_world_label() -> void:
