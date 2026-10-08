@@ -11,6 +11,9 @@ const PROD_SCARE_RANGE := 5.0
 ## West of lane between Bend4 (−12,70) and Bend5 (10,92) — clear of bog/pasture.
 const DOG_SPAWN := Vector3(-6.0, 0.0, 88.0)
 const FLEE_TARGET := Vector3(-48.0, 0.0, 70.0)
+## The dog is not a physics body: every move rests it on the shared OpeningTerrain surface
+## (its flee line runs up onto the near west roll).
+const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 const C_HIDE := Color(0.42, 0.36, 0.30)
 const C_HIDE_DARK := Color(0.28, 0.24, 0.20)
@@ -178,7 +181,7 @@ func _tick_menace(delta: float) -> void:
 		to_p.y = 0.0
 		if to_p.length() > 0.4:
 			var step := to_p.normalized() * 1.1 * delta
-			_dog.global_position += step
+			_dog.global_position = _grounded(_dog.global_position + step)
 			_dog.look_at(_dog.global_position + to_p.normalized(), Vector3.UP)
 	# Goad prod near the dog also scares it off.
 	if _player and _goad_equipped() and _near(_player.global_position, dog_pos(), PROD_SCARE_RANGE):
@@ -193,7 +196,7 @@ func _tick_flee(delta: float) -> void:
 	var k := clampf(_flee_t / dur, 0.0, 1.0)
 	var ease := k * k * (3.0 - 2.0 * k)
 	if _dog:
-		_dog.global_position = _flee_from.lerp(FLEE_TARGET, ease)
+		_dog.global_position = _grounded(_flee_from.lerp(FLEE_TARGET, ease))
 		var dir := (FLEE_TARGET - _flee_from)
 		dir.y = 0.0
 		if dir.length() > 0.1:
@@ -253,7 +256,7 @@ func _finish_gone(announce: bool) -> void:
 	_state = DogState.DONE
 	if _dog:
 		_dog.visible = false
-		_dog.global_position = FLEE_TARGET
+		_dog.global_position = _grounded(FLEE_TARGET)
 	if _bark:
 		_bark.visible = false
 	if announce:
@@ -266,7 +269,7 @@ func _set_lurking() -> void:
 	_flee_t = 0.0
 	if _dog:
 		_dog.visible = true
-		_dog.global_position = DOG_SPAWN
+		_dog.global_position = _grounded(DOG_SPAWN)
 		_dog.rotation = Vector3(0.0, 0.4, 0.0)
 	if _bark:
 		_bark.visible = false
@@ -278,7 +281,7 @@ func _set_lurking() -> void:
 func _build_dog() -> void:
 	_dog = Node3D.new()
 	_dog.name = "StrayDog"
-	_dog.position = DOG_SPAWN
+	_dog.position = _grounded(DOG_SPAWN)
 	_dog.rotation.y = 0.4
 	add_child(_dog)
 
@@ -336,6 +339,10 @@ func _goad_equipped() -> bool:
 	if combat.has_method("weapon_name"):
 		return String(combat.call("weapon_name")) == "goad"
 	return false
+
+
+func _grounded(p: Vector3) -> Vector3:
+	return Vector3(p.x, Terrain.surface_y(p.x, p.z), p.z)
 
 
 func _near(a: Vector3, b: Vector3, range_m: float) -> bool:

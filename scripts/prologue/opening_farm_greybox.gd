@@ -4,7 +4,10 @@ extends Node3D
 ## lane · secluded pasture behind gradual rolling hills (lane winds through saddles) · bog edge · west ditch · neighbours' ringfort).
 ##
 ## Builds plain boxes/prisms/cylinders at _ready into an un-owned child, so the layout shows in
-## the editor (tool script) but nothing generated is serialized into the .tscn. Gameplay nodes
+## the editor (tool script) but nothing generated is serialized into the .tscn.
+## Landscape is physical: OpeningTerrain is the one height function; the terrain mesh and its
+## HeightMapShape3D collider are built from the same baked samples, and everything that sits on
+## the ground (lane, bog, ditch, rails, hedges, trees, labels, ringfort) is draped onto it. Gameplay nodes
 ## (path markers, zones, cows, player) stay authored in opening_cattle_drive.tscn and this
 ## builder reads them, so moving a marker / zone in the editor moves its greybox too.
 
@@ -44,9 +47,15 @@ const C_CANOPY := Color(0.24, 0.38, 0.2)
 const C_RATH_BANK := Color(0.33, 0.42, 0.25)
 const C_HUT := Color(0.68, 0.62, 0.5)
 
+const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
+## Terrain mesh tile size (cells). Smaller tiles cull better; same samples as the collider.
+const TERRAIN_TILE := 48
+## Draped overlays / walls are cut into pieces no longer than this (m) so they hug curvature.
+const DRAPE_STEP := 2.4
+
 var _mats: Dictionary = {}
 var _gen: Node3D = null
-var _hill_defs: Array = []  # {c,r,scl} for clip/LOS helpers
+var _terrain_mat: StandardMaterial3D = null
 
 
 func _ready() -> void:
@@ -61,12 +70,13 @@ func build() -> void:
 	_gen = Node3D.new()
 	_gen.name = GEN_NAME
 	add_child(_gen)  # no owner on purpose → never saved into the scene file
-	_hill_defs.clear()
 	var path := _path_points()
-	_build_ground()
+	# One height function for hills / berms / banks / swells (mouth berms follow PastureMouth).
+	Terrain.configure(path[-1].x if path.size() > 0 else -28.0)
+	Terrain.bake()
+	_build_ground()  # terrain mesh + HeightMapShape3D from the same samples
 	_build_farmstead()
 	_build_home_pen()
-	_build_secluding_hills()  # before bog/trees/lane so clip filters see knolls
 	_build_lane(path)
 	_build_pasture()
 	_build_bog()
@@ -102,22 +112,136 @@ func _zone_box(path: NodePath, fallback_center: Vector3, fallback_size: Vector3)
 # ---------------------------------------------------------------- sections
 
 func _build_ground() -> void:
+	## Physical landscape: every hill, pasture berm / bank and far swell lives in OpeningTerrain.
+	## The visible terrain mesh and the HeightMapShape3D are built from the SAME baked samples
+	## with the SAME cell triangulation, so feet rest on exactly the surface that is drawn.
 	var ground := StaticBody3D.new()
 	ground.name = "Ground"
 	ground.collision_layer = 1
 	ground.collision_mask = 0
 	_gen.add_child(ground)
+	var w := Terrain.grid_width()
+	var d := Terrain.grid_depth()
+	var hs := Terrain.bake()
+	var hm := HeightMapShape3D.new()
+	hm.map_width = w
+	hm.map_depth = d
+	hm.map_data = hs
+	var terrain_cs := CollisionShape3D.new()
+	terrain_cs.name = "TerrainHeightMap"
+	terrain_cs.shape = hm
+	# HeightMapShape3D is centred on its node, 1 m per sample (STEP == 1).
+	terrain_cs.position = Vector3(
+		Terrain.MIN_X + float(w - 1) * 0.5 * Terrain.STEP, 0.0, Terrain.MIN_Z + float(d - 1) * 0.5 * Terrain.STEP)
+	terrain_cs.scale = Vector3(Terrain.STEP, 1.0, Terrain.STEP)
+	ground.add_child(terrain_cs)
+	# Flat far-field backstop outside the heightfield window (2 cm under grade, never the floor
+	# inside the window).
 	var shape := CollisionShape3D.new()
 	var bs := BoxShape3D.new()
 	bs.size = Vector3(420.0, 1.0, 460.0)
 	shape.shape = bs
-	shape.position = Vector3(-10.0, -0.5, 80.0)
+	shape.position = Vector3(-10.0, -0.52, 80.0)
 	ground.add_child(shape)
-	_mesh_box(ground, Vector3(-10.0, -0.05, 80.0), Vector3(420.0, 0.1, 460.0), C_GRASS)
-	# Low, rolling south-Leinster farmland: broad flattened swells far off (no mountain).
-	for swell in [Vector3(80, 0, 10), Vector3(-60, 0, 130), Vector3(90, 0, 150), Vector3(-120, 0, -30), Vector3(70, 0, 210)]:
-		var s := _mesh_sphere(_gen, swell + Vector3(0, -6.0, 0), 34.0, C_GRASS.darkened(0.04))
-		s.scale = Vector3(1.6, 0.28, 1.2)
+	_mesh_box(ground, Vector3(-10.0, -0.07, 80.0), Vector3(420.0, 0.1, 460.0), C_GRASS)
+	_build_terrain_mesh(hs, w, d)
+
+
+func _build_terrain_mesh(hs: PackedFloat32Array, w: int, d: int) -> void:
+	## Tiled ArrayMesh over the baked grid. Vertex colour = grass blended toward the dominant
+	## hill / berm colour (as the old per-hill sphere meshes read), smooth grid normals.
+	if _terrain_mat == null:
+		_terrain_mat = StandardMaterial3D.new()
+		_terrain_mat.vertex_color_use_as_albedo = true
+		_terrain_mat.roughness = 0.95
+	var step := Terrain.STEP
+	var caps: Array = Terrain.caps()
+	# Pasture field tint is painted into the terrain (not a flat overlay box) so it meets the
+	# side banks cleanly; the banks keep their own colour where they rise.
+	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
+	# Per-sample colour + normal.
+	var cols := PackedColorArray()
+	cols.resize(w * d)
+	var nrms := PackedVector3Array()
+	nrms.resize(w * d)
+	for iz in d:
+		var z := Terrain.MIN_Z + float(iz) * step
+		for ix in w:
+			var i := iz * w + ix
+			var x := Terrain.MIN_X + float(ix) * step
+			var h := hs[i]
+			var base := C_PASTURE if _in_xz(pas, Vector3(x, 0.0, z)) else C_GRASS
+			var c := base
+			if h > 0.0005:
+				var dom := Terrain.dominant_cap(x, z)
+				if dom >= 0:
+					var f := Terrain.cap_value(caps[dom], x, z)
+					var k := smoothstep(-Terrain.FILLET * 0.6, Terrain.FILLET * 0.6, f)
+					c = base.lerp(caps[dom]["color"], k)
+			cols[i] = c
+			var hl := hs[iz * w + maxi(ix - 1, 0)]
+			var hr := hs[iz * w + mini(ix + 1, w - 1)]
+			var hd := hs[maxi(iz - 1, 0) * w + ix]
+			var hu := hs[mini(iz + 1, d - 1) * w + ix]
+			nrms[i] = Vector3(hl - hr, 2.0 * step, hd - hu).normalized()
+	var root := Node3D.new()
+	root.name = "TerrainMesh"
+	_gen.add_child(root)
+	var tz := 0
+	while tz < d - 1:
+		var tz1 := mini(tz + TERRAIN_TILE, d - 1)
+		var tx := 0
+		while tx < w - 1:
+			var tx1 := mini(tx + TERRAIN_TILE, w - 1)
+			_terrain_tile(root, hs, cols, nrms, w, tx, tz, tx1, tz1)
+			tx = tx1
+		tz = tz1
+
+
+func _terrain_tile(root: Node3D, hs: PackedFloat32Array, cols: PackedColorArray, nrms: PackedVector3Array,
+		w: int, tx0: int, tz0: int, tx1: int, tz1: int) -> void:
+	var step := Terrain.STEP
+	var tw := tx1 - tx0 + 1
+	var verts := PackedVector3Array()
+	var vn := PackedVector3Array()
+	var vc := PackedColorArray()
+	var flat := true
+	for iz in range(tz0, tz1 + 1):
+		for ix in range(tx0, tx1 + 1):
+			var i := iz * w + ix
+			verts.append(Vector3(Terrain.MIN_X + float(ix) * step, hs[i], Terrain.MIN_Z + float(iz) * step))
+			vn.append(nrms[i])
+			vc.append(cols[i])
+			if hs[i] > 0.0005 or cols[i] != C_GRASS:
+				flat = false
+	var idx := PackedInt32Array()
+	if flat:
+		# Open field tile: two triangles are enough (all samples are 0).
+		verts = PackedVector3Array([verts[0], verts[tw - 1], verts[verts.size() - tw], verts[verts.size() - 1]])
+		vn = PackedVector3Array([Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP])
+		vc = PackedColorArray([C_GRASS, C_GRASS, C_GRASS, C_GRASS])
+		idx = PackedInt32Array([0, 1, 2, 1, 3, 2])
+	else:
+		for z in tz1 - tz0:
+			for x in tw - 1:
+				var p00 := z * tw + x
+				var p10 := p00 + 1
+				var p01 := p00 + tw
+				var p11 := p01 + 1
+				# Same split as HeightMapShape3D: (x+1,z)–(x,z+1) diagonal. Clockwise = front (up).
+				idx.append_array([p00, p10, p01, p10, p11, p01])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = vn
+	arrays[Mesh.ARRAY_COLOR] = vc
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.mesh = am
+	mi.material_override = _terrain_mat
+	root.add_child(mi)
 
 
 func _build_farmstead() -> void:
@@ -197,20 +321,20 @@ func _build_home_pen() -> void:
 func _build_lane(path: Array[Vector3]) -> void:
 	if path.size() < 2:
 		return
-	# Lane strips + soft joints.
+	# Lane strips + soft joints, draped on the terrain (the boreen climbs the skirts it crosses).
 	for i in path.size() - 1:
 		var a := path[i]
 		var b := path[i + 1]
 		var mid := (a + b) * 0.5
 		var length := a.distance_to(b) + 1.2
-		var strip := _mesh_box(_gen, Vector3(mid.x, 0.035, mid.z), Vector3(LANE_WIDTH, 0.05, length), C_LANE)
-		strip.rotation.y = atan2(b.x - a.x, b.z - a.z)
-		_mesh_cyl(_gen, Vector3(a.x, 0.036, a.z), LANE_WIDTH * 0.5, LANE_WIDTH * 0.5, 0.05, C_LANE)
-	_mesh_cyl(_gen, Vector3(path[-1].x, 0.036, path[-1].z), LANE_WIDTH * 0.5, LANE_WIDTH * 0.5, 0.05, C_LANE)
+		_drape_rect(mid, LANE_WIDTH, length, atan2(b.x - a.x, b.z - a.z), 0.035, C_LANE)
+		_drape_disc(a, LANE_WIDTH * 0.5, LANE_WIDTH * 0.5, 0.036, C_LANE)
+	_drape_disc(path[-1], LANE_WIDTH * 0.5, LANE_WIDTH * 0.5, 0.036, C_LANE)
 	# Bias stakes (white-topped) at every marker — the drove's waypoints.
 	for p in path:
-		_mesh_box(_gen, Vector3(p.x + LANE_WIDTH * 0.62, 0.55, p.z), Vector3(0.18, 1.1, 0.18), C_RAIL)
-		_mesh_box(_gen, Vector3(p.x + LANE_WIDTH * 0.62, 1.15, p.z), Vector3(0.24, 0.16, 0.24), C_STAKE_TOP)
+		var sp := Vector3(p.x + LANE_WIDTH * 0.62, 0.0, p.z)
+		_mesh_box(_gen, _on_ground(sp + Vector3(0, 0.5, 0)), Vector3(0.18, 1.1, 0.18), C_RAIL)
+		_mesh_box(_gen, _on_ground(sp + Vector3(0, 1.1, 0)), Vector3(0.24, 0.16, 0.24), C_STAKE_TOP)
 	# Boreen out of the pen: fenced first leg so the herd funnels into the gate.
 	var g := path[0]
 	var b1 := path[1]
@@ -241,7 +365,7 @@ func _build_lane(path: Array[Vector3]) -> void:
 func _build_pasture() -> void:
 	var box := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
 	var c := box.get_center()
-	_mesh_box(_gen, Vector3(c.x, 0.02, c.z), Vector3(box.size.x, 0.03, box.size.z), C_PASTURE)
+	# Field tint is painted into the terrain mesh (see _build_terrain_mesh).
 	var x0 := box.position.x
 	var x1 := box.end.x
 	var z0 := box.position.z
@@ -255,38 +379,35 @@ func _build_pasture() -> void:
 	_rail(Vector3(x1, 0, z0), Vector3(x1, 0, z1))
 	_rail(Vector3(x0, 0, z1), Vector3(x1, 0, z1))
 	# Water trough + rubbing stone.
-	_solid_box(_gen, Vector3(x1 - 4.0, 0.35, c.z + 4.0), Vector3(2.6, 0.7, 0.9), C_TRUNK)
-	_solid_box(_gen, Vector3(x0 + 6.0, 0.6, z1 - 5.0), Vector3(0.9, 1.2, 0.9), C_WALL.darkened(0.4))
+	# Both sit on the pasture side banks — rest them on the surface (sunk a touch, no float).
+	_solid_box(_gen, _on_ground(Vector3(x1 - 4.0, 0.3, c.z + 4.0)), Vector3(2.6, 0.7, 0.9), C_TRUNK)
+	_solid_box(_gen, _on_ground(Vector3(x0 + 6.0, 0.5, z1 - 5.0)), Vector3(0.9, 1.2, 0.9), C_WALL.darkened(0.4))
 
 
 func _build_bog() -> void:
+	## Bog edge rests on the ground it sits on (the east roll's skirt runs under its east half).
 	var box := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
 	var c := box.get_center()
-	_mesh_box(_gen, Vector3(c.x, 0.03, c.z), Vector3(box.size.x, 0.05, box.size.z), C_BOG)
+	_drape_rect(Vector3(c.x, 0.0, c.z), box.size.x, box.size.z, 0.0, 0.03, C_BOG)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4471
 	for i in 7:
 		var px := rng.randf_range(box.position.x + 2.0, box.end.x - 2.0)
 		var pz := rng.randf_range(box.position.z + 2.0, box.end.z - 2.0)
-		if _on_hill(Vector3(px, 0.0, pz), 0.35):
-			continue
-		var pool := _mesh_cyl(_gen, Vector3(px, 0.06, pz), 1.0, 1.0, 0.03, C_BOG_WATER)
-		pool.scale = Vector3(rng.randf_range(1.0, 2.4), 1.0, rng.randf_range(0.8, 1.8))
+		var sx := rng.randf_range(1.0, 2.4)
+		var sz := rng.randf_range(0.8, 1.8)
+		_drape_disc(Vector3(px, 0.0, pz), sx, sz, 0.06, C_BOG_WATER)
 	for i in 46:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
-		if _on_hill(Vector3(px, 0.0, pz), 0.35):
-			continue
 		var h := rng.randf_range(0.6, 1.3)
-		_mesh_box(_gen, Vector3(px, h * 0.5, pz), Vector3(0.08, h, 0.08), C_REED)
+		_mesh_box(_gen, _on_ground(Vector3(px, h * 0.5 - 0.05, pz)), Vector3(0.08, h, 0.08), C_REED)
 	# Bog-cotton tufts.
 	for i in 18:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
-		if _on_hill(Vector3(px, 0.0, pz), 0.35):
-			continue
-		_mesh_sphere(_gen, Vector3(px, 0.35, pz), 0.12, C_STAKE_TOP)
-	# Extra visual bog patches on clear ground west of the lane (avoid knoll volumes).
+		_mesh_sphere(_gen, _on_ground(Vector3(px, 0.35, pz)), 0.12, C_STAKE_TOP)
+	# Extra visual bog patches west of the lane (draped on whatever ground they sit on).
 	_build_bog_patch(Vector3(-10.0, 0.0, 100.0), Vector3(14.0, 2.0, 10.0), 5521)
 	_build_bog_patch(Vector3(-55.0, 0.0, 160.0), Vector3(18.0, 2.0, 14.0), 7733)
 
@@ -294,113 +415,49 @@ func _build_bog() -> void:
 func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
 	var half := size * 0.5
 	var box := AABB(center - half, size)
-	_mesh_box(_gen, Vector3(center.x, 0.03, center.z), Vector3(size.x, 0.05, size.z), C_BOG)
+	_drape_rect(Vector3(center.x, 0.0, center.z), size.x, size.z, 0.0, 0.03, C_BOG)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 	for i in 5:
 		var px := rng.randf_range(box.position.x + 2.0, box.end.x - 2.0)
 		var pz := rng.randf_range(box.position.z + 2.0, box.end.z - 2.0)
-		if _on_hill(Vector3(px, 0.0, pz), 0.35):
-			continue
-		var pool := _mesh_cyl(_gen, Vector3(px, 0.06, pz), 1.0, 1.0, 0.03, C_BOG_WATER)
-		pool.scale = Vector3(rng.randf_range(1.0, 2.2), 1.0, rng.randf_range(0.8, 1.7))
+		var sx := rng.randf_range(1.0, 2.2)
+		var sz := rng.randf_range(0.8, 1.7)
+		_drape_disc(Vector3(px, 0.0, pz), sx, sz, 0.06, C_BOG_WATER)
 	for i in 28:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
-		if _on_hill(Vector3(px, 0.0, pz), 0.35):
-			continue
 		var h := rng.randf_range(0.55, 1.2)
-		_mesh_box(_gen, Vector3(px, h * 0.5, pz), Vector3(0.08, h, 0.08), C_REED)
+		_mesh_box(_gen, _on_ground(Vector3(px, h * 0.5 - 0.05, pz)), Vector3(0.08, h, 0.08), C_REED)
 	for i in 10:
 		var px := rng.randf_range(box.position.x, box.end.x)
 		var pz := rng.randf_range(box.position.z, box.end.z)
-		if _on_hill(Vector3(px, 0.0, pz), 0.35):
-			continue
-		_mesh_sphere(_gen, Vector3(px, 0.35, pz), 0.12, C_STAKE_TOP)
-
-
-func _build_secluding_hills() -> void:
-	## Broad rolling ground — very gradual rises with long skirts (not distinct hill blobs).
-	## Overlapping soft volumes keep Bend4–8 + PastureMouth clear and kill house↔pasture LOS.
-	## Crest ≈ r * scl.y * 0.45. Walk collision on each.
-	# Near west/east rolls — wide low skirts; saddle ~x 0–12 at z≈70–95 (Bend4→Bend5).
-	_hill(Vector3(-50.0, 0.0, 72.0), 32.0, Vector3(1.4, 0.30, 1.6), C_BANK.lightened(0.08))
-	_hill(Vector3(46.0, 0.0, 100.0), 30.0, Vector3(1.4, 0.28, 1.45), C_GRASS.darkened(0.06))
-	# West-of-lane continuous roll (merged near+mid screens into two overlapping soft rises).
-	# Low crest, long skirt; still clears elevated yard cams. Eastern toes west of Bend6 (−2,118).
-	_hill(Vector3(-38.0, 0.0, 112.0), 30.0, Vector3(1.4, 0.38, 1.55), C_HEDGE)
-	_hill(Vector3(-50.0, 0.0, 118.0), 28.0, Vector3(1.3, 0.32, 1.5), C_BANK)
-	# Mid west/east rolls — saddle ~x 4–12 at z≈118–145 (Bend6→Bend7).
-	_hill(Vector3(-48.0, 0.0, 144.0), 30.0, Vector3(1.4, 0.32, 1.55), C_GRASS.darkened(0.05))
-	_hill(Vector3(46.0, 0.0, 134.0), 30.0, Vector3(1.35, 0.28, 1.4), C_BANK.lightened(0.05))
-	# Mid west continuation — blends with near roll into one long N–S swell.
-	_hill(Vector3(-38.0, 0.0, 136.0), 28.0, Vector3(1.4, 0.38, 1.5), C_HEDGE.lightened(0.04))
-	# Far west roll (west of Bend8) — soft approach into the hollow.
-	_hill(Vector3(-48.0, 0.0, 156.0), 24.0, Vector3(1.4, 0.34, 1.4), C_HEDGE)
-	_hill(Vector3(-58.0, 0.0, 148.0), 22.0, Vector3(1.25, 0.30, 1.3), C_BANK)
-	# Pasture flanks — broad soft rises tucking the hollow.
-	_hill(Vector3(28.0, 0.0, 186.0), 28.0, Vector3(1.35, 0.30, 1.4), C_BANK)
-	_hill(Vector3(-62.0, 0.0, 192.0), 28.0, Vector3(1.3, 0.28, 1.35), C_GRASS.darkened(0.04))
-	# Pasture mouth lips — wide low berms with a walkable gap at PastureMouth.
-	var mouth_x := -28.0
-	var path_pts := _path_points()
-	if path_pts.size() > 0:
-		mouth_x = path_pts[-1].x
-	var gap := 6.5
-	var west_end := mouth_x - gap
-	var east_start := mouth_x + gap
-	_hill(Vector3(-50.0, 0.0, 176.5), 14.0, Vector3(1.45, 0.38, 0.9), C_BANK)
-	_hill(Vector3(west_end - 9.0, 0.0, 177.0), 12.0, Vector3(1.3, 0.36, 0.85), C_BANK.lightened(0.05))
-	_hill(Vector3(east_start + 10.0, 0.0, 176.5), 13.0, Vector3(1.35, 0.38, 0.9), C_BANK)
-	_hill(Vector3(-4.0, 0.0, 177.5), 13.0, Vector3(1.3, 0.34, 0.85), C_HEDGE.lightened(0.08))
-	# Pasture side screens — long low N–S banks (soft hedge feel).
-	_hill(Vector3(-8.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_HEDGE)
-	_hill(Vector3(-42.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_HEDGE)
-
-
-func _hill(center: Vector3, radius: float, scl: Vector3, color: Color) -> void:
-	# Sphere sunk below grade then scaled flat — crest height ≈ radius * scl.y * 0.45.
-	_hill_defs.append({"c": center, "r": radius, "scl": scl})
-	var sink := radius * scl.y * 0.55
-	var mesh_pos := center + Vector3(0.0, -sink, 0.0)
-	var s := _mesh_sphere(_gen, mesh_pos, radius, color)
-	s.scale = scl
-	# Walk collision on the mound bulk (cylinder) so players/cattle cannot phase through.
-	# Undersized vs the visual skirt so the lane can graze soft toes without snagging.
-	var body := StaticBody3D.new()
-	body.name = "HillCollide_%d_%d" % [int(center.x), int(center.z)]
-	body.collision_layer = 1
-	body.collision_mask = 0
-	var coll_h := maxf(2.2, radius * scl.y * 0.75)
-	var coll_r := radius * minf(scl.x, scl.z) * 0.52
-	body.position = center + Vector3(0.0, coll_h * 0.5, 0.0)
-	_gen.add_child(body)
-	var cs := CollisionShape3D.new()
-	var cyl := CylinderShape3D.new()
-	cyl.radius = coll_r
-	cyl.height = coll_h
-	cs.shape = cyl
-	body.add_child(cs)
+		_mesh_sphere(_gen, _on_ground(Vector3(px, 0.35, pz)), 0.12, C_STAKE_TOP)
 
 
 func _build_edges() -> void:
+	## Field boundaries are solid and follow the ground: each run is cut into short pieces that
+	## sit on (and slightly into) the terrain, so they climb over the rolls they cross.
 	# West ditch + bank: the farm edge beyond the early lane (cattle cannot climb the bank).
-	_mesh_box(_gen, Vector3(-27.0, 0.02, 70.0), Vector3(2.6, 0.05, 140.0), C_DITCH)
-	_solid_box(_gen, Vector3(-25.2, 0.35, 70.0), Vector3(0.9, 0.7, 140.0), C_BANK)
-	_solid_box(_gen, Vector3(-28.8, 0.45, 70.0), Vector3(1.0, 0.9, 140.0), C_HEDGE)
+	_drape_rect(Vector3(-27.0, 0.0, 70.0), 2.6, 140.0, 0.0, 0.02, C_DITCH)
+	_drape_wall(Vector3(-25.2, 0, 0.0), Vector3(-25.2, 0, 140.0), 0.9, 0.7, C_BANK)
+	_drape_wall(Vector3(-28.8, 0, 0.0), Vector3(-28.8, 0, 140.0), 1.0, 0.9, C_HEDGE)
 	# East hedge bank (field boundary) and south hedge behind the secluded pasture.
-	_solid_box(_gen, Vector3(42.0, 0.9, 90.0), Vector3(1.6, 1.8, 220.0), C_HEDGE)
+	_drape_wall(Vector3(42.0, 0, -20.0), Vector3(42.0, 0, 200.0), 1.6, 1.8, C_HEDGE)
 	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
-	_solid_box(_gen, Vector3(pas.get_center().x, 0.9, pas.end.z + 3.0), Vector3(pas.size.x + 18.0, 1.8, 1.6), C_HEDGE)
+	var sz := pas.end.z + 3.0
+	var half_w := (pas.size.x + 18.0) * 0.5
+	_drape_wall(Vector3(pas.get_center().x - half_w, 0, sz), Vector3(pas.get_center().x + half_w, 0, sz), 1.6, 1.8, C_HEDGE)
 	# North hedge behind the farmstead.
-	_solid_box(_gen, Vector3(0.0, 0.9, -14.0), Vector3(70.0, 1.8, 1.4), C_HEDGE)
+	_drape_wall(Vector3(-35.0, 0, -14.0), Vector3(35.0, 0, -14.0), 1.4, 1.8, C_HEDGE)
 	# Short ditch along the bog's lane side (visual cue: "wet ground starts here").
 	var box := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
-	_mesh_box(_gen, Vector3(box.position.x - 0.6, 0.025, box.get_center().z), Vector3(1.0, 0.05, box.size.z + 2.0), C_DITCH)
+	_drape_rect(Vector3(box.position.x - 0.6, 0.0, box.get_center().z), 1.0, box.size.z + 2.0, 0.0, 0.025, C_DITCH)
 
 
 func _build_ringfort(center: Vector3, radius: float) -> void:
-	# Neighbours' ráth — earthen ring bank with a gap facing east, a few round houses.
+	# Neighbours' ráth — solid earthen ring bank with a gap facing east, a few round houses,
+	# all resting on the ground they stand on.
 	var segs := 30
 	for i in segs:
 		var ang := TAU * float(i) / float(segs)
@@ -408,15 +465,26 @@ func _build_ringfort(center: Vector3, radius: float) -> void:
 		if dir.x > 0.93:
 			continue  # east entrance
 		var p := center + dir * radius
-		var seg := _mesh_box(_gen, p + Vector3(0, 1.1, 0), Vector3(3.6, 2.2, 1.6), C_RATH_BANK)
-		seg.rotation.y = atan2(dir.x, dir.z)
-		var palisade := _mesh_box(_gen, center + dir * (radius - 0.5) + Vector3(0, 2.8, 0), Vector3(3.4, 1.4, 0.2), C_RAIL.darkened(0.15))
+		_solid_box(_gen, _on_ground(p + Vector3(0, 1.0, 0)), Vector3(3.6, 2.2, 1.6), C_RATH_BANK, atan2(dir.x, dir.z))
+		var palisade := _mesh_box(_gen, _on_ground(center + dir * (radius - 0.5) + Vector3(0, 2.7, 0)), Vector3(3.4, 1.4, 0.2), C_RAIL.darkened(0.15))
 		palisade.rotation.y = atan2(dir.x, dir.z)
 	for hut in [Vector3(-4, 0, -3), Vector3(5, 0, 2), Vector3(-3, 0, 6)]:
 		var h: Vector3 = center + hut
-		_mesh_cyl(_gen, h + Vector3(0, 1.2, 0), 3.0, 3.0, 2.4, C_HUT)
-		_mesh_cyl(_gen, h + Vector3(0, 3.4, 0), 0.1, 3.5, 2.2, C_THATCH)
-	_label(center + Vector3(0, 7.0, 0), "Neighbours' ráth (ringfort)", 46, Color(0.82, 0.86, 0.72))
+		var hg := _on_ground(h)
+		var body := StaticBody3D.new()
+		body.collision_layer = 1
+		body.collision_mask = 0
+		body.position = hg + Vector3(0, 1.1, 0)
+		_gen.add_child(body)
+		var cs := CollisionShape3D.new()
+		var cyl := CylinderShape3D.new()
+		cyl.radius = 3.0
+		cyl.height = 2.4
+		cs.shape = cyl
+		body.add_child(cs)
+		_mesh_cyl(body, Vector3.ZERO, 3.0, 3.0, 2.4, C_HUT)
+		_mesh_cyl(_gen, hg + Vector3(0, 3.3, 0), 0.1, 3.5, 2.2, C_THATCH)
+	_label(_on_ground(center + Vector3(0, 7.0, 0)), "Neighbours' ráth (ringfort)", 46, Color(0.82, 0.86, 0.72))
 
 
 func _build_trees(path: Array[Vector3]) -> void:
@@ -440,8 +508,9 @@ func _build_trees(path: Array[Vector3]) -> void:
 		if _on_hill(p, 0.35):
 			continue  # sit trees beside knolls, not through them
 		var h := rng.randf_range(3.5, 6.0)
-		_mesh_cyl(_gen, p + Vector3(0, h * 0.4, 0), 0.22, 0.3, h * 0.8, C_TRUNK)
-		var crown := _mesh_sphere(_gen, p + Vector3(0, h * 0.85, 0), rng.randf_range(1.6, 2.6), C_CANOPY.darkened(rng.randf_range(0.0, 0.15)))
+		var g := _on_ground(p)
+		_mesh_cyl(_gen, g + Vector3(0, h * 0.4 - 0.1, 0), 0.22, 0.3, h * 0.8, C_TRUNK)
+		var crown := _mesh_sphere(_gen, g + Vector3(0, h * 0.85 - 0.1, 0), rng.randf_range(1.6, 2.6), C_CANOPY.darkened(rng.randf_range(0.0, 0.15)))
 		crown.scale = Vector3(1.0, 0.85, 1.0)
 		placed += 1
 
@@ -452,10 +521,10 @@ func _build_labels(path: Array[Vector3]) -> void:
 	var home := _zone_box(home_zone_path, Vector3(7.0, 1.2, 6.5), Vector3(12.6, 2.4, 10.6))
 	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
 	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
-	_label(pas.get_center() + Vector3(0, 4.5, -6.0), "Secluded pasture", 46, Color(0.85, 0.95, 0.7))
+	_label(_on_ground(Vector3(pas.get_center().x, 4.5, pas.get_center().z - 6.0)), "Secluded pasture", 46, Color(0.85, 0.95, 0.7))
 	var bog := _zone_box(bog_zone_path, Vector3(34.0, 1.0, 118.0), Vector3(20.0, 2.0, 20.0))
-	_label(bog.get_center() + Vector3(0, 2.6, 0), "Bog edge — cattle bog down here", 34, Color(0.75, 0.85, 0.6))
-	_label(Vector3(-27.0, 2.4, 40.0), "Ditch (farm edge)", 30, Color(0.7, 0.8, 0.6))
+	_label(_on_ground(Vector3(bog.get_center().x, 2.6, bog.get_center().z)), "Bog edge — cattle bog down here", 34, Color(0.75, 0.85, 0.6))
+	_label(_on_ground(Vector3(-27.0, 2.4, 40.0)), "Ditch (farm edge)", 30, Color(0.7, 0.8, 0.6))
 	if path.size() >= 2:
 		_label(path[0] + Vector3(-3.8, 2.3, 0), "Lane to the pasture ↓", 32, Color(0.95, 0.88, 0.6))
 
@@ -464,20 +533,17 @@ func _build_labels(path: Array[Vector3]) -> void:
 
 
 func _hill_surface_y(p: Vector3) -> float:
-	## Approximate mound height above grade at xz (0 if off every knoll).
-	var best := 0.0
-	for h in _hill_defs:
-		var c: Vector3 = h["c"]
-		var r: float = h["r"]
-		var scl: Vector3 = h["scl"]
-		var sink := r * scl.y * 0.55
-		var rem := 1.0 - pow((p.x - c.x) / (r * scl.x), 2.0) - pow((p.z - c.z) / (r * scl.z), 2.0)
-		if rem <= 0.0:
-			continue
-		var y_surf := -sink + (r * scl.y) * sqrt(rem)
-		if y_surf > best:
-			best = y_surf
-	return best
+	## Raised-ground height at xz from the shared terrain (0 on open field).
+	return Terrain.height_at(p.x, p.z)
+
+
+func _ground_y(p: Vector3) -> float:
+	## Exact walk-surface height (same triangulation as the collider / terrain mesh).
+	return Terrain.surface_y(p.x, p.z)
+
+
+func _on_ground(p: Vector3, lift: float = 0.0) -> Vector3:
+	return Vector3(p.x, _ground_y(p) + p.y + lift, p.z)
 
 
 func _on_hill(p: Vector3, thr: float = 0.4) -> bool:
@@ -579,32 +645,231 @@ func _roof(parent: Node, base: Vector3, size: Vector3, color: Color) -> void:
 
 
 func _rail(a: Vector3, b: Vector3) -> void:
-	## Wattle/post-and-rail fence segment with a single box collider (blocks cattle + player).
+	## Wattle/post-and-rail fence run (blocks cattle + player). Cut into post-spaced pieces that
+	## follow the ground: rails + collider pitch with the slope, posts stay plumb.
 	var flat_a := Vector3(a.x, 0.0, a.z)
 	var flat_b := Vector3(b.x, 0.0, b.z)
 	var length := flat_a.distance_to(flat_b)
 	if length < 0.2:
 		return
-	var mid := (flat_a + flat_b) * 0.5
-	var yaw := atan2(flat_b.x - flat_a.x, flat_b.z - flat_a.z)
+	var n := maxi(1, int(ceil(length / DRAPE_STEP)))
+	for k in n:
+		_rail_piece(flat_a.lerp(flat_b, float(k) / float(n)), flat_a.lerp(flat_b, float(k + 1) / float(n)), k == n - 1)
+
+
+func _rail_piece(a: Vector3, b: Vector3, last: bool) -> void:
+	var length := a.distance_to(b)
+	var ya := _ground_y(a) - 0.04
+	var yb := _ground_y(b) - 0.04
+	var ym := (ya + yb) * 0.5
+	var mid := (a + b) * 0.5
+	var yaw := atan2(b.x - a.x, b.z - a.z)
+	var pitch := -atan2(yb - ya, length)
+	var len3 := sqrt(length * length + (yb - ya) * (yb - ya))
 	var body := StaticBody3D.new()
 	body.name = "Rail"
 	body.collision_layer = 1
 	body.collision_mask = 0
-	body.position = mid + Vector3(0, RAIL_HEIGHT * 0.5, 0)
+	body.position = Vector3(mid.x, ym, mid.z)
 	body.rotation.y = yaw
 	_gen.add_child(body)
+	var tilt := Basis(Vector3.RIGHT, pitch)
 	var cs := CollisionShape3D.new()
 	var bs := BoxShape3D.new()
-	bs.size = Vector3(0.3, RAIL_HEIGHT, length)
+	bs.size = Vector3(0.3, RAIL_HEIGHT, len3 + 0.05)
 	cs.shape = bs
+	cs.transform = Transform3D(tilt, tilt * Vector3(0, RAIL_HEIGHT * 0.5, 0))
 	body.add_child(cs)
 	for h in [0.32, 0.78]:
-		_mesh_box(body, Vector3(0, h - RAIL_HEIGHT * 0.5, 0), Vector3(0.1, 0.12, length), C_RAIL)
-	var posts := maxi(2, int(length / 2.4) + 1)
-	for i in posts:
-		var t := float(i) / float(posts - 1) - 0.5
-		_mesh_box(body, Vector3(0, 0.0, t * length), Vector3(0.16, RAIL_HEIGHT, 0.16), C_RAIL.darkened(0.15))
+		var bar := _mesh_box(body, Vector3.ZERO, Vector3(0.1, 0.12, len3 + 0.05), C_RAIL)
+		bar.transform = Transform3D(tilt, tilt * Vector3(0, h, 0))
+	# Plumb posts at the piece start (and end on the last piece) standing on the ground.
+	var ends := [0.0] if not last else [0.0, 1.0]
+	for t in ends:
+		var lz: float = (float(t) - 0.5) * length
+		var gy: float = lerpf(ya, yb, float(t)) - ym
+		_mesh_box(body, Vector3(0, gy + RAIL_HEIGHT * 0.5, lz), Vector3(0.16, RAIL_HEIGHT + 0.08, 0.16), C_RAIL.darkened(0.15))
+
+
+func _drape_wall(a: Vector3, b: Vector3, width: float, height: float, color: Color) -> void:
+	## Solid bank / hedge run along a→b on the ground. Visual: one continuous extruded mesh whose
+	## base (sunk 0.15 m) and top follow the terrain every ~1 m (no saw-tooth joints).
+	## Collision: short pitched boxes of the same width/height (vertical side faces), so the
+	## run blocks exactly where it is drawn.
+	var flat_a := Vector3(a.x, 0.0, a.z)
+	var flat_b := Vector3(b.x, 0.0, b.z)
+	var length := flat_a.distance_to(flat_b)
+	if length < 0.2:
+		return
+	var sink := 0.15
+	var n := maxi(1, int(ceil(length / DRAPE_STEP)))
+	for k in n:
+		var pa := flat_a.lerp(flat_b, float(k) / float(n))
+		var pb := flat_a.lerp(flat_b, float(k + 1) / float(n))
+		var seg := pa.distance_to(pb)
+		var ya := _ground_y(pa)
+		var yb := _ground_y(pb)
+		var mid := (pa + pb) * 0.5
+		var body := StaticBody3D.new()
+		body.collision_layer = 1
+		body.collision_mask = 0
+		body.position = Vector3(mid.x, (ya + yb) * 0.5, mid.z)
+		body.rotation = Vector3(-atan2(yb - ya, seg), atan2(pb.x - pa.x, pb.z - pa.z), 0.0)
+		_gen.add_child(body)
+		var cs := CollisionShape3D.new()
+		var bs := BoxShape3D.new()
+		bs.size = Vector3(width, height + sink, sqrt(seg * seg + (yb - ya) * (yb - ya)) + 0.05)
+		cs.shape = bs
+		cs.position = Vector3(0, (height + sink) * 0.5 - sink, 0)
+		body.add_child(cs)
+	_wall_mesh(flat_a, flat_b, width, height, sink, color)
+
+
+func _wall_mesh(a: Vector3, b: Vector3, width: float, height: float, sink: float, color: Color) -> void:
+	var dir := (b - a).normalized()
+	var side := Vector3(dir.z, 0.0, -dir.x) * (width * 0.5)
+	var n := maxi(1, int(ceil(a.distance_to(b) / 1.0)))
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var idx := PackedInt32Array()
+	var pts: Array[Vector3] = []
+	for i in n + 1:
+		var p := a.lerp(b, float(i) / float(n))
+		p.y = _ground_y(p)
+		pts.append(p)
+	# Faces: +side, -side, top. Each face gets its own verts (crisp box edges).
+	for face in 3:
+		var base := verts.size()
+		for i in n + 1:
+			var p := pts[i]
+			var lo := p + Vector3(0, -sink, 0)
+			var hi := p + Vector3(0, height, 0)
+			match face:
+				0:
+					verts.append(lo + side)
+					verts.append(hi + side)
+					norms.append(side.normalized())
+					norms.append(side.normalized())
+				1:
+					verts.append(lo - side)
+					verts.append(hi - side)
+					norms.append(-side.normalized())
+					norms.append(-side.normalized())
+				2:
+					verts.append(hi - side)
+					verts.append(hi + side)
+					var up := Vector3.UP
+					if i < n:
+						var t := pts[i + 1] - pts[i]
+						up = t.cross(side).normalized()
+						if up.y < 0.0:
+							up = -up
+					norms.append(up)
+					norms.append(up)
+		for i in n:
+			var v0 := base + i * 2
+			var v1 := v0 + 1
+			var v2 := v0 + 2
+			var v3 := v0 + 3
+			if face == 0:
+				idx.append_array([v0, v2, v1, v1, v2, v3])  # +side wall faces outward (clockwise)
+			else:
+				idx.append_array([v0, v1, v2, v1, v3, v2])
+	# End caps.
+	for e in 2:
+		var p := pts[0] if e == 0 else pts[n]
+		var base := verts.size()
+		var nn := -dir if e == 0 else dir
+		for v in [p + Vector3(0, -sink, 0) - side, p + Vector3(0, -sink, 0) + side, p + Vector3(0, height, 0) + side, p + Vector3(0, height, 0) - side]:
+			verts.append(v)
+			norms.append(nn)
+		if e == 0:
+			idx.append_array([base, base + 1, base + 2, base, base + 2, base + 3])
+		else:
+			idx.append_array([base, base + 2, base + 1, base, base + 3, base + 2])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.mesh = am
+	mi.material_override = _mat(color)
+	_gen.add_child(mi)
+
+
+func _drape_rect(center: Vector3, size_x: float, size_z: float, yaw: float, lift: float, color: Color) -> MeshInstance3D:
+	## Thin ground overlay (lane / bog / ditch) as a subdivided sheet lifted `lift` m above the
+	## terrain at every vertex, so it follows the surface instead of hiding under the hills.
+	var nx := maxi(1, int(ceil(size_x / 1.0)))
+	var nz := maxi(1, int(ceil(size_z / 1.0)))
+	var basis := Basis(Vector3.UP, yaw)
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	for iz in nz + 1:
+		for ix in nx + 1:
+			var local := Vector3((float(ix) / float(nx) - 0.5) * size_x, 0.0, (float(iz) / float(nz) - 0.5) * size_z)
+			var wp := center + basis * local
+			wp.y = _ground_y(wp) + lift
+			verts.append(wp)
+			norms.append(Terrain.normal_at(wp.x, wp.z))
+	var idx := PackedInt32Array()
+	for iz in nz:
+		for ix in nx:
+			var p00 := iz * (nx + 1) + ix
+			var p10 := p00 + 1
+			var p01 := p00 + nx + 1
+			var p11 := p01 + 1
+			idx.append_array([p00, p10, p01, p10, p11, p01])
+	return _sheet(verts, norms, idx, color)
+
+
+func _drape_disc(center: Vector3, rx: float, rz: float, lift: float, color: Color) -> MeshInstance3D:
+	## Elliptical ground overlay (lane joints, bog pools) draped like _drape_rect.
+	var segs := 16
+	var rings := 2
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var c := Vector3(center.x, _ground_y(center) + lift, center.z)
+	verts.append(c)
+	norms.append(Terrain.normal_at(c.x, c.z))
+	for r in range(1, rings + 1):
+		var f := float(r) / float(rings)
+		for i in segs:
+			var ang := TAU * float(i) / float(segs)
+			var wp := Vector3(center.x + cos(ang) * rx * f, 0.0, center.z + sin(ang) * rz * f)
+			wp.y = _ground_y(wp) + lift
+			verts.append(wp)
+			norms.append(Terrain.normal_at(wp.x, wp.z))
+	var idx := PackedInt32Array()
+	for i in segs:
+		var j := (i + 1) % segs
+		idx.append_array([0, 1 + i, 1 + j])  # clockwise from above = front
+	for r in range(1, rings):
+		var o0 := 1 + (r - 1) * segs
+		var o1 := 1 + r * segs
+		for i in segs:
+			var j := (i + 1) % segs
+			idx.append_array([o0 + i, o1 + i, o0 + j, o0 + j, o1 + i, o1 + j])
+	return _sheet(verts, norms, idx, color)
+
+
+func _sheet(verts: PackedVector3Array, norms: PackedVector3Array, idx: PackedInt32Array, color: Color) -> MeshInstance3D:
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.mesh = am
+	mi.material_override = _mat(color)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_gen.add_child(mi)
+	return mi
 
 
 func _label(pos: Vector3, text: String, size: int, color: Color) -> Label3D:

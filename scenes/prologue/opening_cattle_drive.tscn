@@ -38,10 +38,10 @@ fog_density = 0.0028
 size = Vector3(12.6, 2.4, 10.6)
 
 [sub_resource type="BoxShape3D" id="Shape_bog"]
-size = Vector3(20, 2, 20)
+size = Vector3(20, 9, 20)
 
 [sub_resource type="BoxShape3D" id="Shape_pasture"]
-size = Vector3(40, 2.4, 28)
+size = Vector3(40, 8, 28)
 
 [node name="OpeningCattleDrive" type="Node3D"]
 
@@ -97,7 +97,7 @@ monitorable = false
 shape = SubResource("Shape_home")
 
 [node name="BogZone" type="Area3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 34, 1, 118)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 34, 3.5, 118)
 collision_layer = 0
 collision_mask = 1
 monitorable = false
@@ -106,7 +106,7 @@ monitorable = false
 shape = SubResource("Shape_bog")
 
 [node name="PastureZone" type="Area3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25, 1.2, 192)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25, 3, 192)
 collision_layer = 0
 collision_mask = 2
 monitorable = false
@@ -145,6 +145,9 @@ cow_id = 5
 
 [node name="Player" parent="." instance=ExtResource("4_player")]
 transform = Transform3D(-0.5736, 0, -0.8192, 0, 1, 0, 0.8192, 0, -0.5736, -3, 0.1, 9)
+floor_constant_speed = true
+floor_max_angle = 0.8203
+floor_snap_length = 0.6
 
 
 [node name="FamilyCaller" type="Node3D" parent="."]

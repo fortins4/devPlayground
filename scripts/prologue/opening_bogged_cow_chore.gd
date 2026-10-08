@@ -12,8 +12,11 @@ const INTERACT_RANGE := 8.0
 const BOG_CENTER := Vector3(34.0, 0.0, 118.0)
 const BOG_HALF_XZ := Vector3(10.0, 0.0, 10.0)
 ## West (lane-facing) bog edge — readable from Bend6 (~-2,118).
+## Y is height above the local ground: the bog edge sits on the east roll's skirt, so the cow
+## is placed on the OpeningTerrain surface (see _ground()).
 const COW_SPAWN := Vector3(27.5, 0.1, 116.0)
 const FIRM_GROUND := Vector3(18.0, 0.1, 116.0)
+const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 @export var bog_zone_path: NodePath = ^"../BogZone"
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
@@ -80,7 +83,7 @@ func _spawn_cow() -> void:
 	if "cow_id" in _cow:
 		_cow.set("cow_id", 99)
 	add_child(_cow)
-	_cow.global_position = COW_SPAWN
+	_cow.global_position = _ground(COW_SPAWN)
 	# Face toward the lane (west).
 	_cow.rotation.y = PI * 0.5
 	if _cow.has_signal("goaded"):
@@ -140,13 +143,14 @@ func bog_state() -> String:
 func cow_pos() -> Vector3:
 	if _cow and is_instance_valid(_cow):
 		return _cow.global_position
-	return COW_SPAWN
+	return _ground(COW_SPAWN)
 
 
 func bog_zone_center() -> Vector3:
 	return BOG_CENTER
 
 
+## Authored spawn marker (y = lift above the local ground; the cow itself stands on the surface).
 func spawn_pos() -> Vector3:
 	return COW_SPAWN
 
@@ -175,7 +179,7 @@ func force_free() -> void:
 	if _cow == null or not is_instance_valid(_cow):
 		return
 	_goaded_while_bogged = true
-	_cow.global_position = FIRM_GROUND
+	_cow.global_position = _ground(FIRM_GROUND)
 	if _cow.has_method("set_bogged"):
 		_cow.call("set_bogged", false)
 	_complete()
@@ -187,7 +191,7 @@ func force_state(state_name: String) -> void:
 			_state = BogChoreState.BOGGED
 			_goaded_while_bogged = false
 			if _cow:
-				_cow.global_position = COW_SPAWN
+				_cow.global_position = _ground(COW_SPAWN)
 				_cow.velocity = Vector3.ZERO
 				if "driven" in _cow:
 					_cow.set("driven", false)
@@ -247,6 +251,11 @@ func _complete() -> void:
 
 
 # ---------------------------------------------------------------- helpers
+
+func _ground(p: Vector3) -> Vector3:
+	## p.y is a lift above the terrain surface at p.xz.
+	return Vector3(p.x, Terrain.surface_y(p.x, p.z) + p.y, p.z)
+
 
 func _inside_bog(p: Vector3) -> bool:
 	return (

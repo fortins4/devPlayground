@@ -9,6 +9,11 @@ class_name OpeningDriveDirector
 
 enum Stage { WALK_OUT, AT_HERD, DRIVING, SUCCESS }
 
+const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
+## Player below the shared terrain surface by more than this (m) → lift onto it (teleport guard;
+## normal walking is plain CharacterBody3D physics on the heightfield).
+const PLAYER_SINK_GUARD := 0.3
+
 signal stage_changed(stage: int, stage_name: String)
 signal cow_home(count: int, total: int)
 signal soft_success(home_count: int, total: int)
@@ -86,6 +91,15 @@ func _process(delta: float) -> void:
 	if stage == Stage.WALK_OUT and _player and is_instance_valid(_player):
 		if _player.global_position.distance_to(herd_centroid()) <= at_herd_radius:
 			_set_stage(Stage.AT_HERD)
+
+
+func _physics_process(_delta: float) -> void:
+	if _player and is_instance_valid(_player):
+		var p := _player.global_position
+		var gy := Terrain.surface_y(p.x, p.z)
+		if p.y < gy - PLAYER_SINK_GUARD:
+			_player.global_position = Vector3(p.x, gy + 0.05, p.z)
+			_player.set("velocity", Vector3.ZERO)
 
 
 func _unhandled_input(event: InputEvent) -> void:

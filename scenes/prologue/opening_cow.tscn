@@ -1,7 +1,37 @@
-[gd_scene load_steps=3 format=3 uid="uid://cq8riochtopencow01"]
+[gd_scene load_steps=5 format=3 uid="uid://cq8riochtopencow01"]
 
 [ext_resource type="PackedScene" uid="uid://cq8riochtraidcow01" path="res://scenes/world/raid/raid_cow.tscn" id="1_raidcow"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_cow.gd" id="2_opencow"]
 
+[sub_resource type="StandardMaterial3D" id="Mat_leg"]
+albedo_color = Color(0.3, 0.22, 0.15, 1)
+roughness = 0.92
+
+[sub_resource type="BoxMesh" id="Mesh_leg"]
+size = Vector3(0.14, 0.34, 0.14)
+
 [node name="OpeningCow" instance=ExtResource("1_raidcow")]
 script = ExtResource("2_opencow")
+floor_constant_speed = true
+floor_max_angle = 0.8203
+floor_snap_length = 0.6
+
+[node name="LegFL" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.34, 0.17, -0.5)
+mesh = SubResource("Mesh_leg")
+surface_material_override/0 = SubResource("Mat_leg")
+
+[node name="LegFR" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.34, 0.17, -0.5)
+mesh = SubResource("Mesh_leg")
+surface_material_override/0 = SubResource("Mat_leg")
+
+[node name="LegBL" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.34, 0.17, 0.5)
+mesh = SubResource("Mesh_leg")
+surface_material_override/0 = SubResource("Mat_leg")
+
+[node name="LegBR" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.34, 0.17, 0.5)
+mesh = SubResource("Mesh_leg")
+surface_material_override/0 = SubResource("Mat_leg")

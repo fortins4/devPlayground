@@ -7,6 +7,9 @@ extends "res://scripts/world/raid/raid_cow.gd"
 ##   proximity push, so the herd stalls and grazes unless the player keeps walking behind it.
 ## - Bog: a bogged cow loses drive freshness quickly → has to be goaded back out.
 ## - Delivered: ambles to an assigned pen slot instead of freezing on the gate line.
+## - Terrain: a physics body on the shared OpeningTerrain heightfield (scene floor_* overrides
+##   let it walk up / over the rolls and berms). A teleport that lands it under the surface is
+##   lifted back onto the ground so it can never end up walking flat under a hill.
 
 signal goaded(cow: Node3D, kind: StringName)
 
@@ -15,6 +18,16 @@ const FRESH_FULL_SECS := 4.5
 const BOG_DRAIN := 2.6
 const BOG_BIAS_SCALE := 0.35
 const SLOT_WALK_SPEED := 1.3
+const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
+## Below the walk surface by more than this (m) → snap back onto it (teleport guard).
+const SINK_GUARD := 0.25
+## Visual-only: body / head / legs lean with the ground under the cow (collider stays upright).
+const SLOPE_TILT_MAX_DEG := 24.0
+const SLOPE_TILT_RATE := 8.0
+const _TILT_NODES := ["MeshInstance3D", "Head", "LegFL", "LegFR", "LegBL", "LegBR"]
+
+var _tilt_base: Dictionary = {}
+var _tilt_q: Quaternion = Quaternion.IDENTITY
 
 var bogged: bool = false
 var start_position: Vector3 = Vector3.ZERO
@@ -27,6 +40,10 @@ func _ready() -> void:
 	super._ready()
 	start_position = global_position
 	_start_basis = global_transform.basis
+	for nm in _TILT_NODES:
+		var n := get_node_or_null(nm) as Node3D
+		if n:
+			_tilt_base[nm] = n.transform
 
 
 ## 0..1 — how much the last goad / proximity push still carries the cow along the lane.
@@ -78,6 +95,8 @@ func _soft_follow_velocity() -> Vector3:
 
 
 func _physics_process(delta: float) -> void:
+	_keep_on_terrain()
+	_tick_slope_tilt(delta)
 	if delivered and _has_slot:
 		_walk_to_slot(delta)
 		return
@@ -85,6 +104,36 @@ func _physics_process(delta: float) -> void:
 	if bogged and driven and not delivered:
 		_driven_timer = maxf(0.0, _driven_timer - delta * BOG_DRAIN)
 	_tick_label()
+
+
+func _keep_on_terrain() -> void:
+	var p := global_position
+	var gy := Terrain.surface_y(p.x, p.z)
+	if p.y < gy - SINK_GUARD:
+		global_position = Vector3(p.x, gy + 0.05, p.z)
+		velocity.y = 0.0
+
+
+func _tick_slope_tilt(delta: float) -> void:
+	## Lean the visible body with the shared terrain normal (local frame, yaw-independent).
+	if _tilt_base.is_empty():
+		return
+	var p := global_position
+	var n_world := Terrain.normal_at(p.x, p.z)
+	var n_local := (global_transform.basis.orthonormalized().inverse() * n_world).normalized()
+	var ang := Vector3.UP.angle_to(n_local)
+	var max_a := deg_to_rad(SLOPE_TILT_MAX_DEG)
+	var target := Quaternion.IDENTITY
+	if ang > 0.001:
+		var axis := Vector3.UP.cross(n_local).normalized()
+		target = Quaternion(axis, minf(ang, max_a))
+	_tilt_q = _tilt_q.slerp(target, clampf(SLOPE_TILT_RATE * delta, 0.0, 1.0))
+	var tb := Basis(_tilt_q)
+	for nm in _tilt_base:
+		var n := get_node_or_null(nm) as Node3D
+		if n:
+			var base: Transform3D = _tilt_base[nm]
+			n.transform = Transform3D(tb * base.basis, tb * base.origin)
 
 
 func _walk_to_slot(delta: float) -> void:
