@@ -39,7 +39,7 @@ fog_density = 0.0028
 size = Vector3(12.6, 2.4, 10.6)
 
 [sub_resource type="BoxShape3D" id="Shape_bog"]
-size = Vector3(20, 9, 20)
+size = Vector3(28, 9, 28)
 
 [sub_resource type="BoxShape3D" id="Shape_pasture"]
 size = Vector3(40, 8, 28)

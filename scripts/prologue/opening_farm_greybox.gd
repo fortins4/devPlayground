@@ -39,6 +39,12 @@ const C_BOG := Color(0.2, 0.25, 0.15)
 const C_BOG_WATER := Color(0.16, 0.2, 0.2)
 const C_SPRING_WATER := Color(0.35, 0.48, 0.52)  # clear farm spring (cooler than bog)
 const C_REED := Color(0.5, 0.52, 0.28)
+## Natural bog (back paddock): moss / peat ground paint, standing water, tussocks + rushes.
+const C_BOG_MOSS := Color(0.31, 0.37, 0.16)
+const C_BOG_PEAT := Color(0.23, 0.2, 0.13)
+const C_BOG_POOL := Color(0.05, 0.06, 0.05)
+const C_TUSSOCK := [Color(0.42, 0.45, 0.21), Color(0.33, 0.4, 0.17), Color(0.55, 0.5, 0.3)]
+const C_RUSH := [Color(0.34, 0.44, 0.19), Color(0.48, 0.5, 0.26)]
 const C_DITCH := Color(0.17, 0.2, 0.14)
 const C_BANK := Color(0.3, 0.38, 0.22)
 const C_HEDGE := Color(0.2, 0.33, 0.17)
@@ -141,16 +147,43 @@ func _build_ground() -> void:
 		Terrain.MIN_X + float(w - 1) * 0.5 * Terrain.STEP, 0.0, Terrain.MIN_Z + float(d - 1) * 0.5 * Terrain.STEP)
 	terrain_cs.scale = Vector3(Terrain.STEP, 1.0, Terrain.STEP)
 	ground.add_child(terrain_cs)
-	# Flat far-field backstop outside the heightfield window (2 cm under grade, never the floor
-	# inside the window).
-	var shape := CollisionShape3D.new()
-	var bs := BoxShape3D.new()
-	bs.size = Vector3(420.0, 1.0, 460.0)
-	shape.shape = bs
-	shape.position = Vector3(-10.0, -0.52, 80.0)
-	ground.add_child(shape)
-	_mesh_box(ground, Vector3(-10.0, -0.07, 80.0), Vector3(420.0, 0.1, 460.0), C_GRASS)
+	# Flat far-field backstop + grass sheet OUTSIDE the heightfield window (2 cm under grade): a
+	# frame of four slabs around the window (overlapping it by 0.5 m), so neither floors nor
+	# paints over the bog dip inside it.
+	# Plus a deep safety net under everything (top 1.5 m down, below the dip floor).
+	var far := Rect2(-220.0, -150.0, 420.0, 460.0)  # old single backstop's XZ extent
+	var win := Rect2(Terrain.MIN_X + 0.5, Terrain.MIN_Z + 0.5,
+		float(w - 1) * Terrain.STEP - 1.0, float(d - 1) * Terrain.STEP - 1.0)
+	var slabs := [
+		Rect2(far.position.x, far.position.y, far.size.x, win.position.y - far.position.y),  # north
+		Rect2(far.position.x, win.end.y, far.size.x, far.end.y - win.end.y),  # south
+		Rect2(far.position.x, win.position.y, win.position.x - far.position.x, win.size.y),  # west
+		Rect2(win.end.x, win.position.y, far.end.x - win.end.x, win.size.y),  # east
+	]
+	for r: Rect2 in slabs:
+		var slab := CollisionShape3D.new()
+		var sb := BoxShape3D.new()
+		sb.size = Vector3(r.size.x, 1.0, r.size.y)
+		slab.shape = sb
+		slab.position = Vector3(r.get_center().x, -0.52, r.get_center().y)
+		ground.add_child(slab)
+		# Matching far-field grass sheet (same frame — never drawn over the bog dip).
+		_mesh_box(ground, Vector3(r.get_center().x, -0.07, r.get_center().y), Vector3(r.size.x, 0.1, r.size.y), C_GRASS)
+	var net := CollisionShape3D.new()
+	var nb := BoxShape3D.new()
+	nb.size = Vector3(far.size.x, 1.0, far.size.y)
+	net.shape = nb
+	net.position = Vector3(far.get_center().x, -2.0, far.get_center().y)
+	ground.add_child(net)
 	_build_terrain_mesh(hs, w, d)
+
+
+func _bog_ground(x: float, z: float, h: float) -> Color:
+	var n := Terrain._bnoise().get_noise_2d(x * 0.9 + 100.0, z * 0.9 - 60.0)
+	var c := C_BOG_MOSS.lerp(C_BOG_PEAT, clampf(0.5 + n * 1.4, 0.0, 1.0))
+	# Wet floor reads darker: up to ~35 % darker near the water line.
+	var wet := clampf((-h - 0.2) / maxf(-Terrain.BOG_WATER_Y - 0.2, 0.01), 0.0, 1.0)
+	return c.darkened(0.35 * wet)
 
 
 func _build_terrain_mesh(hs: PackedFloat32Array, w: int, d: int) -> void:
@@ -184,6 +217,12 @@ func _build_terrain_mesh(hs: PackedFloat32Array, w: int, d: int) -> void:
 					var f := Terrain.cap_value(caps[dom], x, z)
 					var k := smoothstep(-Terrain.FILLET * 0.6, Terrain.FILLET * 0.6, f)
 					c = base.lerp(caps[dom]["color"], k)
+			# Natural bog: blended into the grass by the terrain's own soft bog mask (no overlay
+			# slab, no rim) — mottled moss / peat, darker toward the wet floor.
+			if absf(x - Terrain.BOG_CX) < Terrain.BOG_EXTENT and absf(z - Terrain.BOG_CZ) < Terrain.BOG_EXTENT:
+				var bm := Terrain.bog_mask(x, z)
+				if bm > 0.0:
+					c = c.lerp(_bog_ground(x, z, h), bm)
 			cols[i] = c
 			var hl := hs[iz * w + maxi(ix - 1, 0)]
 			var hr := hs[iz * w + mini(ix + 1, w - 1)]
@@ -395,31 +434,131 @@ func _build_pasture() -> void:
 
 
 func _build_bog() -> void:
-	## Bog in the back paddock behind the pasture's south ridge, resting on the ground it sits on.
-	var box := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0))
-	var c := box.get_center()
-	_drape_rect(Vector3(c.x, 0.0, c.z), box.size.x, box.size.z, 0.0, 0.03, C_BOG)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 4471
-	for i in 7:
-		var px := rng.randf_range(box.position.x + 2.0, box.end.x - 2.0)
-		var pz := rng.randf_range(box.position.z + 2.0, box.end.z - 2.0)
-		var sx := rng.randf_range(1.0, 2.4)
-		var sz := rng.randf_range(0.8, 1.8)
-		_drape_disc(Vector3(px, 0.0, pz), sx, sz, 0.06, C_BOG_WATER)
-	for i in 46:
-		var px := rng.randf_range(box.position.x, box.end.x)
-		var pz := rng.randf_range(box.position.z, box.end.z)
-		var h := rng.randf_range(0.6, 1.3)
-		_mesh_box(_gen, _on_ground(Vector3(px, h * 0.5 - 0.05, pz)), Vector3(0.08, h, 0.08), C_REED)
-	# Bog-cotton tufts.
-	for i in 18:
-		var px := rng.randf_range(box.position.x, box.end.x)
-		var pz := rng.randf_range(box.position.z, box.end.z)
-		_mesh_sphere(_gen, _on_ground(Vector3(px, 0.35, pz)), 0.12, C_STAKE_TOP)
+	## Natural bog in the back paddock behind the pasture's south ridge. The ground itself is the
+	## bog: OpeningTerrain sinks an organic, noise-wobbled dip (shared collider + mesh) and the
+	## terrain mesh paints it by the same soft mask. On top: standing water where the dip floor
+	## drops below the water line, then tussocks, rush clumps and bog cotton scattered by the mask.
+	_build_bog_water()
+	_build_bog_plants()
 	# Extra visual bog patches west of the lane (draped on whatever ground they sit on).
 	_build_bog_patch(Vector3(-10.0, 0.0, 100.0), Vector3(14.0, 2.0, 10.0), 5521)
 	_build_bog_patch(Vector3(-55.0, 0.0, 160.0), Vector3(18.0, 2.0, 14.0), 7733)
+
+
+func _build_bog_water() -> void:
+	## One flat sheet at BOG_WATER_Y over every grid cell that dips below it; the terrain hides it
+	## wherever the ground stands higher, so the pool shorelines follow the hummocks.
+	var wy := Terrain.BOG_WATER_Y
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var idx := PackedInt32Array()
+	var e := int(Terrain.BOG_EXTENT)
+	for iz in range(-e, e):
+		for ix in range(-e, e):
+			var x0 := Terrain.BOG_CX + float(ix)
+			var z0 := Terrain.BOG_CZ + float(iz)
+			var lo := minf(minf(_ground_y(Vector3(x0, 0, z0)), _ground_y(Vector3(x0 + 1.0, 0, z0))),
+				minf(_ground_y(Vector3(x0, 0, z0 + 1.0)), _ground_y(Vector3(x0 + 1.0, 0, z0 + 1.0))))
+			if lo >= wy:
+				continue
+			var b := verts.size()
+			verts.append_array([Vector3(x0, wy, z0), Vector3(x0 + 1.0, wy, z0), Vector3(x0, wy, z0 + 1.0), Vector3(x0 + 1.0, wy, z0 + 1.0)])
+			for k in 4:
+				norms.append(Vector3.UP)
+			idx.append_array([b, b + 1, b + 2, b + 1, b + 3, b + 2])
+	if verts.is_empty():
+		return
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.name = "BogWater"
+	mi.mesh = am
+	var m := StandardMaterial3D.new()
+	# Dark peaty water: low specular so a bright sky doesn't turn it pale slate (esp. edge-on).
+	m.albedo_color = C_BOG_POOL
+	m.roughness = 0.35
+	m.metallic_specular = 0.2
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = m
+	_gen.add_child(mi)
+
+
+func _build_bog_plants() -> void:
+	## Tussocks + rush clumps + bog cotton, merged into one mesh per colour (few draw calls).
+	## Denser inside, thinning across the soft edge (a few stray tussocks just outside it), never
+	## standing in open water.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4471
+	var tools := {}
+	var sphere := SphereMesh.new()
+	sphere.radius = 1.0
+	sphere.height = 2.0
+	sphere.radial_segments = 10
+	sphere.rings = 5
+	var blade := BoxMesh.new()
+	blade.size = Vector3.ONE
+	var ext := Terrain.BOG_EXTENT
+	var placed_t := 0
+	var placed_r := 0
+	var tries := 0
+	while (placed_t < 70 or placed_r < 38) and tries < 4000:
+		tries += 1
+		var p := Vector3(Terrain.BOG_CX + rng.randf_range(-ext, ext), 0.0, Terrain.BOG_CZ + rng.randf_range(-ext, ext))
+		var m := Terrain.bog_mask(p.x, p.z)
+		if m < 0.04:
+			continue
+		var gy := _ground_y(p)
+		if gy < Terrain.BOG_WATER_Y + 0.04:
+			continue  # open water
+		var keep := 0.15 + 0.85 * m
+		if rng.randf() > keep:
+			continue
+		if placed_t < 70 and (placed_r >= 38 or rng.randf() < 0.62):
+			var r := rng.randf_range(0.28, 0.6) * (0.6 + 0.4 * m)
+			var col: Color = C_TUSSOCK[rng.randi() % C_TUSSOCK.size()]
+			var xf := Transform3D(Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(r, r * rng.randf_range(0.45, 0.7), r * rng.randf_range(0.8, 1.2))), Vector3(p.x, gy - r * 0.12, p.z))
+			_st_append(tools, col, sphere, xf)
+			placed_t += 1
+		elif placed_r < 38 and m > 0.3:
+			var blades := rng.randi_range(6, 11)
+			for b in blades:
+				var h := rng.randf_range(0.5, 1.25)
+				var off := Vector3(rng.randf_range(-0.28, 0.28), 0.0, rng.randf_range(-0.28, 0.28))
+				var tilt := Basis.from_euler(Vector3(rng.randf_range(-0.3, 0.3), rng.randf() * TAU, rng.randf_range(-0.3, 0.3)))
+				var base := Vector3(p.x, gy - 0.05, p.z) + off
+				var xf := Transform3D(tilt.scaled(Vector3(0.035, h, 0.035)), base + tilt * Vector3(0, h * 0.5, 0))
+				_st_append(tools, C_RUSH[rng.randi() % C_RUSH.size()], blade, xf)
+			placed_r += 1
+	# Bog cotton: small white heads on the drier hummocks.
+	for i in 26:
+		var p := Vector3(Terrain.BOG_CX + rng.randf_range(-ext, ext), 0.0, Terrain.BOG_CZ + rng.randf_range(-ext, ext))
+		if Terrain.bog_mask(p.x, p.z) < 0.5 or _ground_y(p) < Terrain.BOG_WATER_Y + 0.06:
+			continue
+		var xf := Transform3D(Basis().scaled(Vector3.ONE * 0.075), Vector3(p.x, _ground_y(p) + rng.randf_range(0.25, 0.45), p.z))
+		_st_append(tools, C_STAKE_TOP, sphere, xf)
+	for key in tools:
+		var st: SurfaceTool = tools[key][0]
+		st.generate_normals()
+		var mi := MeshInstance3D.new()
+		mi.name = "BogPlants"
+		mi.mesh = st.commit()
+		mi.material_override = _mat(tools[key][1])
+		_gen.add_child(mi)
+	print("OPENING_BOG_NATURAL tussocks=%d rush_clumps=%d" % [placed_t, placed_r])
+
+
+func _st_append(tools: Dictionary, col: Color, mesh: Mesh, xf: Transform3D) -> void:
+	var key := col.to_html()
+	if not tools.has(key):
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		tools[key] = [st, col]
+	(tools[key][0] as SurfaceTool).append_from(mesh, 0, xf)
 
 
 func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
@@ -446,7 +585,7 @@ func _build_bog_patch(center: Vector3, size: Vector3, seed_val: int) -> void:
 
 
 func _back_gap_x() -> float:
-	return _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0)).get_center().x
+	return _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(28.0, 2.0, 28.0)).get_center().x
 
 
 func _build_edges() -> void:
@@ -470,9 +609,6 @@ func _build_edges() -> void:
 	_drape_wall(Vector3(PADDOCK_X0, 0, PADDOCK_Z1), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
 	# North hedge behind the farmstead.
 	_drape_wall(Vector3(-35.0, 0, -14.0), Vector3(35.0, 0, -14.0), 1.4, 1.8, C_HEDGE)
-	# Short ditch along the bog's herd-facing (north) side (visual cue: "wet ground starts here").
-	var box := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0))
-	_drape_rect(Vector3(box.get_center().x, 0.0, box.position.z - 0.6), box.size.x + 2.0, 1.0, 0.0, 0.025, C_DITCH)
 
 
 func _build_ringfort(center: Vector3, radius: float) -> void:
@@ -519,7 +655,7 @@ func _build_trees(path: Array[Vector3]) -> void:
 			continue
 		if p.x > -18.0 and p.x < 20.0 and p.z > -10.0 and p.z < 18.0:
 			continue  # farmstead
-		var bog := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0)).grow(1.0)
+		var bog := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(28.0, 2.0, 28.0)).grow(1.0)
 		var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0)).grow(1.0)
 		if _in_xz(bog, p) or _in_xz(pas, p):
 			continue
@@ -542,8 +678,7 @@ func _build_labels(path: Array[Vector3]) -> void:
 	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
 	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
 	_label(_on_ground(Vector3(pas.get_center().x, 4.5, pas.get_center().z - 6.0)), "Secluded pasture", 46, Color(0.85, 0.95, 0.7))
-	var bog := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(20.0, 2.0, 20.0))
-	_label(_on_ground(Vector3(bog.get_center().x, 2.6, bog.get_center().z)), "Bog edge — cattle bog down here", 34, Color(0.75, 0.85, 0.6))
+	# No "Bog edge" sign: the natural patch (dip, peat, pools, rushes) reads on its own.
 	_label(_on_ground(Vector3(-27.0, 2.4, 40.0)), "Ditch (farm edge)", 30, Color(0.7, 0.8, 0.6))
 	if path.size() >= 2:
 		_label(path[0] + Vector3(-3.8, 2.3, 0), "Lane to the pasture ↓", 32, Color(0.95, 0.88, 0.6))

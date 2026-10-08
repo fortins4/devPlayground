@@ -241,8 +241,8 @@ func _drive_text() -> String:
 			return "Regather the strays — %d scattered off the lane. Goad them back to the herd.  (home %d/%d)" % [
 				int(d.call("scattered_count")), home, need]
 	var s := "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre.  (home %d/%d)" % [home, need]
-	if int(d.call("bogged_count")) > 0:
-		s += "  %d in the bog — goad them out!" % int(d.call("bogged_count"))
+	if int(d.call("hud_bogged_count")) > 0:
+		s += "  %d in the bog — goad them out!" % int(d.call("hud_bogged_count"))
 	elif int(d.call("stalled_count")) > 0:
 		s += "  %d grazing — keep pushing." % int(d.call("stalled_count"))
 	if home > 0 and home < need:

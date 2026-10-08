@@ -18,10 +18,10 @@ enum BogChoreState { BOGGED, FREED, REJOINED }
 
 const COW_SCENE := preload("res://scenes/prologue/opening_cow.tscn")
 const INTERACT_RANGE := 8.0
-## BogZone center/size from opening_cattle_drive (transform -25,3.5,242 · box 20×20): the back
-## paddock behind the pasture's south ridge (OpeningTerrain "pasture_south_ridge").
+## Bog centre (OpeningTerrain BOG_CX/BOG_CZ): the natural patch in the back paddock behind the
+## pasture's south ridge. "In the bog" is OpeningTerrain.in_bog() — the patch's own organic
+## outline; the BogZone Area3D (28×28 box) only bounds it.
 const BOG_CENTER := Vector3(-25.0, 0.0, 242.0)
-const BOG_HALF_XZ := Vector3(10.0, 0.0, 10.0)
 ## North (herd-facing) bog edge, 3.5 m in — same margin as the old lane-side spawn, so the
 ## goad-out is unchanged, just pointed north toward the ridge and the herd.
 ## Y is height above the local ground (the cow is placed on the OpeningTerrain surface).
@@ -282,8 +282,9 @@ func interact_prompt() -> String:
 	return "Goad her out of the bog onto firm ground (3 goad · LMB / RMB)"
 
 
+## HUD "E interact" hint etc.: only once her beat is live (no early tell on the walk out).
 func is_active() -> bool:
-	return _state == BogChoreState.BOGGED
+	return _state == BogChoreState.BOGGED and _gate_open()
 
 
 func force_free() -> void:
@@ -387,6 +388,7 @@ func _on_bog_entered(body: Node3D) -> void:
 
 
 func _on_bog_exited(body: Node3D) -> void:
+	# Leaving the bounding box means she's well past the organic edge too.
 	if body != _cow or _state != BogChoreState.BOGGED:
 		return
 	if _cow.has_method("set_bogged"):
@@ -575,10 +577,7 @@ func _ground(p: Vector3) -> Vector3:
 
 
 func _inside_bog(p: Vector3) -> bool:
-	return (
-		absf(p.x - BOG_CENTER.x) <= BOG_HALF_XZ.x
-		and absf(p.z - BOG_CENTER.z) <= BOG_HALF_XZ.z
-	)
+	return Terrain.in_bog(p)
 
 
 func _near(a: Vector3, b: Vector3, range_m: float) -> bool:

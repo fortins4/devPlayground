@@ -90,6 +90,7 @@ var _beat: String = ""
 ## Missing-cow beat latch: set the first time the player reaches the herd while the drive step is
 ## live (survives R / T). Until then the bogged cow is hidden, silent and can't be freed.
 var _missing_seen: bool = false
+var _in_bog_box: Array[Node3D] = []
 
 
 func _ready() -> void:
@@ -140,6 +141,7 @@ func _process(delta: float) -> void:
 	if _flash_timer > 0.0:
 		_flash_timer -= delta
 	_sync_herd_lock()
+	_tick_bog_patch()
 	if stage == Stage.WALK_OUT and _player and is_instance_valid(_player):
 		if _player.global_position.distance_to(herd_centroid()) <= at_herd_radius:
 			_set_stage(Stage.AT_HERD)
@@ -231,6 +233,24 @@ func stalled_count() -> int:
 func bogged_count() -> int:
 	var n := 0
 	for cow in _cows:
+		if bool(cow.get("bogged")):
+			n += 1
+	return n
+
+
+## The bogged cow may be shown / counted on the HUD: always standalone; in the set-sequence flow
+## only once the missing-cow beat has opened at the pasture (or she's already out of the bog).
+## Before that, nothing on the HUD (status line, objective suffix, flashes) may give her away.
+func bog_revealed() -> bool:
+	return _seq() == null or _missing_seen or bogged_cow_state() != "bogged"
+
+
+## HUD-facing bog count: bogged_count() minus her while she's still a secret (see bog_revealed).
+func hud_bogged_count() -> int:
+	var n := 0
+	for cow in _cows:
+		if cow == _bog_cow and not bog_revealed():
+			continue
 		if bool(cow.get("bogged")):
 			n += 1
 	return n
@@ -348,8 +368,8 @@ func objective_text() -> String:
 			return "The herd is grazing. Draw the goad (3) and prod a cow (LMB / RMB) to stir them."
 		Stage.DRIVING:
 			var bits := "Walk BEHIND the herd, goad drawn, facing them — push them up the lane to the home pen."
-			if bogged_count() > 0:
-				bits += "  %d in the bog — goad them out!" % bogged_count()
+			if hud_bogged_count() > 0:
+				bits += "  %d in the bog — goad them out!" % hud_bogged_count()
 			elif stalled_count() > 0:
 				bits += "  %d grazing — keep pushing." % stalled_count()
 			return bits
@@ -359,9 +379,12 @@ func objective_text() -> String:
 
 
 func status_text() -> String:
-	var s := "Home pen  %d / %d   (need %d)\nDrove %d  ·  grazing %d  ·  bogged %d" % [
-		home_count(), _cows.size(), need_count(), driven_count(), stalled_count(), bogged_count()
+	var s := "Home pen  %d / %d   (need %d)\nDrove %d  ·  grazing %d" % [
+		home_count(), _cows.size(), need_count(), driven_count(), stalled_count()
 	]
+	# The bog tally only appears once she's no secret (missing-cow beat open, or freed).
+	if bog_revealed():
+		s += "  ·  bogged %d" % hud_bogged_count()
 	if scattered_count() > 0:
 		s += "\nScattered %d — regather" % scattered_count()
 	return s
@@ -775,16 +798,31 @@ func _next_pen_slot() -> Vector3:
 	return Vector3(home.x - 4.2 + float(col) * 2.8, home.y, home.z - 3.0 + float(row) * 2.4)
 
 
+## BogZone is only the natural patch's bounding box: cows inside it are tracked and bog down /
+## come free by the patch's organic outline (OpeningTerrain.in_bog). Her stuck spell while
+## "bogged" belongs to the bog chore.
 func _on_bog_entered(body: Node3D) -> void:
-	if body and _cows.has(body) and body.has_method("set_bogged"):
-		body.call("set_bogged", true)
-		if stage == Stage.DRIVING:
-			_flash("A cow has wandered into the bog — goad it back onto the lane.", 3.0)
+	if body and _cows.has(body) and body.has_method("set_bogged") and not _in_bog_box.has(body):
+		_in_bog_box.append(body)
 
 
 func _on_bog_exited(body: Node3D) -> void:
-	if body and _cows.has(body) and body.has_method("set_bogged"):
+	_in_bog_box.erase(body)
+	if body == _bog_cow and bogged_cow_state() == "bogged":
+		return
+	if body and _cows.has(body) and body.has_method("set_bogged") and bool(body.get("bogged")):
 		body.call("set_bogged", false)
+
+
+func _tick_bog_patch() -> void:
+	for cow in _in_bog_box:
+		if not is_instance_valid(cow) or (cow == _bog_cow and bogged_cow_state() == "bogged"):
+			continue
+		var inside := Terrain.in_bog(cow.global_position)
+		if inside != bool(cow.get("bogged")):
+			cow.call("set_bogged", inside)
+			if inside and stage == Stage.DRIVING:
+				_flash("A cow has wandered into the bog — goad it back out.", 3.0)
 
 
 func _set_stage(next: Stage) -> void:

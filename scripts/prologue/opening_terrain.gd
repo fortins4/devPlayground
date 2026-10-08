@@ -26,6 +26,22 @@ const C_GRASS := Color(0.36, 0.47, 0.27)
 const C_BANK := Color(0.3, 0.38, 0.22)
 const C_HEDGE := Color(0.2, 0.33, 0.17)
 
+## --- Back-paddock bog: an organic patch with a shallow dip, applied AFTER the cap union (so it
+## sinks whatever ground it sits on). Outline = mean radius with a few fixed harmonics plus a
+## low-frequency noise wobble; everything (dip, hummocks, colour blend, stuck test) keys off the
+## one signed edge distance bog_edge(), so the collider, mesh, paint and gameplay agree.
+const BOG_CX := -25.0
+const BOG_CZ := 242.0
+const BOG_R := 8.6           # mean outline radius (m)
+const BOG_EXTENT := 14.0     # nothing bog-related beyond this radius (outline max ≈ 12.2)
+const BOG_BLEND := 2.2       # soft colour/mask band inside the outline (m)
+const BOG_FEATHER := 0.6     # ... and how far it feathers out past it (m)
+const BOG_DIP := 0.45        # depth of the dip at its floor (m)
+const BOG_HUMMOCK := 0.2     # hummock relief inside the dip (± m)
+## Standing water level (absolute y): pools show wherever the dip floor drops below it.
+const BOG_WATER_Y := -0.53
+
+static var _bog_noise: FastNoiseLite = null
 static var _caps: Array = []  # [{cx, cz, rx, rz, ry, sink, color, kind, name}]
 static var _mouth_x: float = -28.0
 static var _heights: PackedFloat32Array = PackedFloat32Array()
@@ -142,7 +158,58 @@ static func height_at(x: float, z: float) -> float:
 		var f := cap_value(cap, x, z)
 		if f > acc - FILLET:
 			acc = _smax(acc, f, FILLET)
-	return acc
+	return acc - bog_depth(x, z)
+
+
+# ---------------------------------------------------------------- bog patch
+
+static func _bnoise() -> FastNoiseLite:
+	if _bog_noise == null:
+		_bog_noise = FastNoiseLite.new()
+		_bog_noise.seed = 7137
+		_bog_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		_bog_noise.frequency = 0.16
+		_bog_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+		_bog_noise.fractal_octaves = 2
+	return _bog_noise
+
+
+## Signed distance-ish (m) from xz to the bog outline: + inside, − outside.
+static func bog_edge(x: float, z: float) -> float:
+	var dx := x - BOG_CX
+	var dz := z - BOG_CZ
+	var d := sqrt(dx * dx + dz * dz)
+	if d > BOG_EXTENT:
+		return -(d - BOG_EXTENT) - 2.0
+	var a := atan2(dz, dx)
+	var r := BOG_R * (1.0 + 0.17 * sin(3.0 * a + 0.6) + 0.10 * sin(5.0 * a + 2.4) + 0.05 * sin(9.0 * a + 1.1))
+	r += 1.1 * _bnoise().get_noise_2d(x, z)
+	return r - d
+
+
+## 0 on firm grass → 1 inside the bog, soft across the edge (colour blend + stuck test).
+static func bog_mask(x: float, z: float) -> float:
+	return smoothstep(-BOG_FEATHER, BOG_BLEND, bog_edge(x, z))
+
+
+## The bog's slow/stuck zone follows the same outline (mask ≥ 0.5 ≈ 0.8 m inside the edge).
+static func in_bog(p: Vector3) -> bool:
+	return bog_mask(p.x, p.z) >= 0.5
+
+
+## How far the ground drops at xz (0 outside): a shallow bowl easing in from the feathered edge
+## to BOG_DIP ~3.5 m in, with hummocks (tussock mounds / pool hollows) on the floor.
+static func bog_depth(x: float, z: float) -> float:
+	var dx := x - BOG_CX
+	var dz := z - BOG_CZ
+	if dx * dx + dz * dz > BOG_EXTENT * BOG_EXTENT:
+		return 0.0
+	var e := bog_edge(x, z)
+	if e <= -BOG_FEATHER:
+		return 0.0
+	var prof := smoothstep(-BOG_FEATHER, 3.5, e)
+	var hum := BOG_HUMMOCK * _bnoise().get_noise_2d(x * 1.25 + 40.0, z * 1.25 - 17.0) * 1.8
+	return prof * (BOG_DIP - hum)
 
 
 ## Index of the cap that dominates xz (highest signed value), or -1 on open field.
@@ -184,6 +251,15 @@ static func bake() -> PackedFloat32Array:
 				var a := hs[row + ix]
 				if f > a - FILLET:
 					hs[row + ix] = _smax(a, f, FILLET)
+	# Bog dip, after the union (same order as height_at).
+	var bx0 := maxi(0, int(floor((BOG_CX - BOG_EXTENT - MIN_X) / STEP)))
+	var bx1 := mini(w - 1, int(ceil((BOG_CX + BOG_EXTENT - MIN_X) / STEP)))
+	var bz0 := maxi(0, int(floor((BOG_CZ - BOG_EXTENT - MIN_Z) / STEP)))
+	var bz1 := mini(d - 1, int(ceil((BOG_CZ + BOG_EXTENT - MIN_Z) / STEP)))
+	for iz in range(bz0, bz1 + 1):
+		var z := MIN_Z + float(iz) * STEP
+		for ix in range(bx0, bx1 + 1):
+			hs[iz * w + ix] -= bog_depth(MIN_X + float(ix) * STEP, z)
 	_heights = hs
 	_baked_for = _mouth_x
 	return _heights
