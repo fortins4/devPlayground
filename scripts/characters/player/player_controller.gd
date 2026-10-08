@@ -65,6 +65,10 @@ var _weapon_base_y: float = 1.05
 ## FULL bog body-drag: slow move while dragging a corpse. No stamina (removed).
 var dragging_body: Node3D = null
 
+## Deep bog: crouch in deep water slips him to the shoulders / under (PlayerBogSubmerge).
+## Breath lives there and only while fully under: no meter on land, no effect on attacks or sprint.
+var bog: PlayerBogSubmerge = null
+
 ## Horse traversal (greybox mount).
 var is_mounted: bool = false
 var mounted_horse: Node3D = null
@@ -264,6 +268,10 @@ func _ready() -> void:
 		combat.weapon_changed.connect(_on_weapon_changed)
 		combat.charge_updated.connect(_on_charge_updated)
 		combat.charge_cancelled.connect(_on_charge_cancelled)
+	bog = PlayerBogSubmerge.new()
+	bog.name = "BogSubmerge"
+	add_child(bog)
+	bog.setup(self)
 	if collision_shape and collision_shape.shape is CapsuleShape3D:
 		_capsule_shape = collision_shape.shape as CapsuleShape3D
 	if hurtbox_shape and hurtbox_shape.shape is CapsuleShape3D:
@@ -334,6 +342,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if is_mounted:
 		return
 
+	# Sunk in the bog: no strikes and no kit changes (a draw would break the
+	# surface). The one strike is the ambush rise when a guard is in reach.
+	if bog and bog.blocks_combat_input():
+		if event.is_action_pressed("attack_light") or event.is_action_pressed("attack_heavy"):
+			bog.request_ambush()
+		return
+
 	# Mouse aim while charging selects strike arc (top / left / right).
 	if combat.is_charging and event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_charge_aim_delta += (event as InputEventMouseMotion).relative
@@ -398,12 +413,19 @@ func _physics_process(delta: float) -> void:
 		or _goad_release_live
 		or _swing_arc_live
 	)
-	var want_crouch := Input.is_action_pressed("crouch") and is_on_floor() and not locked
+	var crouch_held := Input.is_action_pressed("crouch")
+	var want_crouch := crouch_held and is_on_floor() and not locked
 	# Stay crouched mid-air until land if already crouching; no jump while crouched.
 	if not is_on_floor() and is_crouching:
 		want_crouch = true
+	if bog:
+		# After a gasp or the ambush rise he stays up until crouch is let go.
+		want_crouch = bog.filter_crouch(want_crouch, crouch_held)
 	is_crouching = want_crouch
 	_apply_crouch_visual(delta)
+	if bog:
+		# Deep water layers on the crouch: wade / shoulders / under, eased.
+		bog.tick(delta, is_crouching, Vector3(velocity.x, 0.0, velocity.z).length())
 
 	var dragging := dragging_body != null and is_instance_valid(dragging_body)
 	if not locked and not is_crouching and not dragging and (_jump_buffered or Input.is_action_just_pressed("jump")) and is_on_floor():
@@ -419,6 +441,7 @@ func _physics_process(delta: float) -> void:
 		and not locked
 		and not is_crouching
 		and not dragging
+		and not (bog and bog.blocks_sprint())
 	)
 	var sprinting := false
 	if want_sprint and combat:
@@ -440,6 +463,8 @@ func _physics_process(delta: float) -> void:
 		target_speed = CROUCH_SPEED
 	elif sprinting:
 		target_speed = SPRINT_SPEED
+	if bog:
+		target_speed = bog.limit_speed(target_speed)
 	if move_locked:
 		target_speed = 0.0
 		direction = Vector3.ZERO
@@ -454,6 +479,11 @@ func _physics_process(delta: float) -> void:
 		horiz = horiz.move_toward(Vector3.ZERO, DECEL * delta)
 	velocity.x = horiz.x
 	velocity.z = horiz.z
+	if bog and bog.is_lunging():
+		# Ambush rise: close to jab reach on the guard while coming up.
+		var lunge := bog.lunge_velocity()
+		velocity.x = lunge.x
+		velocity.z = lunge.z
 
 	if combat:
 		var kb: Vector3 = combat.consume_knockback()
@@ -1380,6 +1410,12 @@ func _resolve_look_face_from(delta: Vector2) -> StringName:
 ##   look up    → high    look down  → low (guard only, not a jab)
 ##   centered   → chest
 func _resolve_shaft_guard_face() -> StringName:
+	# Crouched in deep bog the guard face is pinned (chest at the shoulders,
+	# low once under) so a look can't lift the shaft out of the water.
+	if bog:
+		var pinned := bog.forced_guard_face()
+		if pinned != &"":
+			return pinned
 	return _resolve_look_face_from(_tool_aim_delta)
 
 
@@ -1458,21 +1494,73 @@ func _update_noise(speed: float, sprinting: bool) -> void:
 		_noise_level = 0.85 + clampf(speed / SPRINT_SPEED, 0.0, 1.0) * 0.15
 	else:
 		_noise_level = 0.45 + clampf(speed / WALK_SPEED, 0.0, 1.0) * 0.25
+	if bog:
+		# Sunk creep is under the hearing floor; slip-in / surface splashes and
+		# the out-of-breath gasp are loud.
+		_noise_level = bog.filter_noise(_noise_level, speed)
 
 
 ## Used by DetectionSensor LOS aim (chest/head height).
 func get_visibility_point() -> Vector3:
 	var height := lerpf(1.45, 0.72, _crouch_blend)
-	return global_position + Vector3(0.0, height, 0.0)
+	var p := global_position + Vector3(0.0, height, 0.0)
+	if bog:
+		p = bog.visibility_point(p)
+	return p
 
 
 func get_noise_level() -> float:
 	return _noise_level
 
 
-## Visual silhouette factor: crouch is harder to spot at range.
+## Loud events (bog gasp) carry past normal hearing range. 0 = use the sensor's own.
+func get_noise_radius() -> float:
+	return bog.noise_radius() if bog else 0.0
+
+
+## Visual silhouette factor: crouch is harder to spot at range; sunk in deep bog far more so.
 func get_visibility_factor() -> float:
-	return lerpf(1.0, 0.55, _crouch_blend)
+	var f := lerpf(1.0, 0.55, _crouch_blend)
+	if bog and bog.is_in_water():
+		f = minf(f, bog.visibility_factor())
+	return f
+
+
+## Wet / muddy from the bog: 1 just out, 0 dry (fades over PlayerBogSubmerge.WET_FADE_SEC).
+func get_wet_level() -> float:
+	return bog.wet_level() if bog else 0.0
+
+
+## What a guard can notice: wet clothes once he is up out of the water.
+func get_wet_suspicion() -> float:
+	return bog.wet_suspicion() if bog else 0.0
+
+
+## Bog ambush: goad into both hands now. From the back it swaps instantly while
+## he is still under the opaque water, so no draw arc breaks the surface.
+func bog_ready_goad() -> void:
+	if combat == null:
+		return
+	if combat.is_charging:
+		combat.cancel_charge()
+		_hatchet_charge_armed = false
+	if combat.current_weapon != CombatSystem.Weapon.GOAD:
+		combat.set_weapon(CombatSystem.Weapon.GOAD)
+		sample_goad_draw(1.0)
+		# Under the water the stick comes straight into the guard the bog
+		# holds; no blend from the back seat (the hands would trail it).
+		var face: StringName = _resolve_shaft_guard_face()
+		combat.shaft_guard_face = face
+		_guard_blend_active = false
+		_shaft_xf_blend = false
+		_guard_face_held = face
+		_apply_tool_pose(ToolStrikePoses.tool_shaft_guard_pose(face))
+		_sync_weapon_to_hand()
+
+
+## Bog ambush: the existing uncharged goad point jab (two hands), fired on the rise.
+func bog_fire_ambush_strike() -> void:
+	_fire_goad_jab(&"light")
 
 
 func _move_vector() -> Vector2:
@@ -2183,7 +2271,7 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 	var early_u := maxf(0.08, windup_move / total * 0.75)
 	if early_u >= _swing_strike_u:
 		early_u = _swing_strike_u * 0.45
-	_swing_frame = global_transform
+	_swing_frame = _swing_anchor_frame()
 	_swing_start_pose = start_pose
 	_swing_follow_pose = follow_pose
 	_goad_swing_held = true
@@ -2229,6 +2317,16 @@ func _arm_continuous_goad_swing(start_pose: Dictionary, follow_pose: Dictionary,
 	_arm_tween.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_arm_tween.tween_method(_sample_continuous_goad_swing, 0.0, 1.0, total)
 	_arm_tween.tween_callback(_finish_goad_return)
+
+
+## Frame the continuous goad curve is authored in. In deep bog water the body
+## is lowered (wading / sunk / the ambush rise), so the curve rides with it.
+## On land this is exactly global_transform, as before.
+func _swing_anchor_frame() -> Transform3D:
+	var xf := global_transform
+	if bog and visual and (bog.is_in_water() or bog.is_ambushing()):
+		xf.origin.y += visual.position.y
+	return xf
 
 
 func _continuous_swing_keys(aim: Vector2) -> Array:
@@ -2311,7 +2409,7 @@ func _sample_continuous_goad_swing(u: float) -> void:
 	# The arc is authored in player space. Re-anchor it to the body every
 	# sample so walking (or turning) through the swing carries the wood along
 	# instead of leaving it at the world spot the release began.
-	_swing_frame = global_transform
+	_swing_frame = _swing_anchor_frame()
 	var line: Array = _continuous_line_at(clampf(u, 0.0, 1.0))
 	var butt_l: Vector3 = line[0]
 	var tip_l: Vector3 = line[1]

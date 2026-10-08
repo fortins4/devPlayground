@@ -21,6 +21,8 @@ signal blocked(defender: Node, attacker: Node, mitigated: float)
 ## Posture pool emptied — CombatTags stagger applied (Godot feel / sparring AI hook).
 signal posture_broken(victim: Node, stagger_tag: StringName, duration_sec: float)
 signal died(victim: Node)
+## A surprise strike (bog ambush) landed: bonus damage + stagger already applied.
+signal surprise_hit_landed(target: Node, damage: float, multiplier: float)
 signal weapon_changed(weapon: StringName)
 signal charge_started(weapon: StringName)
 signal charge_updated(ratio: float, direction: StringName)
@@ -113,6 +115,12 @@ var stagger_left: float = 0.0
 var last_stagger_tag: StringName = &""
 var last_stagger_interrupt: int = 0
 var knockback_vel: Vector3 = Vector3.ZERO
+## Surprise strike (bog ambush): armed by the attacker for its next swing only.
+## Hits through the normal hitbox path; damage x mult, unguarded, + stagger tag.
+var _surprise_armed_left: float = 0.0
+var _surprise_mult: float = 1.0
+var _surprise_stagger: StringName = &""
+var last_surprise_hit: Dictionary = {}
 var _hurt_flash_tween: Tween
 var _hit_stop_running: bool = false
 var _mesh_overlays: Array[MeshInstance3D] = []
@@ -223,6 +231,9 @@ func _physics_process(delta: float) -> void:
 		attack_recovery_left = maxf(0.0, attack_recovery_left - delta)
 		if attack_recovery_left <= 0.0:
 			is_attacking = false
+
+	if _surprise_armed_left > 0.0:
+		_surprise_armed_left = maxf(0.0, _surprise_armed_left - delta)
 
 	if hitbox_active_left > 0.0:
 		hitbox_active_left = maxf(0.0, hitbox_active_left - delta)
@@ -518,6 +529,24 @@ func try_attack(
 	_activate_hitbox_after(windup, active, reach, damage, kind, direction)
 	return true
 
+
+
+## Next swing (within window_sec) is a surprise strike: damage x multiplier,
+## lands unguarded (the target never saw it), and applies stagger_tag.
+func arm_surprise_strike(multiplier: float, stagger_tag: StringName = &"stagger_heavy", window_sec: float = 0.8) -> void:
+	_surprise_mult = maxf(1.0, multiplier)
+	_surprise_stagger = stagger_tag
+	_surprise_armed_left = maxf(0.05, window_sec)
+
+
+func is_surprise_armed() -> bool:
+	return _surprise_armed_left > 0.0
+
+
+func clear_surprise_strike() -> void:
+	_surprise_armed_left = 0.0
+	_surprise_mult = 1.0
+	_surprise_stagger = &""
 
 
 func set_blocking(holding: bool) -> void:
@@ -944,10 +973,28 @@ func _try_damage_target(target: Node, damage: float, kind: StringName) -> void:
 			if DIRECTION_NAMES[key] == dname:
 				strike_dir = key
 				break
+	var surprise := _surprise_armed_left > 0.0
+	var mult := _surprise_mult if surprise else 1.0
+	if surprise:
+		# Unseen strike: no frontal guard catch, bonus on the base damage.
+		facing_ok = false
+		damage *= mult
 	var dealt := other.apply_damage(damage, _owner_body, facing_ok, strike_dir)
 	if dealt > 0.0:
 		hit_landed.emit(_owner_body, other.get_parent(), dealt, kind)
 		_apply_hit_tags(other, kind)
+		if surprise:
+			if CombatTags.is_stagger(_surprise_stagger):
+				other.apply_stagger_tag(_surprise_stagger)
+			last_surprise_hit = {
+				"target": other.get_parent(),
+				"damage": dealt,
+				"multiplier": mult,
+				"stagger": _surprise_stagger,
+				"frame": Engine.get_physics_frames(),
+			}
+			clear_surprise_strike()
+			surprise_hit_landed.emit(other.get_parent(), dealt, mult)
 		if enable_hit_feedback:
 			_play_hit_confirm(kind)
 
