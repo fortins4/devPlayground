@@ -254,6 +254,9 @@ func _complete() -> void:
 	if _state == BogChoreState.DONE:
 		return
 	_state = BogChoreState.DONE
+	# Graze where she came free (goad exit or force_free), not back at the bog edge.
+	if _cow and is_instance_valid(_cow) and _cow.has_method("set_home_spot"):
+		_cow.call("set_home_spot", _cow.global_position)
 	_flash("Cow free of the bog.", 4.0)
 	print("OPENING_BOGGED_COW_SOFT_SUCCESS")
 

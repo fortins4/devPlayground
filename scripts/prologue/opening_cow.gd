@@ -12,7 +12,8 @@ extends "res://scripts/world/raid/raid_cow.gd"
 ##   lifted back onto the ground so it can never end up walking flat under a hill.
 ## - Gait (visual only): procedural four-beat walk → two-beat diagonal trot on the stubby legs,
 ##   driven by REAL horizontal ground speed (position delta per physics tick), swung in the
-##   slope-leaned body frame. Legs stand still at idle / while bogged and ease back to neutral.
+##   slope-leaned body frame. Legs stand still at idle / while bogged and ease back to neutral
+##   (the bogged chore cow walks while she's being goaded out).
 
 signal goaded(cow: Node3D, kind: StringName)
 
@@ -218,7 +219,11 @@ func _tick_gait(delta: float) -> void:
 	_gait_prev_pos = p
 	_gait_has_prev = true
 	_gait_speed = lerpf(_gait_speed, raw, clampf(GAIT_SPEED_SMOOTH * delta, 0.0, 1.0))
-	var spd := _gait_speed if not bogged else 0.0
+	var spd := _gait_speed
+	# Bogged legs stay still — except the chore cow while she's actually being goaded /
+	# pushed out (not held), whose legs walk off her real ground speed like any other cow.
+	if bogged and not (bog_hold_still and not _bog_held()):
+		spd = 0.0
 	if spd < 0.01:
 		spd = 0.0
 	# Envelope: 0 when still (legs ease to plumb), 1 once properly walking.
