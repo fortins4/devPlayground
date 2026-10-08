@@ -10,6 +10,9 @@ extends "res://scripts/world/raid/raid_cow.gd"
 ## - Terrain: a physics body on the shared OpeningTerrain heightfield (scene floor_* overrides
 ##   let it walk up / over the rolls and berms). A teleport that lands it under the surface is
 ##   lifted back onto the ground so it can never end up walking flat under a hill.
+## - Gait (visual only): procedural four-beat walk → two-beat diagonal trot on the stubby legs,
+##   driven by REAL horizontal ground speed (position delta per physics tick), swung in the
+##   slope-leaned body frame. Legs stand still at idle / while bogged and ease back to neutral.
 
 signal goaded(cow: Node3D, kind: StringName)
 
@@ -26,8 +29,48 @@ const SLOPE_TILT_MAX_DEG := 24.0
 const SLOPE_TILT_RATE := 8.0
 const _TILT_NODES := ["MeshInstance3D", "Head", "LegFL", "LegFR", "LegBL", "LegBR"]
 
+## --- Gait (visual only; never touches velocity / colliders / AI).
+const _LEG_NODES := ["LegBL", "LegFL", "LegBR", "LegFR"]  # LH, LF, RH, RF
+## Phase offsets (fraction of a cycle). Walk = lateral four-beat LH→LF→RH→RF (¼ apart);
+## trot = diagonal pairs together (LH+RF, RH+LF ½ apart). Blended by trot weight.
+const GAIT_WALK_OFFSETS := [0.0, 0.25, 0.5, 0.75]
+const GAIT_TROT_OFFSETS := [0.0, 0.5, 0.5, 1.0]
+## Fraction of the cycle each hoof is planted (walk 0.75 → trot 0.5).
+const GAIT_WALK_DUTY := 0.75
+const GAIT_TROT_DUTY := 0.5
+## Metres travelled per full cycle (cadence = speed / stride).
+const GAIT_WALK_STRIDE := 0.55
+const GAIT_TROT_STRIDE := 0.9
+## Peak hip swing either side of plumb (deg).
+const GAIT_WALK_AMP_DEG := 20.0
+const GAIT_TROT_AMP_DEG := 30.0
+## Trot blend: pure walk below TROT_START, pure trot above TROT_FULL (m/s).
+const GAIT_TROT_START := 1.45
+const GAIT_TROT_FULL := 2.2
+## Below this the gait envelope eases to 0 (legs settle plumb); full swing above MOVE_FULL.
+const GAIT_STILL_SPEED := 0.06
+const GAIT_MOVE_FULL := 0.35
+const GAIT_ENV_RATE := 6.0
+const GAIT_SPEED_SMOOTH := 12.0
+## Swing-phase hoof lift as a fraction of leg length (leg shortens from the hip).
+const GAIT_WALK_LIFT := 0.22
+const GAIT_TROT_LIFT := 0.32
+const LEG_HIP_Y := 0.34
+const LEG_LEN := 0.34
+## Planted legs may stretch to this × nominal to reach the ground on steep downhill sides.
+const LEG_STRETCH_MAX := 2.2
+
 var _tilt_base: Dictionary = {}
 var _tilt_q: Quaternion = Quaternion.IDENTITY
+var _gait_phase: float = 0.0
+var _gait_speed: float = 0.0
+var _gait_env: float = 0.0
+var _gait_trot: float = 0.0
+var _gait_cadence: float = 0.0
+var _gait_prev_pos: Vector3 = Vector3.ZERO
+var _gait_has_prev: bool = false
+var _leg_angle: Dictionary = {}
+var _leg_lift: Dictionary = {}
 
 var bogged: bool = false
 var start_position: Vector3 = Vector3.ZERO
@@ -96,14 +139,16 @@ func _soft_follow_velocity() -> Vector3:
 
 func _physics_process(delta: float) -> void:
 	_keep_on_terrain()
-	_tick_slope_tilt(delta)
 	if delivered and _has_slot:
 		_walk_to_slot(delta)
-		return
-	super._physics_process(delta)
-	if bogged and driven and not delivered:
-		_driven_timer = maxf(0.0, _driven_timer - delta * BOG_DRAIN)
-	_tick_label()
+	else:
+		super._physics_process(delta)
+		if bogged and driven and not delivered:
+			_driven_timer = maxf(0.0, _driven_timer - delta * BOG_DRAIN)
+		_tick_label()
+	_tick_slope_tilt(delta)
+	_tick_gait(delta)
+	_apply_pose()
 
 
 func _keep_on_terrain() -> void:
@@ -128,12 +173,111 @@ func _tick_slope_tilt(delta: float) -> void:
 		var axis := Vector3.UP.cross(n_local).normalized()
 		target = Quaternion(axis, minf(ang, max_a))
 	_tilt_q = _tilt_q.slerp(target, clampf(SLOPE_TILT_RATE * delta, 0.0, 1.0))
+
+
+# ---------------------------------------------------------------- gait (visual only)
+
+func _tick_gait(delta: float) -> void:
+	## Real ground speed from the horizontal position delta this tick (not AI state).
+	var p := global_position
+	var raw := 0.0
+	if _gait_has_prev and delta > 0.0:
+		var d := Vector2(p.x - _gait_prev_pos.x, p.z - _gait_prev_pos.z).length()
+		if d < 1.0:  # bigger jumps are teleports / resets, not walking
+			raw = d / delta
+	_gait_prev_pos = p
+	_gait_has_prev = true
+	_gait_speed = lerpf(_gait_speed, raw, clampf(GAIT_SPEED_SMOOTH * delta, 0.0, 1.0))
+	var spd := _gait_speed if not bogged else 0.0
+	if spd < 0.01:
+		spd = 0.0
+	# Envelope: 0 when still (legs ease to plumb), 1 once properly walking.
+	var env_target := 0.0
+	if spd > GAIT_STILL_SPEED:
+		env_target = smoothstep(GAIT_STILL_SPEED, GAIT_MOVE_FULL, spd)
+	_gait_env = move_toward(_gait_env, env_target, GAIT_ENV_RATE * delta)
+	_gait_trot = smoothstep(GAIT_TROT_START, GAIT_TROT_FULL, spd)
+	var stride := lerpf(GAIT_WALK_STRIDE, GAIT_TROT_STRIDE, _gait_trot)
+	_gait_cadence = spd / stride  # cycles per second, proportional to ground speed
+	_gait_phase = fposmod(_gait_phase + _gait_cadence * delta, 1.0)
+	var amp := deg_to_rad(lerpf(GAIT_WALK_AMP_DEG, GAIT_TROT_AMP_DEG, _gait_trot)) * _gait_env
+	var duty := lerpf(GAIT_WALK_DUTY, GAIT_TROT_DUTY, _gait_trot)
+	var lift_k := lerpf(GAIT_WALK_LIFT, GAIT_TROT_LIFT, _gait_trot) * _gait_env
+	for i in _LEG_NODES.size():
+		var off := lerpf(GAIT_WALK_OFFSETS[i], GAIT_TROT_OFFSETS[i], _gait_trot)
+		# Leg i plants when the cycle phase reaches its offset → footfalls LH, LF, RH, RF.
+		var ph := fposmod(_gait_phase - off, 1.0)
+		var a: float
+		var lift := 0.0
+		if ph < duty:
+			# Stance: hoof planted, leg sweeps forward → back as the body passes over it.
+			a = lerpf(amp, -amp, ph / duty)
+		else:
+			# Swing: hoof lifts and reaches forward again.
+			var u := (ph - duty) / (1.0 - duty)
+			a = lerpf(-amp, amp, u * u * (3.0 - 2.0 * u))
+			lift = sin(u * PI) * lift_k
+		_leg_angle[_LEG_NODES[i]] = a
+		_leg_lift[_LEG_NODES[i]] = lift
+
+
+func _apply_pose() -> void:
+	## Body / head lean with the slope; legs swing about their hips inside that leaned frame.
+	## Each leg's length is then fitted along its own (swung) axis to the real terrain under the
+	## hoof (OpeningTerrain.surface_y = the collider surface), so planted hooves touch the ground
+	## even on curved banks and where the upright capsule rides a little above a steep slope.
+	if _tilt_base.is_empty():
+		return
 	var tb := Basis(_tilt_q)
+	var gt := global_transform
 	for nm in _tilt_base:
 		var n := get_node_or_null(nm) as Node3D
-		if n:
-			var base: Transform3D = _tilt_base[nm]
+		if n == null:
+			continue
+		var base: Transform3D = _tilt_base[nm]
+		if not _leg_angle.has(nm) and not _LEG_NODES.has(nm):
 			n.transform = Transform3D(tb * base.basis, tb * base.origin)
+			continue
+		var a: float = _leg_angle.get(nm, 0.0)
+		var lift: float = _leg_lift.get(nm, 0.0)
+		# Positive angle about +X swings the hoof toward -Z (the cow's head end = forward).
+		var rot := tb * Basis(Vector3.RIGHT, a)
+		var hip_l := tb * Vector3(base.origin.x, LEG_HIP_Y, base.origin.z)
+		var axis_l := rot * Vector3.DOWN
+		var reach := _leg_reach(gt * hip_l, (gt.basis * axis_l).normalized())
+		# Swinging legs shorten from the hip so the hoof clears the grass.
+		var length := clampf(reach - lift * LEG_LEN, LEG_LEN * 0.5, LEG_LEN * LEG_STRETCH_MAX)
+		var sy := length / LEG_LEN
+		n.transform = Transform3D(rot * base.basis * Basis.from_scale(Vector3(1.0, sy, 1.0)),
+			hip_l + axis_l * (length * 0.5))
+
+
+func _leg_reach(hip_w: Vector3, axis_w: Vector3) -> float:
+	## Distance from the hip along the leg axis to the terrain surface (bisection on the shared
+	## surface, robust on steep / curved banks). Nominal leg if the axis is too flat.
+	if axis_w.y > -0.3:
+		return LEG_LEN
+	var lo := LEG_LEN * 0.5
+	var hi := LEG_LEN * LEG_STRETCH_MAX
+	var p_hi := hip_w + axis_w * hi
+	if p_hi.y > Terrain.surface_y(p_hi.x, p_hi.z):
+		return hi  # ground further than the leg can stretch
+	for i in 10:
+		var mid := (lo + hi) * 0.5
+		var p := hip_w + axis_w * mid
+		if p.y > Terrain.surface_y(p.x, p.z):
+			lo = mid
+		else:
+			hi = mid
+	return (lo + hi) * 0.5
+
+
+## Probe / capture helpers (read-only).
+func gait_debug() -> Dictionary:
+	return {
+		"speed": _gait_speed, "phase": _gait_phase, "cadence": _gait_cadence,
+		"env": _gait_env, "trot": _gait_trot, "angles": _leg_angle.duplicate(), "lifts": _leg_lift.duplicate(),
+	}
 
 
 func _walk_to_slot(delta: float) -> void:
