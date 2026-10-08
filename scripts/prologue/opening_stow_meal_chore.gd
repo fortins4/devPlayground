@@ -17,11 +17,14 @@ const C_STEW_EMPTY := Color(0.42, 0.36, 0.28)
 const C_BREAD := Color(0.72, 0.58, 0.38)
 const C_CLOTH := Color(0.62, 0.58, 0.48)
 
+const SEQ_STEP := &"meal"
+
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 
 var _phase: MealPhase = MealPhase.WAITING
 var _player: Node3D = null
 var _director: Node = null
+var _sequence: Node = null
 var _meal_root: Node3D = null
 var _stew: MeshInstance3D = null
 var _eat_t: float = 0.0
@@ -88,6 +91,8 @@ func interact_prompt() -> String:
 		return ""
 	if not _near(_player.global_position, MEAL_POS):
 		return ""
+	if not _gate_open():
+		return _not_yet()
 	if _is_unarmed():
 		return "E — eat the morning meal"
 	return "Stow the goad first (1)"
@@ -106,6 +111,7 @@ func force_done() -> void:
 		if _stew.mesh is CylinderMesh:
 			(_stew.mesh as CylinderMesh).height = 0.02
 	_flash("That's better.", 3.0)
+	_report_done()
 
 
 func force_state(state_name: String) -> void:
@@ -152,6 +158,10 @@ func _try_interact() -> bool:
 		return false
 	if not _near(_player.global_position, MEAL_POS):
 		return false
+	if not _gate_open():
+		# Out of order: say so, change nothing.
+		_flash(_not_yet(), 2.5)
+		return true
 	if not _is_unarmed():
 		_flash("Stow the goad first (1) — sit and eat with empty hands.", 3.5)
 		print("OPENING_STOW_MEAL_NEED_STOW")
@@ -181,6 +191,7 @@ func _finish_meal(announce: bool) -> void:
 	if announce:
 		_flash("That's better.", 3.5)
 		print("OPENING_STOW_MEAL_SOFT_SUCCESS")
+	_report_done()
 
 
 func _reset_stew_full() -> void:
@@ -290,3 +301,28 @@ func _mesh_cyl(parent: Node, pos: Vector3, top: float, bottom: float, height: fl
 	mi.position = pos
 	parent.add_child(mi)
 	return mi
+
+
+# ---------------------------------------------------------------- set sequence gate
+
+func _seq() -> Node:
+	if _sequence == null or not is_instance_valid(_sequence):
+		_sequence = get_tree().get_first_node_in_group("opening_sequence") if is_inside_tree() else null
+	return _sequence
+
+
+## Open when there is no sequence (other scenes) or this chore's step is the live one.
+func _gate_open() -> bool:
+	var seq := _seq()
+	return seq == null or bool(seq.call("is_step_active", SEQ_STEP))
+
+
+func _not_yet() -> String:
+	var seq := _seq()
+	return String(seq.call("not_yet_text")) if seq else ""
+
+
+func _report_done() -> void:
+	var seq := _seq()
+	if seq:
+		seq.call("complete_step", SEQ_STEP)

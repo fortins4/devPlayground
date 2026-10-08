@@ -44,6 +44,7 @@ var _slot_index: int = 0
 var _flash_text: String = ""
 var _flash_timer: float = 0.0
 var _family: Node = null
+var _sequence: Node = null
 
 
 func _ready() -> void:
@@ -63,6 +64,8 @@ func _ready() -> void:
 	for cow in _cows:
 		if cow.has_signal("goaded"):
 			cow.connect("goaded", _on_cow_goaded)
+		if cow.has_signal("goad_blocked"):
+			cow.connect("goad_blocked", _on_cow_goad_blocked)
 	call_deferred("_bind")
 
 
@@ -88,6 +91,7 @@ func _bind() -> void:
 func _process(delta: float) -> void:
 	if _flash_timer > 0.0:
 		_flash_timer -= delta
+	_sync_herd_lock()
 	if stage == Stage.WALK_OUT and _player and is_instance_valid(_player):
 		if _player.global_position.distance_to(herd_centroid()) <= at_herd_radius:
 			_set_stage(Stage.AT_HERD)
@@ -199,6 +203,10 @@ func distance_to_home() -> float:
 
 
 func objective_text() -> String:
+	# Set sequence owns the top line (names the current step + where to go).
+	var seq := _seq()
+	if seq:
+		return String(seq.call("objective_text"))
 	var total := _cows.size()
 	match stage:
 		Stage.WALK_OUT:
@@ -326,6 +334,33 @@ func _stir_herd() -> void:
 		_set_stage(Stage.DRIVING)
 
 
+# ---------------------------------------------------------------- set sequence gate
+
+func _seq() -> Node:
+	if _sequence == null or not is_instance_valid(_sequence):
+		_sequence = get_tree().get_first_node_in_group("opening_sequence") if is_inside_tree() else null
+	return _sequence
+
+
+## Herd stir / drive / soft success open only once the drive step (6) is live (or behind us).
+func drive_open() -> bool:
+	var seq := _seq()
+	return seq == null or bool(seq.call("is_step_open", &"drive"))
+
+
+func _sync_herd_lock() -> void:
+	var locked := not drive_open()
+	for cow in _cows:
+		if "goad_locked" in cow and bool(cow.get("goad_locked")) != locked:
+			cow.set("goad_locked", locked)
+
+
+func _on_cow_goad_blocked(_cow: Node3D, _kind: StringName) -> void:
+	var seq := _seq()
+	if seq:
+		_flash(String(seq.call("not_yet_text")), 2.5)
+
+
 func _on_cow_goaded(_cow: Node3D, _kind: StringName) -> void:
 	if not first_goad_done:
 		_stir_herd()
@@ -343,6 +378,8 @@ func _on_home_entered(body: Node3D) -> void:
 		return
 	if bool(body.get("delivered")):
 		return
+	if not drive_open():
+		return  # set sequence: a cow wandering into the pen before step 6 doesn't count
 	body.call("mark_delivered")
 	if body.has_method("set_pen_slot"):
 		body.call("set_pen_slot", _next_pen_slot())
@@ -355,6 +392,9 @@ func _on_home_entered(body: Node3D) -> void:
 		_flash("Herd home! %d of %d head in the pen beside the byre." % [n, _cows.size()], 8.0)
 		print("OPENING_DRIVE_SOFT_SUCCESS home=%d/%d need=%d" % [n, _cows.size(), need_home])
 		soft_success.emit(n, _cows.size())
+		var seq := _seq()
+		if seq:
+			seq.call("complete_step", &"drive")
 	elif not succeeded:
 		_flash("%d / %d home." % [n, need_home], 2.5)
 

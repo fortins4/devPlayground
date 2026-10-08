@@ -1,16 +1,31 @@
 extends Node3D
 class_name OpeningFamilyCaller
-## Greybox family member at the house door who calls out to Cian as the morning
-## cattle drive leaves the yard — plus interactive E-talk when the player walks up.
-## Readable bark (Label3D + HUD flash) + raised-arm pose.
+## Greybox family member at the house door — the hub of the opening set sequence
+## (scripts/prologue/opening_sequence.gd).
+## - Whenever she has a line waiting (her door talk = the first job, each next job after a step
+##   completes, and the closing line) she WAVES: raised right arm swinging overhead with a linen
+##   kerchief, readable across the yard.
+## - When Cian comes within TALK_RADIUS she speaks it automatically (no E): bark Label3D over her
+##   plus the HUD flash. Saying it unlocks the next step and the wave stops. Each line plays once.
+## - Nothing waiting: she stands idle, arm down; at most one short idle line per idle stretch.
+## The old auto door callout is folded into the first wave + door talk (no separate callout line).
 ## Standalone prologue prop — no combat / CattleEconomy hooks.
-## Additive soft cue only; does not gate cattle soft success.
 
 signal callout_spoken(line: String)
 
 enum TalkState { IDLE, TALKING, DONE }
 
 const INTERACT_RANGE := 2.5
+## Auto-talk radius (horizontal m): waiting line plays when Cian comes this close.
+const TALK_RADIUS := 3.0
+## Cian must step back out past this before the idle line can play.
+const TALK_LEAVE_RADIUS := 4.0
+const WAVE_HZ := 1.6
+const WAVE_CENTER_DEG := -28.0
+const WAVE_SWING_DEG := 30.0
+const ARM_DOWN_DEG := -165.0
+const ARM_TALK_DEG := -70.0
+const BARK_Y := 2.32
 ## House door south face (authored FamilyCaller sits just outside).
 const DOOR_POS := Vector3(-7.2, 0.0, 1.77)
 
@@ -22,11 +37,10 @@ const DOOR_POS := Vector3(-7.2, 0.0, 1.77)
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 @export var talk_line_hold_secs: float = 2.4
 
-## Morning-chore E-talk lines (greybox; short).
+## Door talk = step 1 (folds in the old door callout). Its last line hands out step 2.
 var talk_lines: PackedStringArray = PackedStringArray([
-	"There you are, Cian — goad ready?",
-	"Herd's down the lane. Bring them home, and mind the bog.",
-	"Water the trough if you pass the spring — and free that hitch by the byre.",
+	"Cian! There you are. The herd's to be home before the sun is high.",
+	"But water first — take the bucket from by the byre and fill it at the spring scoop, west of the house.",
 ])
 
 var _spoken: bool = false
@@ -42,6 +56,13 @@ var _talk_hold: float = 0.0
 var _director: Node = null
 var _player: Node3D = null
 var _off_you_go_said: bool = false
+var _sequence: Node = null
+var _kerchief: Node3D = null
+var _wave_t: float = 0.0
+var _arm_deg: float = ARM_DOWN_DEG
+## Player inside TALK_RADIUS last frame (idle line needs a fresh approach).
+var _player_near: bool = false
+var _idle_said: bool = false
 
 
 func _ready() -> void:
@@ -70,13 +91,97 @@ func _process(delta: float) -> void:
 		if _bark != null:
 			_bark.visible = _bark_timer > 0.0
 			# Soft bob so the bark reads as live speech.
-			_bark.position.y = 2.55 + sin(Time.get_ticks_msec() * 0.006) * 0.04
-		if _arm:
-			_arm.rotation_degrees.z = -55.0 + sin(Time.get_ticks_msec() * 0.008) * 8.0
+			_bark.position.y = BARK_Y + sin(Time.get_ticks_msec() * 0.006) * 0.04
 	if _talk_state == TalkState.TALKING:
 		_talk_hold -= delta
 		if _talk_hold <= 0.0:
 			_advance_talk(false)
+	_tick_hub()
+	_tick_arm(delta)
+
+
+## Auto-talk: a waiting line plays once when Cian walks within TALK_RADIUS.
+func _tick_hub() -> void:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player") as Node3D
+	if _player == null:
+		return
+	var near := _near(_player.global_position, global_position, TALK_RADIUS)
+	if not near and _player_near and not _near(_player.global_position, global_position, TALK_LEAVE_RADIUS):
+		_player_near = false
+	elif near and not _player_near:
+		_player_near = true
+		_on_player_arrived()
+	elif near and has_pending_line():
+		_on_player_arrived()
+
+
+func _on_player_arrived() -> void:
+	if _talk_state == TalkState.IDLE and _door_talk_pending():
+		_start_talk()
+		return
+	var seq := _seq()
+	if seq and bool(seq.call("awaiting_maire")):
+		if _talk_state == TalkState.TALKING:
+			_finish_talk()  # door talk still on its last hold — the new job takes over
+		var line := String(seq.call("take_pending_line"))
+		if line != "":
+			_say(line)
+			_idle_said = false
+		return
+	if _talk_state == TalkState.TALKING:
+		return
+	if not _idle_said and _bark_timer <= 0.0:
+		_idle_said = true
+		_show_bark(String(seq.call("idle_line")) if seq else "Go on now — the work won't do itself.", 2.5)
+		if seq:
+			seq.call("note_line", "idle", _bark.text)
+
+
+func _say(line: String) -> void:
+	_show_bark(line, 5.5)
+	_flash("%s: %s" % [speaker_name, line], 5.0)
+	_talk_hold = 0.0
+
+
+func _door_talk_pending() -> bool:
+	var seq := _seq()
+	return seq == null or StringName(seq.call("current_step_id")) == &"maire"
+
+
+## Waiting line (door talk not started yet, or a sequence handoff / closer not yet said).
+func has_pending_line() -> bool:
+	if _talk_state == TalkState.IDLE and _door_talk_pending():
+		return true
+	var seq := _seq()
+	return seq != null and bool(seq.call("awaiting_maire"))
+
+
+func is_waving() -> bool:
+	return has_pending_line()
+
+
+func _tick_arm(delta: float) -> void:
+	if _arm == null:
+		return
+	var waving := is_waving()
+	var target := ARM_DOWN_DEG
+	if waving:
+		_wave_t += delta
+		target = WAVE_CENTER_DEG + sin(_wave_t * TAU * WAVE_HZ) * WAVE_SWING_DEG
+	elif _bark_timer > 0.0:
+		target = ARM_TALK_DEG + sin(Time.get_ticks_msec() * 0.008) * 8.0
+	var k := 1.0 if waving and absf(_arm_deg - target) < 40.0 else clampf(delta * 9.0, 0.0, 1.0)
+	_arm_deg = lerpf(_arm_deg, target, k)
+	_arm.rotation_degrees = Vector3(10.0, 0.0, _arm_deg)
+	if _kerchief:
+		_kerchief.visible = waving
+
+
+func _seq() -> Node:
+	if _sequence == null or not is_instance_valid(_sequence):
+		_sequence = get_tree().get_first_node_in_group("opening_sequence") if is_inside_tree() else null
+	return _sequence
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -88,11 +193,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # ---------------------------------------------------------------- auto callout
 
+## Old auto door callout, folded into the first wave + door talk: she starts calling Cian over
+## by waving (no separate line / HUD flash). has_spoken() stays true for HUD / smokes.
 func speak() -> void:
 	_spoken = true
-	_show_bark(callout_line, bark_hold_secs)
-	callout_spoken.emit(callout_line)
-	print("OPENING_FAMILY_CALLOUT speaker=%s line=%s" % [speaker_name, callout_line])
+	print("OPENING_FAMILY_CALLOUT speaker=%s wave=%s (folded into door talk)" % [speaker_name, is_waving()])
 
 
 func reset_callout() -> void:
@@ -113,7 +218,7 @@ func is_bark_visible() -> bool:
 
 
 func get_callout_line() -> String:
-	return callout_line
+	return String(talk_lines[0])
 
 
 func get_speaker_name() -> String:
@@ -154,7 +259,7 @@ func interact_prompt() -> String:
 		TalkState.IDLE:
 			return "E — talk to Máire"
 		TalkState.TALKING:
-			return "E — continue"
+			return "Máire is talking  (E — next line)"
 		TalkState.DONE:
 			return ""
 	return ""
@@ -227,10 +332,8 @@ func _try_interact() -> bool:
 			_advance_talk(true)
 			return true
 		TalkState.DONE:
-			if not _off_you_go_said:
-				_off_you_go_said = true
-				_flash("Off you go, lad — the herd won't walk itself home.", 3.0)
-				_show_bark("Off you go.", 2.5)
+			# E is never needed; a waiting handoff plays as on approach, else the one idle line.
+			_on_player_arrived()
 			return true
 	return false
 
@@ -257,16 +360,25 @@ func _deliver_line(idx: int, _announce: bool) -> void:
 	if idx < 0 or idx >= talk_lines.size():
 		return
 	var line := String(talk_lines[idx])
-	_show_bark(line, maxf(talk_line_hold_secs + 0.8, 3.0))
-	_flash("%s: %s" % [speaker_name, line], talk_line_hold_secs + 0.6)
-	_talk_hold = talk_line_hold_secs
+	var last := idx == talk_lines.size() - 1
+	var hold := talk_line_hold_secs + (1.6 if last else 0.0)
+	_show_bark(line, maxf(hold + 0.8, 3.0))
+	_flash("%s: %s" % [speaker_name, line], hold + 0.6)
+	_talk_hold = hold
 	print("OPENING_MAIRE_DOOR_TALK_LINE idx=%d line=%s" % [idx, line])
+	if not _announce:
+		return
+	var seq := _seq()
+	if seq:
+		seq.call("note_line", "maire_talk_%d" % idx, line)
+		# The last door-talk line hands out the bucket job: step 1 done, step 2 unlocked.
+		if last:
+			seq.call("complete_step", &"maire")
 
 
 func _finish_talk() -> void:
 	_talk_state = TalkState.DONE
 	_talk_hold = 0.0
-	_flash("Máire nods — cattle home before the sun's high.", 3.5)
 	print("OPENING_MAIRE_DOOR_TALK_SOFT_SUCCESS")
 
 
@@ -366,7 +478,7 @@ func _build_figure() -> void:
 	_arm = Node3D.new()
 	_arm.name = "CallArm"
 	_arm.position = Vector3(0.32, 1.35, 0.05)
-	_arm.rotation_degrees = Vector3(10.0, 0.0, -55.0)
+	_arm.rotation_degrees = Vector3(10.0, 0.0, ARM_DOWN_DEG)
 	add_child(_arm)
 	var right_arm := MeshInstance3D.new()
 	var ra_mesh := CapsuleMesh.new()
@@ -384,6 +496,17 @@ func _build_figure() -> void:
 	hand.material_override = skin
 	hand.position = Vector3(0.0, 0.58, 0.0)
 	_arm.add_child(hand)
+	# Linen kerchief in the waving hand — makes the wave read across the yard.
+	_kerchief = MeshInstance3D.new()
+	_kerchief.name = "Kerchief"
+	var k_mesh := BoxMesh.new()
+	k_mesh.size = Vector3(0.3, 0.34, 0.02)
+	(_kerchief as MeshInstance3D).mesh = k_mesh
+	var k_mat := _mat(Color(0.95, 0.92, 0.82))
+	(_kerchief as MeshInstance3D).material_override = k_mat
+	_kerchief.position = Vector3(0.1, 0.76, 0.0)
+	_kerchief.visible = false
+	_arm.add_child(_kerchief)
 
 	var shoe_l := MeshInstance3D.new()
 	var shoe_mesh := BoxMesh.new()
@@ -410,16 +533,18 @@ func _build_figure() -> void:
 	_bark = Label3D.new()
 	_bark.name = "Bark"
 	_bark.text = ""
-	_bark.font_size = 36
-	_bark.pixel_size = 0.012
+	_bark.font_size = 30
+	_bark.pixel_size = 0.0085
 	_bark.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_bark.modulate = Color(1.0, 0.96, 0.82)
 	_bark.outline_size = 12
 	_bark.outline_modulate = Color(0.08, 0.06, 0.04, 0.92)
-	_bark.position = Vector3(0.0, 2.55, 0.0)
+	_bark.position = Vector3(0.0, BARK_Y, 0.0)
 	_bark.visible = false
 	_bark.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_bark.width = 420.0
+	_bark.width = 560.0
+	# Grow upward from just above her name, so longer job lines never cover her face.
+	_bark.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	add_child(_bark)
 
 

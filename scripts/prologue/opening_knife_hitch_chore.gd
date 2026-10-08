@@ -21,11 +21,14 @@ const C_HIDE := Color(0.62, 0.48, 0.32)
 const C_HIDE_DARK := Color(0.48, 0.36, 0.24)
 const C_HORN := Color(0.78, 0.72, 0.58)
 
+const SEQ_STEP := &"knife"
+
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 
 var _state: HitchState = HitchState.TETHERED
 var _player: Node3D = null
 var _director: Node = null
+var _sequence: Node = null
 var _hitch_root: Node3D = null
 var _rope: Node3D = null
 var _animal: Node3D = null
@@ -99,6 +102,8 @@ func interact_prompt() -> String:
 		return ""
 	if not _near(_player.global_position, HITCH_POS):
 		return ""
+	if not _gate_open():
+		return _not_yet()
 	if _knife_equipped():
 		return "E — cut tether"
 	return "Draw knife (2) to cut the tether"
@@ -151,6 +156,10 @@ func _try_interact() -> bool:
 	var p := _player.global_position
 	if not _near(p, HITCH_POS):
 		return false
+	if not _gate_open():
+		# Out of order: say so, change nothing.
+		_flash(_not_yet(), 2.5)
+		return true
 	if not _knife_equipped():
 		_flash("Draw the knife (2) to cut the tether.", 3.0)
 		return true
@@ -192,6 +201,7 @@ func _finish_free(announce: bool) -> void:
 	_free_wander_t = 0.0
 	if announce:
 		print("OPENING_KNIFE_HITCH_SOFT_SUCCESS")
+	_report_done()
 
 
 func _set_tethered() -> void:
@@ -337,3 +347,28 @@ func _mesh_cyl(parent: Node, pos: Vector3, top: float, bottom: float, height: fl
 	mi.position = pos
 	parent.add_child(mi)
 	return mi
+
+
+# ---------------------------------------------------------------- set sequence gate
+
+func _seq() -> Node:
+	if _sequence == null or not is_instance_valid(_sequence):
+		_sequence = get_tree().get_first_node_in_group("opening_sequence") if is_inside_tree() else null
+	return _sequence
+
+
+## Open when there is no sequence (other scenes) or this chore's step is the live one.
+func _gate_open() -> bool:
+	var seq := _seq()
+	return seq == null or bool(seq.call("is_step_active", SEQ_STEP))
+
+
+func _not_yet() -> String:
+	var seq := _seq()
+	return String(seq.call("not_yet_text")) if seq else ""
+
+
+func _report_done() -> void:
+	var seq := _seq()
+	if seq:
+		seq.call("complete_step", SEQ_STEP)

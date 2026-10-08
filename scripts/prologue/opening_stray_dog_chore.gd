@@ -20,11 +20,14 @@ const C_HIDE_DARK := Color(0.28, 0.24, 0.20)
 const C_MUZZLE := Color(0.55, 0.48, 0.40)
 const C_EYE := Color(0.12, 0.10, 0.08)
 
+const SEQ_STEP := &"dog"
+
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 
 var _state: DogState = DogState.LURKING
 var _player: Node3D = null
 var _director: Node = null
+var _sequence: Node = null
 var _dog: Node3D = null
 var _bark: Label3D = null
 var _mats: Dictionary = {}
@@ -49,6 +52,13 @@ func _bind() -> void:
 func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player") as Node3D
+	if _state == DogState.LURKING:
+		# Hidden and inert on the lane until Máire sends Cian after it (step 4).
+		var open := _gate_open()
+		if _dog and _dog.visible != open:
+			_dog.visible = open
+		if not open:
+			return
 	match _state:
 		DogState.LURKING:
 			_tick_lurk()
@@ -98,6 +108,8 @@ func spawn_pos() -> Vector3:
 
 func interact_prompt() -> String:
 	if _state == DogState.DONE or _state == DogState.FLEEING:
+		return ""
+	if _state == DogState.LURKING and not _gate_open():
 		return ""
 	if _player == null or not is_instance_valid(_player):
 		return ""
@@ -151,6 +163,8 @@ func try_interact() -> bool:
 ## Smoke / capture: simulate a goad prod scare near the dog.
 func try_prod_scare() -> bool:
 	if _state == DogState.DONE or _state == DogState.FLEEING:
+		return false
+	if _state == DogState.LURKING and not _gate_open():
 		return false
 	if _state == DogState.LURKING:
 		_enter_menacing(false)
@@ -223,6 +237,8 @@ func _enter_menacing(announce: bool) -> void:
 func _try_scare_from_e() -> bool:
 	if _state == DogState.DONE or _state == DogState.FLEEING:
 		return false
+	if _state == DogState.LURKING and not _gate_open():
+		return false
 	if _player == null:
 		return false
 	if not _near(_player.global_position, dog_pos(), SCARE_RANGE):
@@ -261,6 +277,7 @@ func _finish_gone(announce: bool) -> void:
 		_bark.visible = false
 	if announce:
 		print("OPENING_STRAY_DOG_SOFT_SUCCESS")
+	_report_done()
 
 
 func _set_lurking() -> void:
@@ -376,3 +393,28 @@ func _mesh_box(parent: Node, pos: Vector3, size: Vector3, color: Color) -> MeshI
 	mi.position = pos
 	parent.add_child(mi)
 	return mi
+
+
+# ---------------------------------------------------------------- set sequence gate
+
+func _seq() -> Node:
+	if _sequence == null or not is_instance_valid(_sequence):
+		_sequence = get_tree().get_first_node_in_group("opening_sequence") if is_inside_tree() else null
+	return _sequence
+
+
+## Open when there is no sequence (other scenes) or this chore's step is the live one.
+func _gate_open() -> bool:
+	var seq := _seq()
+	return seq == null or bool(seq.call("is_step_active", SEQ_STEP))
+
+
+func _not_yet() -> String:
+	var seq := _seq()
+	return String(seq.call("not_yet_text")) if seq else ""
+
+
+func _report_done() -> void:
+	var seq := _seq()
+	if seq:
+		seq.call("complete_step", SEQ_STEP)

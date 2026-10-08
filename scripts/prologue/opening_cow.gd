@@ -16,6 +16,8 @@ extends "res://scripts/world/raid/raid_cow.gd"
 ##   (the bogged chore cow walks while she's being goaded out).
 
 signal goaded(cow: Node3D, kind: StringName)
+## Goad landed while goad_locked (set sequence: this cow's step isn't live yet).
+signal goad_blocked(cow: Node3D, kind: StringName)
 
 ## Seconds of full path bias after the last push (DRIVEN_HOLD 7.5 → 4.5 s full, ~3 s fade).
 const FRESH_FULL_SECS := 4.5
@@ -77,6 +79,8 @@ var bogged: bool = false
 ## Chore cow only: while bogged and not being worked by the player, stay stuck fast
 ## (herd cows keep their existing bog behaviour).
 var bog_hold_still: bool = false
+## Set by the opening set sequence: goads bounce off (no impulse / drive / stir) until unlocked.
+var goad_locked: bool = false
 var start_position: Vector3 = Vector3.ZERO
 var _start_basis: Basis = Basis.IDENTITY
 var _pen_slot: Vector3 = Vector3.ZERO
@@ -137,6 +141,9 @@ func set_pen_slot(slot: Vector3) -> void:
 
 
 func apply_goad(from_pos: Vector3, forward: Vector3, strength: float = 1.0, kind: StringName = &"light") -> void:
+	if goad_locked and not delivered:
+		goad_blocked.emit(self, kind)
+		return
 	var was_delivered := delivered
 	super.apply_goad(from_pos, forward, strength, kind)
 	if not was_delivered:

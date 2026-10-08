@@ -22,11 +22,14 @@ const C_WATER_FULL := Color(0.32, 0.55, 0.58)
 const C_EMPTY_TINT := Color(0.48, 0.38, 0.26)
 const C_BAND := Color(0.28, 0.24, 0.18)
 
+const SEQ_STEP := &"bucket"
+
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 
 var _state: BucketState = BucketState.NONE
 var _player: Node3D = null
 var _director: Node = null
+var _sequence: Node = null
 var _world_bucket: Node3D = null
 var _carried: Node3D = null
 var _trough: Node3D = null
@@ -98,6 +101,8 @@ func interact_prompt() -> String:
 	if _state == BucketState.DONE or _player == null or not is_instance_valid(_player):
 		return ""
 	var p := _player.global_position
+	if not _gate_open():
+		return _not_yet() if _near_any_spot(p) else ""
 	match _state:
 		BucketState.NONE:
 			if _near(p, BUCKET_SPAWN):
@@ -150,6 +155,12 @@ func _try_interact() -> bool:
 	if _player == null:
 		return false
 	var p := _player.global_position
+	if _state != BucketState.DONE and not _gate_open():
+		# Out of order: say so, change nothing.
+		if _near_any_spot(p):
+			_flash(_not_yet(), 2.5)
+			return true
+		return false
 	match _state:
 		BucketState.NONE:
 			if _near(p, BUCKET_SPAWN):
@@ -198,6 +209,7 @@ func _pour() -> void:
 		_trough_water.visible = true
 	_flash("Trough filled.", 4.0)
 	print("OPENING_BUCKET_TROUGH_SOFT_SUCCESS")
+	_report_done()
 
 
 func _set_none() -> void:
@@ -314,6 +326,10 @@ func _at_clear_pool(p: Vector3) -> bool:
 	return d_clear + 0.35 < d_out
 
 
+func _near_any_spot(p: Vector3) -> bool:
+	return _near(p, BUCKET_SPAWN) or _near(p, TROUGH_POS) or _near(p, SPRING_CLEAR) or _near(p, SPRING_OUTFLOW, 1.6)
+
+
 func _near_outflow_only(p: Vector3) -> bool:
 	return _near(p, SPRING_OUTFLOW, 1.6) and not _at_clear_pool(p)
 
@@ -364,3 +380,28 @@ func _mesh_cyl(parent: Node, pos: Vector3, top: float, bottom: float, height: fl
 	mi.position = pos
 	parent.add_child(mi)
 	return mi
+
+
+# ---------------------------------------------------------------- set sequence gate
+
+func _seq() -> Node:
+	if _sequence == null or not is_instance_valid(_sequence):
+		_sequence = get_tree().get_first_node_in_group("opening_sequence") if is_inside_tree() else null
+	return _sequence
+
+
+## Open when there is no sequence (other scenes) or this chore's step is the live one.
+func _gate_open() -> bool:
+	var seq := _seq()
+	return seq == null or bool(seq.call("is_step_active", SEQ_STEP))
+
+
+func _not_yet() -> String:
+	var seq := _seq()
+	return String(seq.call("not_yet_text")) if seq else ""
+
+
+func _report_done() -> void:
+	var seq := _seq()
+	if seq:
+		seq.call("complete_step", SEQ_STEP)

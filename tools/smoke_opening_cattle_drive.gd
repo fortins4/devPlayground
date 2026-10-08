@@ -35,6 +35,10 @@ func _run() -> void:
 		return
 	root.add_child(ps.instantiate())
 	await _wait_physics(0.3)
+	# Opening is a set sequence now: jump straight to this chore's step (sequence-only debug path).
+	var _seq_dbg: Node = get_first_node_in_group("opening_sequence")
+	if _seq_dbg:
+		_seq_dbg.call("force_advance_to", &"drive")
 
 	var director: Node = get_first_node_in_group("opening_drive")
 	var player := get_first_node_in_group("player") as Node3D

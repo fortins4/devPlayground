@@ -19,12 +19,15 @@ const FIRM_GROUND := Vector3(18.0, 0.1, 116.0)
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 @export var bog_zone_path: NodePath = ^"../BogZone"
+const SEQ_STEP := &"bog"
+
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 @export var path_markers_path: NodePath = ^"../PathMarkers"
 
 var _state: BogChoreState = BogChoreState.BOGGED
 var _cow: Node3D = null
 var _director: Node = null
+var _sequence: Node = null
 var _bog_zone: Area3D = null
 var _player: Node3D = null
 var _goaded_while_bogged: bool = false
@@ -61,15 +64,25 @@ func _bind() -> void:
 func _flash_intro() -> void:
 	if _intro_flashed:
 		return
+	if _seq() != null:
+		# Set sequence: Máire hands this job out (step 5); no remote intro flash at start.
+		_intro_flashed = true
+		return
 	_intro_flashed = true
 	_flash("A cow's stuck in the bog — goad it onto the lane.", 4.5)
 
 
 func _process(_delta: float) -> void:
 	if _state == BogChoreState.DONE:
+		if _cow and is_instance_valid(_cow) and bool(_cow.get("goad_locked")):
+			_cow.set("goad_locked", false)
 		return
 	if _cow == null or not is_instance_valid(_cow):
 		return
+	# Goads bounce off her (she stays stuck fast) until her step is live.
+	var locked := not _gate_open()
+	if bool(_cow.get("goad_locked")) != locked:
+		_cow.set("goad_locked", locked)
 	# Fallback if Area3D exit is missed (teleport / force).
 	if _goaded_while_bogged and not _inside_bog(_cow.global_position):
 		if bool(_cow.get("bogged")):
@@ -96,6 +109,8 @@ func _spawn_cow() -> void:
 	_cow.rotation.y = PI * 0.5
 	if _cow.has_signal("goaded"):
 		_cow.connect("goaded", _on_cow_goaded)
+	if _cow.has_signal("goad_blocked"):
+		_cow.connect("goad_blocked", _on_cow_goad_blocked)
 
 
 func _setup_cow_ai() -> void:
@@ -176,6 +191,8 @@ func interact_prompt() -> String:
 		return ""
 	if not _near(_player.global_position, _cow.global_position, INTERACT_RANGE):
 		return ""
+	if not _gate_open():
+		return _not_yet()
 	return "Goad the bogged cow onto the lane (3 · LMB)"
 
 
@@ -217,6 +234,11 @@ func debug_set_state(state_name: String) -> void:
 
 # ---------------------------------------------------------------- bog / goad
 
+func _on_cow_goad_blocked(_cow_ref: Node3D, _kind: StringName) -> void:
+	if _state != BogChoreState.DONE:
+		_flash(_not_yet(), 2.5)
+
+
 func _on_cow_goaded(_cow_ref: Node3D, _kind: StringName) -> void:
 	if _state == BogChoreState.DONE:
 		return
@@ -243,6 +265,8 @@ func _on_bog_exited(body: Node3D) -> void:
 func _try_complete() -> void:
 	if _state == BogChoreState.DONE:
 		return
+	if not _gate_open():
+		return
 	if not _goaded_while_bogged:
 		return
 	if _cow and is_instance_valid(_cow) and bool(_cow.get("bogged")):
@@ -259,6 +283,7 @@ func _complete() -> void:
 		_cow.call("set_home_spot", _cow.global_position)
 	_flash("Cow free of the bog.", 4.0)
 	print("OPENING_BOGGED_COW_SOFT_SUCCESS")
+	_report_done()
 
 
 # ---------------------------------------------------------------- helpers
@@ -284,3 +309,28 @@ func _flash(text: String, secs: float = 3.0) -> void:
 		_director.call("flash", text, secs)
 	elif _director and _director.has_method("_flash"):
 		_director.call("_flash", text, secs)
+
+
+# ---------------------------------------------------------------- set sequence gate
+
+func _seq() -> Node:
+	if _sequence == null or not is_instance_valid(_sequence):
+		_sequence = get_tree().get_first_node_in_group("opening_sequence") if is_inside_tree() else null
+	return _sequence
+
+
+## Open when there is no sequence (other scenes) or this chore's step is the live one.
+func _gate_open() -> bool:
+	var seq := _seq()
+	return seq == null or bool(seq.call("is_step_active", SEQ_STEP))
+
+
+func _not_yet() -> String:
+	var seq := _seq()
+	return String(seq.call("not_yet_text")) if seq else ""
+
+
+func _report_done() -> void:
+	var seq := _seq()
+	if seq:
+		seq.call("complete_step", SEQ_STEP)
