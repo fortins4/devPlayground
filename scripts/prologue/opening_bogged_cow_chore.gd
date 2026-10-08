@@ -84,6 +84,14 @@ func _spawn_cow() -> void:
 		_cow.set("cow_id", 99)
 	add_child(_cow)
 	_cow.global_position = _ground(COW_SPAWN)
+	# Wander home = her placed bog spot (her _ready captured (0,0,0) before placement).
+	if _cow.has_method("set_home_spot"):
+		_cow.call("set_home_spot", _cow.global_position)
+	if "bog_hold_still" in _cow:
+		_cow.set("bog_hold_still", true)
+	# Stuck from the first physics frame (_bind re-asserts it once deferred setup runs).
+	if _cow.has_method("set_bogged"):
+		_cow.call("set_bogged", true)
 	# Face toward the lane (west).
 	_cow.rotation.y = PI * 0.5
 	if _cow.has_signal("goaded"):

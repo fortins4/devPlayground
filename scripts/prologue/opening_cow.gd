@@ -73,6 +73,9 @@ var _leg_angle: Dictionary = {}
 var _leg_lift: Dictionary = {}
 
 var bogged: bool = false
+## Chore cow only: while bogged and not being worked by the player, stay stuck fast
+## (herd cows keep their existing bog behaviour).
+var bog_hold_still: bool = false
 var start_position: Vector3 = Vector3.ZERO
 var _start_basis: Basis = Basis.IDENTITY
 var _pen_slot: Vector3 = Vector3.ZERO
@@ -104,6 +107,27 @@ func is_stalled() -> bool:
 
 func set_bogged(on: bool) -> void:
 	bogged = on and not delivered
+
+
+## Re-anchor idle wander (and reset_opening) on a spot set after the cow was placed —
+## _ready runs inside add_child, before a spawner moves the cow to its authored spot.
+func set_home_spot(p: Vector3) -> void:
+	start_position = p
+	_home = p
+	_wander_timer = 0.0
+	_pick_wander()
+
+
+## Bogged with nothing player-driven acting on her (no goad impulse, no fresh drive):
+## stuck fast — no wander, no drift, no slide.
+func _bog_held() -> bool:
+	return bog_hold_still and bogged and not delivered and _goad_vel.length_squared() < 0.0001 and drive_freshness() <= 0.02
+
+
+func _wander_velocity() -> Vector3:
+	if bogged and bog_hold_still:
+		return Vector3.ZERO
+	return super._wander_velocity()
 
 
 func set_pen_slot(slot: Vector3) -> void:
@@ -142,7 +166,13 @@ func _physics_process(delta: float) -> void:
 	if delivered and _has_slot:
 		_walk_to_slot(delta)
 	else:
+		var held := _bog_held()
+		var hold_xz := global_position
 		super._physics_process(delta)
+		if held:
+			velocity.x = 0.0
+			velocity.z = 0.0
+			global_position = Vector3(hold_xz.x, global_position.y, hold_xz.z)
 		if bogged and driven and not delivered:
 			_driven_timer = maxf(0.0, _driven_timer - delta * BOG_DRAIN)
 		_tick_label()
@@ -309,3 +339,10 @@ func _tick_label() -> void:
 	elif driven:
 		label.text = "drove"
 		label.modulate = Color(0.95, 0.85, 0.45)
+	elif herded:
+		label.text = "herd"
+		label.modulate = Color(0.9, 0.8, 0.55)
+	else:
+		# Free, idle cow (e.g. the chore cow after force_free) — never leave "bogged!" stale.
+		label.text = "cattle"
+		label.modulate = Color(0.85, 0.78, 0.6)
