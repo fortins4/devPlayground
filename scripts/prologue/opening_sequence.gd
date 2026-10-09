@@ -235,6 +235,8 @@ func _drive_text() -> String:
 			return "Drive her back to the herd at the pasture — walk behind her, goad drawn.  (herd ~%d m)" % int(d.call("bogged_cow_to_herd"))
 		"stir":
 			return "She's back with the herd. Draw the goad (3) and prod a cow (LMB / RMB) to start all six home."
+		"latch":
+			return "All six in. Swing the pen gate shut and latch it — E at the gateway.%s" % _dist_suffix(Vector3(7.0, 0.0, 13.8))
 		"ambush":
 			return "A stray dog's at the herd! Scare it off — E or a goad prod, up close."
 		"regather":

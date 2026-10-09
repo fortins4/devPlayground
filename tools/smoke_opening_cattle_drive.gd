@@ -1,6 +1,7 @@
 extends SceneTree
 ## Smoke: opening cattle drive loads, spawn near house, herd far + idle, first goad stirs the herd,
-## un-pushed drove stalls, scripted goad drive gets >= need head home → soft success.
+## un-pushed drove stalls, scripted goad drive gets >= need head home → soft success,
+## then (6/6 only) Cian swings the pen gate shut and latches it → drive step completes.
 ## The scene always runs the set sequence, so this is the sequence flow: need = all 6 (the
 ## bogged cow is the sixth head — debug-rejoined here), the dog ambush springs on the lane and
 ## the bot sees it off and regathers; R after success keeps the pen and the sequence.
@@ -64,6 +65,21 @@ func _run() -> void:
 	_check(herd_to_home > 80.0, "pasture herd should graze a good distance from home")
 	var combat := player.get_node_or_null("CombatSystem")
 	_check(combat != null and String(combat.call("weapon_name")) == "goad", "opening kit should start on goad")
+
+	# Pen gate: stands open, and is inert before 6/6 (no prompt, E does nothing).
+	var gate: Node = get_first_node_in_group("opening_pen_gate")
+	_check(gate != null, "no OpeningPenGateChore")
+	if gate:
+		_check(String(gate.call("gate_state")) == "open", "pen gate should start open")
+		_check(not bool(gate.call("blocker_enabled")), "open gate must not block the gateway")
+		var spawn_xf := player.global_transform
+		player.global_position = Vector3(gate.call("stand_point")) + Vector3(0, 0.1, 0)
+		await _wait_physics(0.1)
+		_check(String(gate.call("interact_prompt")) == "", "no gate prompt before 6/6")
+		_check(not bool(gate.call("try_interact")), "gate must not latch before 6/6")
+		_check(String(gate.call("gate_state")) == "open", "gate must stay open before 6/6")
+		player.global_transform = spawn_xf
+		await _wait_physics(0.1)
 
 	# Family callout at the house as the drive leaves (opening beat).
 	await _wait_physics(1.6)
@@ -133,6 +149,44 @@ func _run() -> void:
 	_check(bool(director.get("succeeded")), "director.succeeded false")
 	_check(bool(director.call("ambush_fired")), "dog ambush should spring on the lane")
 	print("SMOKE ambush=%s dog_scares=%d dog_state=%s" % [director.call("ambush_fired"), bot.dog_scares, get_first_node_in_group("opening_stray_dog").call("dog_state")])
+
+	# 6/6 home: the drive step waits on the gate latch.
+	_check(gate != null and String(gate.call("gate_state")) == "open", "gate should still be open at 6/6")
+	_check(StringName(_seq_dbg.call("current_step_id")) == &"drive", "drive step must wait for the latch")
+	_check(String(director.call("drive_beat")) == "latch", "drive beat after 6/6 should be latch")
+	await _wait_physics(4.2)   # let the 6/6 flash run out so the prompt surfaces
+	player.global_position = Vector3(gate.call("stand_point")) + Vector3(0, 0.1, 0)
+	await _wait_physics(0.1)
+	var prompt := String(gate.call("interact_prompt"))
+	print("SMOKE gate_prompt=%s" % prompt)
+	_check(prompt.begins_with("E —"), "gate prompt after 6/6 at the gateway, got '%s'" % prompt)
+	_check(bool(gate.call("try_interact")), "E at the gateway after 6/6 should start the gate")
+	await _wait_physics(0.45)
+	var mid_swing := float(gate.call("swing_fraction"))
+	_check(mid_swing > 0.2 and mid_swing < 0.95 and not bool(gate.call("pen_latched")), "gate should be mid-swing (%.2f)" % mid_swing)
+	await _wait_physics(1.2)
+	_check(bool(gate.call("gate_closed")), "gate should be shut")
+	_check(bool(gate.call("pen_latched")) and float(gate.call("latch_fraction")) >= 1.0, "latch should be engaged")
+	_check(bool(gate.call("blocker_enabled")), "shut gate should block the gateway")
+	var tips: Array = gate.call("leaf_tip_positions")
+	var gc: Vector3 = gate.call("gate_center")
+	_check(Vector3(tips[0]).distance_to(Vector3(tips[1])) < 0.4 and absf(Vector3(tips[0]).z - gc.z) < 0.15, "leaves should meet across the gateway (%s)" % str(tips))
+	var ray := PhysicsRayQueryParameters3D.create(Vector3(gc.x + 0.6, gc.y + 0.9 + OpeningTerrain.surface_y(gc.x, gc.z), gc.z + 1.0), Vector3(gc.x + 0.6, gc.y + 0.9 + OpeningTerrain.surface_y(gc.x, gc.z), gc.z - 1.0))
+	ray.collision_mask = 1
+	var hit := player.get_world_3d().direct_space_state.intersect_ray(ray)
+	_check(not hit.is_empty() and String((hit.collider as Node).name) == "GateBlocker", "ray through the shut gateway should hit the gate (%s)" % str(hit.get("collider")))
+	_check(bool(director.get("pen_latched")), "director should know the pen is latched")
+	_check(StringName(_seq_dbg.call("current_step_id")) != &"drive", "latch should complete the drive step")
+	_check(String(director.call("flash_text")) == "", "latch must not flash (quiet walk out), got '%s'" % director.call("flash_text"))
+	print("SMOKE gate=%s swing_mid=%.2f step=%s" % [gate.call("gate_state"), mid_swing, _seq_dbg.call("current_step_id")])
+	# Walk out quietly: no new flash for a few seconds after the latch.
+	var noisy := ""
+	for i in 180:
+		await physics_frame
+		var ft := String(director.call("flash_text"))
+		if ft != "":
+			noisy = ft
+	_check(noisy == "", "walk out after the latch should stay quiet, got '%s'" % noisy)
 
 	# R after success (sequence flow): a failsafe, not a restart — the pen and the sequence stay.
 	director.call("reset_herd")

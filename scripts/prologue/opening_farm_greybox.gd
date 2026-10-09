@@ -360,10 +360,9 @@ func _build_home_pen() -> void:
 	_rail(Vector3(x1, 0, z0), Vector3(x1, 0, z1))
 	_rail(Vector3(x0, 0, z1), Vector3(cx - gate_half, 0, z1))
 	_rail(Vector3(cx + gate_half, 0, z1), Vector3(x1, 0, z1))
-	# Gate posts (open gate swung back).
+	# Gate posts. The hinged double gate + latch hang on them from OpeningPenGateChore.
 	for gx in [cx - gate_half, cx + gate_half]:
 		_mesh_box(_gen, Vector3(gx, 0.75, z1), Vector3(0.3, 1.5, 0.3), C_RAIL.darkened(0.2))
-	_mesh_box(_gen, Vector3(cx + gate_half + 0.2, 0.55, z1 + 1.6), Vector3(0.12, 0.9, 3.2), C_RAIL)
 	# Trampled pen floor.
 	_mesh_box(_gen, Vector3(box.get_center().x, 0.03, box.get_center().z), Vector3(box.size.x, 0.04, box.size.z), C_YARD.darkened(0.12))
 

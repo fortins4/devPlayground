@@ -66,6 +66,8 @@ const BACK_GAP_IN := Vector3(-25.0, 0.0, 202.0)
 
 var stage: Stage = Stage.WALK_OUT
 var succeeded: bool = false
+## Set-sequence: the drive step completes when Cian latches the pen gate (OpeningPenGateChore), after 6/6.
+var pen_latched: bool = false
 var first_goad_done: bool = false
 
 var _player: Node3D = null
@@ -301,7 +303,7 @@ func ambush_fired() -> bool:
 ## Set-sequence in-drive beat (drives the HUD objective line; "" outside the drive).
 func drive_beat() -> String:
 	if succeeded:
-		return "success"
+		return "success" if pen_latched or _seq() == null else "latch"
 	match bogged_cow_state():
 		"bogged":
 			if not _missing_seen:
@@ -633,17 +635,26 @@ func _check_success() -> bool:
 	succeeded = true
 	_set_stage(Stage.SUCCESS)
 	if _seq() != null:
-		_flash("All six home! The herd's in the pen beside the byre.", 8.0)
+		_flash("All six home! The herd's in the pen beside the byre.", 4.0)
 	else:
 		_flash("Herd home! %d of %d head in the pen beside the byre." % [n, _cows.size()], 8.0)
 	print("OPENING_DRIVE_SOFT_SUCCESS home=%d/%d need=%d" % [n, _cows.size(), need_count()])
 	soft_success.emit(n, _cows.size())
 	if _dog and _dog.has_method("give_up"):
 		_dog.call("give_up")
+	# The drive step now completes on the gate latch (on_pen_latched), not on the 6th head.
+	return true
+
+
+## OpeningPenGateChore: the gate is shut and latched on a full pen — close the drive step.
+func on_pen_latched() -> void:
+	if not succeeded or pen_latched:
+		return
+	pen_latched = true
+	print("OPENING_DRIVE_PEN_LATCHED home=%d/%d" % [home_count(), _cows.size()])
 	var seq := _seq()
 	if seq:
 		seq.call("complete_step", &"drive")
-	return true
 
 
 ## A cow already standing in the pen when the herd opens (body_entered fired while it was shut).
