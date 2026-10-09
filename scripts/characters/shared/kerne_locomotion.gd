@@ -268,6 +268,79 @@ func tick_mounted(delta: float, horiz_speed: float, galloping: bool = false) -> 
 	_apply_joint("right_forearm", Vector3.ZERO, Vector3(deg_to_rad(35.0), 0.0, 0.0))
 
 
+## --- Seated at the meal (opening): sit on the ground at a low stool, eat, rise.
+## Hip pivot this far above the soles when sat on the ground; soles this far in front of the hip.
+const SEAT_HIP_H := 0.16
+const SEAT_FOOT_FWD := 0.46
+
+
+## Offsets from rest the current joints hold (pos, rot) — the start of a sit-down blend, so the
+## sit eases from whatever the body was doing instead of snapping to rest first.
+func capture_pose_offsets() -> Dictionary:
+	var out := {}
+	for key in joints:
+		var n: Node3D = joints[key] as Node3D
+		if n == null or not _rest.has(key):
+			continue
+		out[key] = [n.position - (_rest[key]["pos"] as Vector3), n.rotation - (_rest[key]["rot"] as Vector3)]
+	return out
+
+
+## Full seated pose as offsets from rest: hips on the ground, knees up, soles planted in front,
+## torso leaning a little over the stool, both hands forward at the bowl.
+func seated_pose_offsets(eat_phase: float) -> Dictionary:
+	var drop := HIP_TO_SOLE - SEAT_HIP_H
+	var leg := _solve_leg(SEAT_FOOT_FWD, SEAT_HIP_H)
+	var spoon := (sin(eat_phase) * 0.5 + 0.5) * deg_to_rad(22.0)
+	var breath := sin(_breath * 1.5) * 0.01
+	return {
+		"root": [Vector3(0.0, -drop, 0.0), Vector3.ZERO],
+		"hips": [Vector3.ZERO, Vector3(deg_to_rad(-4.0), 0.0, 0.0)],
+		"torso": [Vector3.ZERO, Vector3(deg_to_rad(14.0) + breath * 0.4, 0.0, 0.0)],
+		"head": [Vector3.ZERO, Vector3(deg_to_rad(6.0) - breath * 0.3, 0.0, 0.0)],
+		"left_thigh": [Vector3.ZERO, Vector3(leg.x, 0.0, deg_to_rad(-10.0))],
+		"right_thigh": [Vector3.ZERO, Vector3(leg.x, 0.0, deg_to_rad(10.0))],
+		"left_shin": [Vector3.ZERO, Vector3(leg.y, 0.0, 0.0)],
+		"right_shin": [Vector3.ZERO, Vector3(leg.y, 0.0, 0.0)],
+		"left_arm": [Vector3.ZERO, Vector3(deg_to_rad(42.0), deg_to_rad(-10.0), deg_to_rad(12.0))],
+		"right_arm": [Vector3.ZERO, Vector3(deg_to_rad(38.0) + spoon * 0.6, deg_to_rad(10.0), deg_to_rad(-12.0))],
+		"left_forearm": [Vector3.ZERO, Vector3(deg_to_rad(50.0), 0.0, 0.0)],
+		"right_forearm": [Vector3.ZERO, Vector3(deg_to_rad(55.0) + spoon, 0.0, 0.0)],
+	}
+
+
+## Seated blend: w = 0 → `base` offsets (captured pose on the way down, rest on the way up),
+## w = 1 → the seated pose. Joints neither pose names stay on `base` (rest when base is empty).
+## `state_name` is reported by current_state(): sitting / seated / rising.
+func tick_seated(delta: float, w: float, base: Dictionary, state_name: StringName, eat_phase: float = 0.0) -> void:
+	if joints.is_empty():
+		return
+	_attack_lock = 0.0
+	_combat_overrides.clear()
+	_attack_walk_w = 0.0
+	_walk_legs.clear()
+	_phase = 0.0
+	_turn_blend = 0.0
+	_breath += delta
+	_state = state_name
+	var seat := seated_pose_offsets(eat_phase)
+	for key in joints:
+		var n: Node3D = joints[key] as Node3D
+		if n == null or not _rest.has(key):
+			continue
+		var b: Array = base.get(key, [Vector3.ZERO, Vector3.ZERO])
+		var t: Array = seat.get(key, b)
+		var pos_off: Vector3 = (b[0] as Vector3).lerp(t[0] as Vector3, w)
+		var rot_off: Vector3 = (b[1] as Vector3).lerp(t[1] as Vector3, w)
+		n.position = (_rest[key]["pos"] as Vector3) + pos_off
+		n.rotation = (_rest[key]["rot"] as Vector3) + rot_off
+		_cycle_rot[key] = rot_off
+	_root_drop = 0.0
+	if _body:
+		_last_yaw = _body.rotation.y
+	pose_updated.emit(_state)
+
+
 ## Call from CharacterBody3D._physics_process after move_and_slide.
 func tick(
 	delta: float,

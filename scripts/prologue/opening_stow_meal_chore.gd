@@ -2,12 +2,18 @@ extends Node3D
 class_name OpeningStowMealChore
 ## Closing morning beat: stow the goad (key 1 / unarmed), then E-eat a greybox meal
 ## by the house. Additive soft cue; does not gate cattle soft success.
+## E: Cian walks to the seat beside the low stool, sits on the ground at it (input locked), eats,
+## then rises back into foot loco (PlayerController.begin_seat / end_seat).
 
-enum MealPhase { WAITING, EATING, DONE }
+enum MealPhase { WAITING, SEATING, EATING, DONE }
 
 const INTERACT_RANGE := 2.5
 ## Near Máire (−5.2,0.1,3.2) / house door — clear of bucket & hitch.
 const MEAL_POS := Vector3(-4.5, 0.0, 2.8)
+## Where Cian sits: on the ground just east of the stool, facing it (west, toward the house).
+const SEAT_POS := Vector3(-3.8, 0.0, 2.8)
+const SEAT_YAW := PI * 0.5
+const SEATING_MAX_SECS := 5.0
 
 const C_WOOD := Color(0.40, 0.28, 0.16)
 const C_WOOD_DARK := Color(0.28, 0.20, 0.12)
@@ -45,6 +51,14 @@ func _bind() -> void:
 
 
 func _process(delta: float) -> void:
+	if _phase == MealPhase.SEATING:
+		_eat_t += delta
+		var st := String(_player.call("seat_state")) if _player and _player.has_method("seat_state") else "seated"
+		if st == "seated" or _eat_t > SEATING_MAX_SECS:
+			_phase = MealPhase.EATING
+			_eat_t = EAT_SECS
+			print("OPENING_STOW_MEAL_EATING")
+		return
 	if _phase != MealPhase.EATING:
 		return
 	_eat_t -= delta
@@ -73,6 +87,8 @@ func meal_state() -> String:
 					return "ready_to_eat"
 				return "need_stow"
 			return "need_stow"
+		MealPhase.SEATING:
+			return "sitting"
 		MealPhase.EATING:
 			return "eating"
 		MealPhase.DONE:
@@ -84,8 +100,12 @@ func meal_pos() -> Vector3:
 	return MEAL_POS
 
 
+func seat_pos() -> Vector3:
+	return SEAT_POS
+
+
 func interact_prompt() -> String:
-	if _phase == MealPhase.DONE or _phase == MealPhase.EATING:
+	if _phase != MealPhase.WAITING:
 		return ""
 	if _player == null or not is_instance_valid(_player):
 		return ""
@@ -154,7 +174,7 @@ func _try_interact() -> bool:
 		_player = get_tree().get_first_node_in_group("player") as Node3D
 	if _player == null:
 		return false
-	if _phase == MealPhase.DONE or _phase == MealPhase.EATING:
+	if _phase != MealPhase.WAITING:
 		return false
 	if not _near(_player.global_position, MEAL_POS):
 		return false
@@ -171,9 +191,15 @@ func _try_interact() -> bool:
 
 
 func _start_eat() -> void:
+	_flash("Morning meal — that's better.", 2.5)
+	if _player and _player.has_method("begin_seat") and bool(_player.call("begin_seat", SEAT_POS, SEAT_YAW)):
+		# He walks to the seat and sits; the meal timer starts once he is down.
+		_phase = MealPhase.SEATING
+		_eat_t = 0.0
+		print("OPENING_STOW_MEAL_SITTING")
+		return
 	_phase = MealPhase.EATING
 	_eat_t = EAT_SECS
-	_flash("Morning meal — that's better.", 2.5)
 	print("OPENING_STOW_MEAL_EATING")
 
 
@@ -192,6 +218,9 @@ func _finish_meal(announce: bool) -> void:
 		_flash("That's better.", 3.5)
 		print("OPENING_STOW_MEAL_SOFT_SUCCESS")
 	_report_done()
+	# Up again: the rise blends back into foot loco and frees his input when it lands.
+	if _player and is_instance_valid(_player) and _player.has_method("end_seat"):
+		_player.call("end_seat")
 
 
 func _reset_stew_full() -> void:

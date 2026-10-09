@@ -71,6 +71,22 @@ var bog: PlayerBogSubmerge = null
 
 ## Horse traversal (greybox mount).
 var is_mounted: bool = false
+## Seated at the opening meal: walk to the seat → sit → seated (eat) → rise. Input is locked
+## (move, look, combat, kit keys) from the walk-in until the rise has landed in foot loco.
+enum SeatPhase { NONE, APPROACH, SIT, SEATED, RISE }
+const SEAT_SIT_SECS := 0.65
+const SEAT_RISE_SECS := 0.8
+const SEAT_APPROACH_MAX_SECS := 3.0
+const SEAT_CAM_DROP := 0.35   ## small camera ease down while seated (pivot local y)
+var _seat_phase: SeatPhase = SeatPhase.NONE
+var _seat_point: Vector3 = Vector3.ZERO
+var _seat_yaw: float = 0.0
+var _seat_t: float = 0.0
+var _seat_w: float = 0.0
+var _seat_base: Dictionary = {}
+var _seat_eat: float = 0.0
+var _seat_pivot_rest: Vector3 = Vector3.ZERO
+var _seat_rise_queued: bool = false
 var mounted_horse: Node3D = null
 
 ## Directional hatchet: hold LMB to charge; mouse aim (look) picks top|left|right.
@@ -306,6 +322,11 @@ func _bind_locomotion_joints() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _seat_phase != SeatPhase.NONE:
+		# Sitting to eat: no look, move, jump, strikes or kit changes until he is back up.
+		if event.is_action_pressed("ui_cancel"):
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		_tool_aim_delta += motion.relative
@@ -396,6 +417,10 @@ func _physics_process(delta: float) -> void:
 		# Rider body uses seated bind pose (KerneLocomotion.tick_mounted) driven by horse.
 		velocity = Vector3.ZERO
 		_noise_level = 0.35  # mounted presence — audible but not sprint-loud
+		return
+
+	if _seat_phase != SeatPhase.NONE:
+		_tick_seat(delta)
 		return
 
 	if not is_on_floor():
@@ -4083,6 +4108,160 @@ func get_drag_status_text() -> String:
 	if not is_dragging():
 		return ""
 	return "DRAG dragging · speed %.2f" % DRAG_SPEED
+
+
+## --- Seated meal (OpeningStowMealChore) ---
+
+## Walk to `point`, turn to `face_yaw` (body rotation.y), sit down. False if he cannot sit now.
+func begin_seat(point: Vector3, face_yaw: float) -> bool:
+	if _seat_phase != SeatPhase.NONE or is_mounted or is_dragging() or locomotion == null:
+		return false
+	if combat and (combat.is_dead or combat.is_attacking or combat.is_charging):
+		return false
+	_discard_attack_buffer(&"seat")
+	if combat:
+		combat.set_shaft_block(false)
+	_jump_buffered = false
+	_sprinting = false
+	is_crouching = false
+	_seat_point = Vector3(point.x, global_position.y, point.z)
+	_seat_yaw = face_yaw
+	_seat_t = 0.0
+	_seat_w = 0.0
+	_seat_eat = 0.0
+	_seat_rise_queued = false
+	_seat_pivot_rest = pivot.position if pivot else Vector3.ZERO
+	_seat_phase = SeatPhase.APPROACH
+	print("PLAYER_SEAT_BEGIN point=%s" % _seat_point.snapped(Vector3.ONE * 0.01))
+	return true
+
+
+## Get up (from the seat or while still sitting down — the rise starts once he is sat).
+func end_seat() -> void:
+	match _seat_phase:
+		SeatPhase.SEATED:
+			_start_rise()
+		SeatPhase.APPROACH, SeatPhase.SIT:
+			_seat_rise_queued = true
+
+
+func is_seated() -> bool:
+	return _seat_phase == SeatPhase.SIT or _seat_phase == SeatPhase.SEATED or _seat_phase == SeatPhase.RISE
+
+
+func is_input_locked() -> bool:
+	return _seat_phase != SeatPhase.NONE
+
+
+func seat_state() -> String:
+	match _seat_phase:
+		SeatPhase.APPROACH:
+			return "approach"
+		SeatPhase.SIT:
+			return "sitting"
+		SeatPhase.SEATED:
+			return "seated"
+		SeatPhase.RISE:
+			return "rising"
+	return "none"
+
+
+## 0 standing … 1 fully seated (blend weight of the seated pose).
+func seat_weight() -> float:
+	return _seat_w
+
+
+func _start_rise() -> void:
+	_seat_phase = SeatPhase.RISE
+	_seat_t = 0.0
+	# Rise toward the standing idle foot loco will hold (not bare rest — idle hangs the arms
+	# differently), so the hand-off at the top of the rise has nothing left to jump.
+	if locomotion:
+		locomotion.reset_to_rest()
+		locomotion.tick(0.0, 0.0, false, false, false, Vector3.ZERO)
+		_seat_base = locomotion.capture_pose_offsets()
+		locomotion.tick_seated(0.0, 1.0, _seat_base, &"rising", _seat_eat)
+	print("PLAYER_SEAT_RISE")
+
+
+func _tick_seat(delta: float) -> void:
+	if not is_on_floor():
+		velocity.y -= _gravity * delta
+	match _seat_phase:
+		SeatPhase.APPROACH:
+			_seat_t += delta
+			var to := Vector3(_seat_point.x - global_position.x, 0.0, _seat_point.z - global_position.z)
+			var dist := to.length()
+			var speed := minf(WALK_SPEED * 0.5, dist * 4.0)
+			var horiz := Vector3(velocity.x, 0.0, velocity.z)
+			var want := to.normalized() * speed if dist > 0.04 else Vector3.ZERO
+			horiz = horiz.move_toward(want, ACCEL * delta)
+			velocity.x = horiz.x
+			velocity.z = horiz.z
+			# Face where he is walking, then the seat's facing as he arrives.
+			var face := _seat_yaw
+			if dist > 0.35:
+				face = atan2(-to.x, -to.z)
+			rotation.y = lerp_angle(rotation.y, face, minf(1.0, delta * 8.0))
+			move_and_slide()
+			_tick_locomotion(delta, horiz.length(), false, true)
+			_tick_shaft_block()
+			_sync_weapon_to_hand()
+			var faced := absf(wrapf(rotation.y - _seat_yaw, -PI, PI)) < deg_to_rad(4.0)
+			var arrived := dist <= 0.06 and faced
+			if (arrived or _seat_t > SEAT_APPROACH_MAX_SECS) and not _goad_stowing:
+				velocity = Vector3(0.0, velocity.y, 0.0)
+				rotation.y = _seat_yaw
+				_seat_base = locomotion.capture_pose_offsets()
+				_seat_phase = SeatPhase.SIT
+				_seat_t = 0.0
+				print("PLAYER_SEAT_SIT")
+		SeatPhase.SIT:
+			_seat_t = minf(1.0, _seat_t + delta / SEAT_SIT_SECS)
+			_seat_w = smoothstep(0.0, 1.0, _seat_t)
+			velocity = Vector3(0.0, velocity.y, 0.0)
+			move_and_slide()
+			locomotion.tick_seated(delta, _seat_w, _seat_base, &"sitting")
+			if _seat_t >= 1.0:
+				_seat_phase = SeatPhase.SEATED
+				print("PLAYER_SEAT_SEATED")
+				if _seat_rise_queued:
+					_start_rise()
+		SeatPhase.SEATED:
+			_seat_w = 1.0
+			_seat_eat += delta * 5.0
+			velocity = Vector3(0.0, velocity.y, 0.0)
+			move_and_slide()
+			locomotion.tick_seated(delta, 1.0, _seat_base, &"seated", _seat_eat)
+		SeatPhase.RISE:
+			_seat_t = minf(1.0, _seat_t + delta / SEAT_RISE_SECS)
+			_seat_w = 1.0 - smoothstep(0.0, 1.0, _seat_t)
+			velocity = Vector3(0.0, velocity.y, 0.0)
+			move_and_slide()
+			locomotion.tick_seated(delta, _seat_w, _seat_base, &"rising", _seat_eat * _seat_w)
+			if _seat_t >= 1.0:
+				_finish_seat()
+	if pivot:
+		pivot.position = _seat_pivot_rest + Vector3(0.0, -SEAT_CAM_DROP * _seat_w, 0.0)
+	_update_noise(0.0, false)
+
+
+func _finish_seat() -> void:
+	## Back on his feet: the rise ended exactly on the rest pose, so hand the body back to foot
+	## loco with nothing stale (no attack lock, no seat weight, camera home, input free).
+	_seat_phase = SeatPhase.NONE
+	_seat_w = 0.0
+	_seat_t = 0.0
+	_seat_base = {}
+	_seat_rise_queued = false
+	velocity = Vector3(0.0, velocity.y, 0.0)
+	if pivot:
+		pivot.position = _seat_pivot_rest
+	if locomotion:
+		# The rise ended on the idle stance; one zero-time idle tick hands over (state → idle).
+		locomotion.release_attack_lock()
+		locomotion.tick(0.0, 0.0, false, false, false, Vector3.ZERO)
+	print("PLAYER_SEAT_DONE state=%s" % (locomotion.current_state() if locomotion else &"?"))
 
 
 ## --- Horse mount API (called by HorseController) ---
