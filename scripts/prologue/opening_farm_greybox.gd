@@ -318,12 +318,13 @@ func _build_farmstead() -> void:
 	_solid_box(_gen, byre + Vector3(0, 1.0, 0), Vector3(7.5, 2.0, 4.0), C_BYRE)
 	_roof(_gen, byre + Vector3(0, 2.0, 0), Vector3(8.1, 1.5, 4.6), C_THATCH.darkened(0.08))
 	_mesh_box(_gen, byre + Vector3(0, 0.85, 2.02), Vector3(2.2, 1.7, 0.08), C_DOOR)
-	# Hay rick + woodpile + quern stone dressing (rick and woodpile tucked inside the bank).
+	# Hay rick + woodpile (tucked inside the bank); quern by the meal spot (H6).
 	_mesh_cyl(_gen, Vector3(-9.5, 1.0, 8.5), 1.4, 1.4, 2.0, C_THATCH)
 	_mesh_cyl(_gen, Vector3(-9.5, 2.6, 8.5), 0.05, 1.5, 1.2, C_THATCH.darkened(0.05))
 	_solid_box(_gen, Vector3(-3.8, 0.45, -6.1), Vector3(2.6, 0.9, 1.0), C_TRUNK)
-	_mesh_cyl(_gen, Vector3(-5.0, 0.2, 3.6), 0.45, 0.45, 0.4, C_WALL.darkened(0.35))
+	_build_quern()
 	_build_spring_scoop()
+	_build_crop_plots()
 
 
 func _build_roundhouse() -> void:
@@ -382,6 +383,125 @@ func _build_roundhouse() -> void:
 		var ang := TAU * float(i) / 8.0
 		_mesh_box(_gen, c + Vector3(cos(ang) * 0.55, 0.08, sin(ang) * 0.55), Vector3(0.28, 0.16, 0.22), C_WALL.darkened(0.4))
 	_mesh_cyl(_gen, c + Vector3(0, 0.05, 0), 0.42, 0.42, 0.06, Color(0.45, 0.16, 0.06))
+
+
+## H6 — rotary quern by the house door, near the meal stool: a lower stone bedded on a flat
+## slab, the upper runner stone with its feed hole and an upright wooden handle, a grain sack
+## and a wooden dish beside it. Set dressing only. Kept off Cian's meal seat (just east of the
+## stool), off Máire's spot and out of the door / yard walk lines.
+const QUERN_POS := Vector3(-4.2, 0.0, 4.75)
+const C_QUERN := Color(0.38, 0.37, 0.34)
+const C_SACK := Color(0.48, 0.41, 0.29)
+
+func _build_quern() -> void:
+	var g := _on_ground(QUERN_POS)
+	var q := StaticBody3D.new()
+	q.name = "Quern"
+	q.collision_layer = 1
+	q.collision_mask = 0
+	q.position = g
+	_gen.add_child(q)
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = 0.3
+	cyl.height = 0.32
+	cs.shape = cyl
+	cs.position = Vector3(0, 0.16, 0)
+	q.add_child(cs)
+	_mesh_cyl(q, Vector3(0, 0.03, 0), 0.36, 0.38, 0.06, C_QUERN.darkened(0.25))  # bedding slab
+	_mesh_cyl(q, Vector3(0, 0.12, 0), 0.24, 0.25, 0.12, C_QUERN.darkened(0.08))  # lower stone
+	_mesh_cyl(q, Vector3(0, 0.235, 0), 0.19, 0.235, 0.11, C_QUERN)                # upper runner
+	_mesh_cyl(q, Vector3(0, 0.292, 0), 0.045, 0.045, 0.012, Color(0.12, 0.11, 0.1))  # feed hole
+	_mesh_cyl(q, Vector3(0.16, 0.37, 0.0), 0.022, 0.026, 0.2, C_TRUNK.lightened(0.15))  # handle
+	# Sack of oats and a wooden dish of meal beside it (no collision).
+	var sack := _mesh_sphere(_gen, _on_ground(QUERN_POS + Vector3(-0.55, 0.0, 0.25), 0.22), 0.24, C_SACK)
+	sack.scale = Vector3(0.9, 1.15, 0.85)
+	_mesh_cyl(_gen, _on_ground(QUERN_POS + Vector3(0.1, 0.0, 0.5), 0.04), 0.17, 0.12, 0.08, C_TRUNK.lightened(0.1))
+	_mesh_cyl(_gen, _on_ground(QUERN_POS + Vector3(0.1, 0.0, 0.5), 0.085), 0.14, 0.14, 0.01, Color(0.66, 0.6, 0.45))
+
+
+## H6 — two small fenced grain plots just outside the ráth on its south-west side, between the
+## bank and the lane: oats (paler, nodding) and barley (golden, bearded), on ridged tilled earth
+## behind low wattle hurdles with a gap toward the house. Set dressing only; well off the lane,
+## the spring and the bucket walk.
+const C_TILTH := Color(0.3, 0.24, 0.16)
+const C_RIDGE := Color(0.36, 0.29, 0.19)
+const C_OATS := Color(0.62, 0.6, 0.38)
+const C_BARLEY := Color(0.72, 0.57, 0.27)
+
+func _build_crop_plots() -> void:
+	var plots := [
+		{"c": Vector3(-15.5, 0, 23.8), "sx": 6.0, "sz": 4.4, "col": C_OATS, "h": 1.0, "name": "oats"},
+		{"c": Vector3(-21.8, 0, 26.6), "sx": 4.6, "sz": 4.8, "col": C_BARLEY, "h": 0.8, "name": "barley"},
+	]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6061
+	var stalks: Array = []
+	var heads: Array = []
+	for pl in plots:
+		var c: Vector3 = pl["c"]
+		var sx: float = pl["sx"]
+		var sz: float = pl["sz"]
+		_drape_rect(c, sx, sz, 0.0, 0.025, C_TILTH)
+		# Ridges run north–south, 0.75 m apart; crop on the ridge tops.
+		var nr := int(floor(sx / 0.75))
+		for i in nr:
+			var rx := c.x - sx * 0.5 + 0.375 + float(i) * 0.75
+			_drape_rect(Vector3(rx, 0, c.z), 0.42, sz - 0.3, 0.0, 0.04, C_RIDGE)
+			var z := c.z - sz * 0.5 + 0.3
+			var row := 0
+			while z < c.z + sz * 0.5 - 0.3:
+				row += 1
+				var p := Vector3(rx + (0.1 if row % 2 == 0 else -0.1) + rng.randf_range(-0.06, 0.06), 0, z + rng.randf_range(-0.05, 0.05))
+				var g := _on_ground(p)
+				var h: float = pl["h"] * rng.randf_range(0.8, 1.1)
+				var col: Color = (pl["col"] as Color).darkened(rng.randf_range(0.0, 0.12))
+				var lean := Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.18))
+				stalks.append([Transform3D(lean * Basis.from_scale(Vector3(0.035, h, 0.035)), g + lean * Vector3(0, h * 0.5, 0)), col.darkened(0.1)])
+				# Grain heads: oats nod in a loose spray, barley a tight bearded head.
+				var hs := Vector3(0.06, 0.13, 0.06) if pl["name"] == "oats" else Vector3(0.045, 0.12, 0.045)
+				heads.append([Transform3D(lean * Basis.from_scale(hs), g + lean * Vector3(0, h * 0.96, 0)), col.lightened(0.03)])
+				z += 0.16
+		# Low wattle hurdles round the plot, with a gap on the east (house / ráth) side.
+		var x0 := c.x - sx * 0.5 - 0.35
+		var x1 := c.x + sx * 0.5 + 0.35
+		var z0 := c.z - sz * 0.5 - 0.35
+		var z1 := c.z + sz * 0.5 + 0.35
+		_rail(Vector3(x0, 0, z0), Vector3(x1, 0, z0), true)
+		_rail(Vector3(x0, 0, z1), Vector3(x1, 0, z1), true)
+		_rail(Vector3(x0, 0, z0), Vector3(x0, 0, z1), true)
+		var zm := (z0 + z1) * 0.5
+		_rail(Vector3(x1, 0, z0), Vector3(x1, 0, zm - 0.8), true)
+		_rail(Vector3(x1, 0, zm + 0.8), Vector3(x1, 0, z1), true)
+	var stalk_mesh := CylinderMesh.new()
+	stalk_mesh.top_radius = 0.35
+	stalk_mesh.bottom_radius = 0.6
+	stalk_mesh.height = 1.0
+	stalk_mesh.radial_segments = 5
+	stalk_mesh.rings = 0
+	var head_mesh := SphereMesh.new()
+	head_mesh.radius = 1.0
+	head_mesh.height = 2.0
+	head_mesh.radial_segments = 6
+	head_mesh.rings = 3
+	for pair in [["CropStalks", stalks, stalk_mesh], ["CropHeads", heads, head_mesh]]:
+		var arr: Array = pair[1]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = pair[2]
+		mm.instance_count = arr.size()
+		for i in arr.size():
+			mm.set_instance_transform(i, arr[i][0])
+			mm.set_instance_color(i, arr[i][1])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = pair[0]
+		mmi.multimesh = mm
+		var m := StandardMaterial3D.new()
+		m.vertex_color_use_as_albedo = true
+		m.roughness = 0.95
+		mmi.material_override = m
+		_gen.add_child(mmi)
 
 
 func _build_spring_scoop() -> void:
