@@ -40,10 +40,10 @@ const C_BOG_WATER := Color(0.16, 0.2, 0.2)
 const C_SPRING_WATER := Color(0.35, 0.48, 0.52)  # clear farm spring (cooler than bog)
 const C_REED := Color(0.5, 0.52, 0.28)
 ## Natural bog (back paddock): moss / peat ground paint, standing water, tussocks + rushes.
-const C_BOG_MOSS := Color(0.31, 0.37, 0.16)
-const C_BOG_PEAT := Color(0.23, 0.2, 0.13)
-const C_BOG_POOL := Color(0.05, 0.06, 0.05)
-const C_TUSSOCK := [Color(0.42, 0.45, 0.21), Color(0.33, 0.4, 0.17), Color(0.55, 0.5, 0.3)]
+const C_BOG_MOSS := Color(0.34, 0.41, 0.18)  # H7: fen sedge (was peat-bog moss)
+const C_BOG_PEAT := Color(0.27, 0.25, 0.15)  # wet fen mud
+const C_BOG_POOL := Color(0.07, 0.085, 0.06)
+const C_TUSSOCK := [Color(0.38, 0.46, 0.2), Color(0.31, 0.41, 0.17), Color(0.48, 0.47, 0.26)]  # sedge tussocks
 const C_RUSH := [Color(0.34, 0.44, 0.19), Color(0.48, 0.5, 0.26)]
 const C_DITCH := Color(0.17, 0.2, 0.14)
 const C_BANK := Color(0.3, 0.38, 0.22)
@@ -726,6 +726,7 @@ func _build_bog() -> void:
 	# Decorative west-of-lane bog patches: same organic treatment (shallower dip, no stuck logic).
 	for p in Terrain.deco_bogs():
 		_build_deco_bog_patch(p)
+	_build_tochar()
 
 
 func _build_bog_water() -> void:
@@ -817,13 +818,34 @@ func _build_bog_plants() -> void:
 				var xf := Transform3D(tilt.scaled(Vector3(0.035, h, 0.035)), base + tilt * Vector3(0, h * 0.5, 0))
 				_st_append(tools, C_RUSH[rng.randi() % C_RUSH.size()], blade, xf)
 			placed_r += 1
-	# Bog cotton: small white heads on the drier hummocks.
-	for i in 26:
+	# H7 fen: reed stands (tall, plumed) round the wet margin instead of bog cotton, kept off the
+	# bogged cow's spot and her walk out north to firm ground; low sallow scrub just outside.
+	var reeds := 0
+	for i in 400:
+		if reeds >= 16:
+			break
 		var p := Vector3(Terrain.BOG_CX + rng.randf_range(-ext, ext), 0.0, Terrain.BOG_CZ + rng.randf_range(-ext, ext))
-		if Terrain.bog_mask(p.x, p.z) < 0.5 or _ground_y(p) < Terrain.BOG_WATER_Y + 0.06:
+		var e := Terrain.bog_edge(p.x, p.z)
+		if e < 0.3 or e > 3.0 or _ground_y(p) < Terrain.BOG_WATER_Y + 0.04:
 			continue
-		var xf := Transform3D(Basis().scaled(Vector3.ONE * 0.075), Vector3(p.x, _ground_y(p) + rng.randf_range(0.25, 0.45), p.z))
-		_st_append(tools, C_STAKE_TOP, sphere, xf)
+		if absf(p.x - Terrain.BOG_CX) < 5.0 and p.z < Terrain.BOG_CZ + 2.0:
+			continue  # cow spawn → firm ground → back gap stays open
+		_reed_stand(tools, blade, sphere, _on_ground(p), rng, 1.3, 1.9)
+		reeds += 1
+	var sallow := 0
+	for i in 400:
+		if sallow >= 7:
+			break
+		var p := Vector3(Terrain.BOG_CX + rng.randf_range(-ext, ext), 0.0, Terrain.BOG_CZ + rng.randf_range(-ext, ext))
+		var e := Terrain.bog_edge(p.x, p.z)
+		if e > -0.6 or e < -2.6:
+			continue
+		if absf(p.x - Terrain.BOG_CX) < 6.0 and p.z < Terrain.BOG_CZ:
+			continue
+		var r := rng.randf_range(0.7, 1.1)
+		var g := _on_ground(p)
+		_st_append(tools, Color(0.33, 0.4, 0.26).darkened(rng.randf_range(0.0, 0.1)), sphere, Transform3D(Basis.from_scale(Vector3(r * 1.2, r * 0.9, r)), g + Vector3(0, r * 0.75, 0)))
+		sallow += 1
 	for key in tools:
 		var st: SurfaceTool = tools[key][0]
 		st.generate_normals()
@@ -833,6 +855,101 @@ func _build_bog_plants() -> void:
 		mi.material_override = _mat(tools[key][1])
 		_gen.add_child(mi)
 	print("OPENING_BOG_NATURAL tussocks=%d rush_clumps=%d" % [placed_t, placed_r])
+
+
+## Reed stand (common reed): a tight clump of tall blades with brown plumes.
+func _reed_stand(tools: Dictionary, blade: Mesh, sphere: Mesh, g: Vector3, rng: RandomNumberGenerator, h0: float, h1: float) -> void:
+	var n := rng.randi_range(7, 12)
+	for b in n:
+		var h := rng.randf_range(h0, h1)
+		var off := Vector3(rng.randf_range(-0.3, 0.3), 0.0, rng.randf_range(-0.3, 0.3))
+		var tilt := Basis.from_euler(Vector3(rng.randf_range(-0.12, 0.12), rng.randf() * TAU, rng.randf_range(-0.12, 0.12)))
+		var base := g + off + Vector3(0, -0.05, 0)
+		_st_append(tools, Color(0.5, 0.52, 0.3).darkened(rng.randf_range(0.0, 0.15)), blade, Transform3D(tilt * Basis.from_scale(Vector3(0.025, h, 0.025)), base + tilt * Vector3(0, h * 0.5, 0)))
+		if rng.randf() < 0.6:
+			_st_append(tools, Color(0.45, 0.33, 0.24), sphere, Transform3D(tilt * Basis.from_scale(Vector3(0.05, 0.14, 0.05)), base + tilt * Vector3(0, h + 0.06, 0)))
+
+
+## H7 — tóchar: a plank trackway across the farther fen hollow (west of Bend8), east → west.
+## Split-oak planks laid crosswise on two log runners, pegged at the sides, riding just above the
+## pool line and easing down onto firm ground at each end. Walkable: one tilted box collider per
+## 0.5 m station (planks are visual). A trodden gap through the wood links it toward the farm.
+const TOCHAR_Z := 160.0
+const TOCHAR_X0 := -62.0
+const TOCHAR_X1 := -48.0
+const TOCHAR_W := 1.7
+const C_PLANK := Color(0.4, 0.3, 0.19)
+
+func _tochar_patch() -> Dictionary:
+	for p in Terrain.deco_bogs():
+		if absf(float(p["cx"]) + 55.0) < 0.1:
+			return p
+	return {}
+
+
+func _tochar_top(x: float) -> float:
+	## Deck top at x: above the ground and the pool surface, easing to ground level at the ends.
+	var p := _tochar_patch()
+	var g := _ground_y(Vector3(x, 0, TOCHAR_Z))
+	var top := g + 0.16
+	if not p.is_empty():
+		var dep := Terrain.deco_bog_depth_one(p, x, TOCHAR_Z)
+		var water := g + dep - float(p["water_rel"])
+		top = maxf(g, water) + 0.16
+	var to_end := minf(x - TOCHAR_X0, TOCHAR_X1 - x)
+	if to_end < 1.5:
+		top = lerpf(g + 0.02, top, clampf(to_end / 1.5, 0.0, 1.0))
+	return top
+
+
+func _build_tochar() -> void:
+	var root := Node3D.new()
+	root.name = "Tochar"
+	_gen.add_child(root)
+	var step := 0.5
+	var n := int(round((TOCHAR_X1 - TOCHAR_X0) / step))
+	# Smoothed deck heights at stations.
+	var tops: Array[float] = []
+	for i in n + 1:
+		tops.append(_tochar_top(TOCHAR_X0 + float(i) * step))
+	for pass_i in 2:
+		var sm := tops.duplicate()
+		for i in range(1, n):
+			sm[i] = maxf(tops[i], (tops[i - 1] + tops[i] * 2.0 + tops[i + 1]) * 0.25)
+		tops = sm
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3313
+	for i in n:
+		var xa := TOCHAR_X0 + float(i) * step
+		var xb := xa + step
+		var ya: float = tops[i]
+		var yb: float = tops[i + 1]
+		var mid := Vector3((xa + xb) * 0.5, (ya + yb) * 0.5, TOCHAR_Z)
+		var pitch := atan2(yb - ya, step)
+		var len3 := sqrt(step * step + (yb - ya) * (yb - ya))
+		var body := StaticBody3D.new()
+		body.collision_layer = 1
+		body.collision_mask = 0
+		body.position = mid
+		body.rotation.z = pitch
+		root.add_child(body)
+		var cs := CollisionShape3D.new()
+		var bs := BoxShape3D.new()
+		bs.size = Vector3(len3 + 0.02, 0.1, TOCHAR_W)
+		cs.shape = bs
+		cs.position = Vector3(0, -0.05, 0)
+		body.add_child(cs)
+		# Two crosswise planks per station on the runners.
+		for k in 2:
+			var lx := (float(k) - 0.5) * step * 0.5
+			var pl := _mesh_box(body, Vector3(lx, -0.03, rng.randf_range(-0.06, 0.06)), Vector3(0.22, 0.06, TOCHAR_W + rng.randf_range(-0.15, 0.1)), C_PLANK.darkened(rng.randf_range(0.0, 0.18)))
+			pl.rotation.y = rng.randf_range(-0.05, 0.05)
+		for side in [-1.0, 1.0]:
+			_mesh_box(body, Vector3(0, -0.11, side * (TOCHAR_W * 0.5 - 0.25)), Vector3(len3 + 0.04, 0.1, 0.14), C_TRUNK.darkened(0.2))
+		if i % 3 == 0:
+			for side in [-1.0, 1.0]:
+				_mesh_cyl(root, Vector3(mid.x, mid.y - 0.02, TOCHAR_Z + side * (TOCHAR_W * 0.5 + 0.06)), 0.035, 0.045, 0.34, C_TRUNK.darkened(0.1))
+	print("OPENING_TOCHAR x=%.1f..%.1f z=%.1f stations=%d" % [TOCHAR_X0, TOCHAR_X1, TOCHAR_Z, n])
 
 
 func _st_append(tools: Dictionary, col: Color, mesh: Mesh, xf: Transform3D) -> void:
@@ -919,8 +1036,8 @@ func _build_deco_bog_plants(p: Dictionary) -> void:
 	var cx := float(p["cx"])
 	var cz := float(p["cz"])
 	var water_rel := float(p["water_rel"])
-	var want_t := 18
-	var want_r := 10
+	var want_t := 10
+	var want_r := 6
 	var placed_t := 0
 	var placed_r := 0
 	var tries := 0
@@ -929,6 +1046,8 @@ func _build_deco_bog_plants(p: Dictionary) -> void:
 		var pos := Vector3(cx + rng.randf_range(-ext, ext), 0.0, cz + rng.randf_range(-ext, ext))
 		var msk := Terrain.deco_bog_mask_one(p, pos.x, pos.z)
 		if msk < 0.08:
+			continue
+		if p.has("tochar_z") and absf(pos.z - float(p["tochar_z"])) < 1.4:
 			continue
 		var gy := _ground_y(pos)
 		var depth := Terrain.deco_bog_depth_one(p, pos.x, pos.z)
@@ -956,16 +1075,16 @@ func _build_deco_bog_plants(p: Dictionary) -> void:
 				var xf := Transform3D(tilt.scaled(Vector3(0.03, hh, 0.03)), base + tilt * Vector3(0, hh * 0.5, 0))
 				_st_append(tools, C_RUSH[rng.randi() % C_RUSH.size()], blade, xf)
 			placed_r += 1
-	# Bog cotton on the drier hummocks.
-	for i in 8:
+	# H7: a few reed stands at the hollow's wet edge (no bog cotton — fen, not raised bog).
+	for i in 10:
 		var pos := Vector3(cx + rng.randf_range(-ext, ext), 0.0, cz + rng.randf_range(-ext, ext))
-		if Terrain.deco_bog_mask_one(p, pos.x, pos.z) < 0.45:
+		if Terrain.deco_bog_mask_one(p, pos.x, pos.z) < 0.35:
 			continue
 		if Terrain.deco_bog_depth_one(p, pos.x, pos.z) > water_rel - 0.04:
 			continue
-		var xf := Transform3D(Basis().scaled(Vector3.ONE * 0.07),
-			Vector3(pos.x, _ground_y(pos) + rng.randf_range(0.2, 0.4), pos.z))
-		_st_append(tools, C_STAKE_TOP, sphere, xf)
+		if p.has("tochar_z") and absf(pos.z - float(p["tochar_z"])) < 1.6:
+			continue  # keep the trackway clear
+		_reed_stand(tools, blade, sphere, _on_ground(pos), rng, 1.1, 1.6)
 	for key in tools:
 		var st: SurfaceTool = tools[key][0]
 		st.generate_normals()
@@ -1130,6 +1249,8 @@ func _build_woodland(path: Array[Vector3]) -> void:
 				continue
 			if p.distance_to(Vector3(-78, 0, 42)) < 24.0:
 				continue  # neighbours' ráth keeps its cleared ground
+			if absf(p.z - 160.0) < 3.5 and p.x > -70.0 and p.x < -30.0:
+				continue  # H7: the tóchar's line through the wood stays open
 			var near_wet := false
 			for w in wet:
 				var dw := Vector2(p.x, p.z).distance_to(w)

@@ -72,15 +72,15 @@ static var _baked_for: float = NAN
 ## Keys: cx, cz, r, extent, blend, feather, dip, hummock, ease, seed, phase, water_rel (pool
 ## surface this far below the undipped ground — only hollows deeper than it flood).
 const DECO_BOGS: Array = [
-	{  # nearer patch, west of Bend5 (was 14×10 square at (-10, 100))
-		"cx": -14.0, "cz": 102.0, "r": 5.6, "extent": 9.0,
-		"blend": 1.6, "feather": 0.5, "dip": 0.30, "hummock": 0.14, "ease": 2.5,
+	{  # nearer patch, west of Bend5 — H7: a small wet hollow (was a 5.6 m-radius bog patch)
+		"cx": -14.0, "cz": 102.0, "r": 3.0, "extent": 5.2,
+		"blend": 1.0, "feather": 0.5, "dip": 0.30, "hummock": 0.12, "ease": 1.5,
 		"seed": 5521, "phase": 1.3, "water_rel": 0.33,
 	},
-	{  # farther patch, west of Bend8 (was 18×14 square at (-55, 160))
-		"cx": -55.0, "cz": 160.0, "r": 7.2, "extent": 11.5,
-		"blend": 1.8, "feather": 0.55, "dip": 0.32, "hummock": 0.14, "ease": 2.7,
-		"seed": 7733, "phase": 4.1, "water_rel": 0.38,
+	{  # farther patch, west of Bend8 — H7: a small fen hollow with the tóchar across it
+		"cx": -55.0, "cz": 160.0, "r": 4.4, "extent": 7.2,
+		"blend": 1.2, "feather": 0.55, "dip": 0.38, "hummock": 0.12, "ease": 1.8,
+		"seed": 7733, "phase": 4.1, "water_rel": 0.38, "tochar_z": 160.0,
 	},
 ]
 
