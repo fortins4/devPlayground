@@ -28,7 +28,10 @@ const LANE_WIDTH := 3.2
 const C_GRASS := Color(0.36, 0.47, 0.27)
 const C_PASTURE := Color(0.42, 0.55, 0.3)
 const C_YARD := Color(0.42, 0.36, 0.26)
-const C_LANE := Color(0.52, 0.45, 0.32)
+const C_LANE := Color(0.29, 0.22, 0.14)        ## H8: trodden mud (was a sandy strip)
+const C_LANE_VERGE := Color(0.36, 0.39, 0.21)   ## grass worn thin at the track's edges
+const C_LANE_POACHED := Color(0.21, 0.155, 0.1)
+const C_PUDDLE := Color(0.16, 0.17, 0.15)
 const C_WALL := Color(0.78, 0.74, 0.64)
 const C_THATCH := Color(0.62, 0.5, 0.3)
 const C_DOOR := Color(0.2, 0.16, 0.12)
@@ -650,15 +653,21 @@ func _build_home_pen() -> void:
 func _build_lane(path: Array[Vector3]) -> void:
 	if path.size() < 2:
 		return
-	# Lane strips + soft joints, draped on the terrain (the boreen climbs the skirts it crosses).
+	# H8 — the boreen is a worn mud track: a trampled, grass-thinned verge either side, the
+	# hoof-churned mud strip down the middle, darker poached patches and a few standing puddles
+	# (more at the bends, where the herd mills). Same width and line as before; paint only.
 	for i in path.size() - 1:
 		var a := path[i]
 		var b := path[i + 1]
 		var mid := (a + b) * 0.5
 		var length := a.distance_to(b) + 1.2
-		_drape_rect(mid, LANE_WIDTH, length, atan2(b.x - a.x, b.z - a.z), 0.035, C_LANE)
-		_drape_disc(a, LANE_WIDTH * 0.5, LANE_WIDTH * 0.5, 0.036, C_LANE)
-	_drape_disc(path[-1], LANE_WIDTH * 0.5, LANE_WIDTH * 0.5, 0.036, C_LANE)
+		_drape_rect(mid, LANE_WIDTH + 1.3, length, atan2(b.x - a.x, b.z - a.z), 0.015, C_LANE_VERGE)
+		_drape_disc(a, (LANE_WIDTH + 1.3) * 0.5, (LANE_WIDTH + 1.3) * 0.5, 0.016, C_LANE_VERGE)
+		_drape_rect(mid, LANE_WIDTH, length, atan2(b.x - a.x, b.z - a.z), 0.045, C_LANE)
+		_drape_disc(a, LANE_WIDTH * 0.5, LANE_WIDTH * 0.5, 0.046, C_LANE)
+	_drape_disc(path[-1], (LANE_WIDTH + 1.3) * 0.5, (LANE_WIDTH + 1.3) * 0.5, 0.016, C_LANE_VERGE)
+	_drape_disc(path[-1], LANE_WIDTH * 0.5, LANE_WIDTH * 0.5, 0.046, C_LANE)
+	_build_lane_wear(path)
 	# Bias stakes (white-topped) at every marker — the drove's waypoints.
 	for p in path:
 		var sp := Vector3(p.x + LANE_WIDTH * 0.62, 0.0, p.z)
@@ -688,6 +697,120 @@ func _build_lane(path: Array[Vector3]) -> void:
 		if Terrain.rath_radius(c.x, c.z) < Terrain.RATH_EXTENT + 8.0:
 			continue  # clear of the ráth bank / ditch
 		_rail(c - along * 7.0, c + along * 7.0, true)
+
+
+func _build_lane_wear(path: Array[Vector3]) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8821
+	var puddle_mat := StandardMaterial3D.new()
+	puddle_mat.albedo_color = C_PUDDLE
+	puddle_mat.roughness = 0.15
+	puddle_mat.metallic_specular = 0.35
+	for i in path.size() - 1:
+		var a := path[i]
+		var b := path[i + 1]
+		var d := Vector3(b.x - a.x, 0, b.z - a.z)
+		var length := d.length()
+		d /= maxf(length, 0.001)
+		var side := Vector3(d.z, 0, -d.x)
+		var t := rng.randf_range(0.5, 2.0)
+		while t < length:
+			var lat := rng.randf_range(-0.9, 0.9)
+			var c := a + d * t + side * lat
+			var rl := rng.randf_range(0.5, 1.3)
+			var disc := _drape_disc(c, rl * rng.randf_range(0.5, 0.8), rl, 0.055, C_LANE_POACHED.lightened(rng.randf_range(0.0, 0.06)))
+			disc.rotation.y = 0.0
+			t += rng.randf_range(1.6, 3.6)
+		# A puddle or two per leg, and one at each bend.
+		for k in rng.randi_range(1, 2):
+			var c := a + d * rng.randf_range(0.2, 0.8) * length + side * rng.randf_range(-0.6, 0.6)
+			var pd := _drape_disc(c, rng.randf_range(0.35, 0.6), rng.randf_range(0.5, 0.9), 0.062, C_PUDDLE)
+			pd.material_override = puddle_mat
+		if i > 0:
+			var pb := _drape_disc(a + side * rng.randf_range(-0.5, 0.5), rng.randf_range(0.5, 0.8), rng.randf_range(0.4, 0.7), 0.062, C_PUDDLE)
+			pb.material_override = puddle_mat
+
+
+## H8 — no written signposts in the opening: a carved wayside post where the boreen leaves the
+## ráth (was the "Lane to the pasture" sign) and a stone cairn above the pasture mouth (was the
+## "Secluded pasture" sign). No text anywhere; the place-name labels are gone.
+const C_OAK_POST := Color(0.3, 0.22, 0.14)
+const C_CAIRN := [Color(0.36, 0.35, 0.32), Color(0.3, 0.3, 0.28), Color(0.41, 0.39, 0.35)]
+
+func _build_markers(path: Array[Vector3]) -> void:
+	if path.size() < 2:
+		return
+	# Carved post: west of Bend1, well off the track (4.6 m from its line) — squat oak pillar
+	# with carved bands, a notched collar and a rounded head with a ring-cross cut on its face.
+	var b1 := path[1] if path.size() > 2 else path[0]
+	var pp := Vector3(b1.x - 4.6, 0.0, b1.z - 1.0)
+	var g := _on_ground(pp)
+	var post := StaticBody3D.new()
+	post.name = "CarvedPost"
+	post.collision_layer = 1
+	post.collision_mask = 0
+	post.position = g
+	_gen.add_child(post)
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = 0.2
+	cyl.height = 1.6
+	cs.shape = cyl
+	cs.position = Vector3(0, 0.8, 0)
+	post.add_child(cs)
+	_mesh_cyl(post, Vector3(0, 0.7, 0), 0.15, 0.18, 1.4, C_OAK_POST)
+	for y in [0.35, 0.95, 1.25]:
+		_mesh_cyl(post, Vector3(0, y, 0), 0.165 if y > 0.5 else 0.19, 0.165 if y > 0.5 else 0.19, 0.05, C_OAK_POST.darkened(0.35))
+	for k in 8:  # notched collar
+		var a := TAU * float(k) / 8.0
+		_mesh_box(post, Vector3(cos(a) * 0.15, 1.1, sin(a) * 0.15), Vector3(0.05, 0.12, 0.05), C_OAK_POST.darkened(0.25))
+	_mesh_sphere(post, Vector3(0, 1.45, 0), 0.17, C_OAK_POST.lightened(0.05))
+	# Ring-cross cut into the head, facing the track (east).
+	var face := Node3D.new()
+	face.position = Vector3(0.16, 1.45, 0)
+	face.rotation.y = PI * 0.5
+	post.add_child(face)
+	var cut := C_OAK_POST.darkened(0.55)
+	_mesh_box(face, Vector3(0, 0, 0.02), Vector3(0.025, 0.2, 0.02), cut)
+	_mesh_box(face, Vector3(0, 0, 0.02), Vector3(0.2, 0.025, 0.02), cut)
+	var ring := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.06
+	tm.outer_radius = 0.075
+	ring.mesh = tm
+	ring.material_override = _mat(cut)
+	ring.rotation.x = PI * 0.5
+	ring.position = Vector3(0, 0, 0.02)
+	face.add_child(ring)
+	# Cairn: above the pasture mouth, out on the berm, 8 m off the track.
+	var mouth := path[-1]
+	var cp := Vector3(mouth.x - 7.0, 0.0, mouth.z - 4.0)
+	var cg := _on_ground(cp)
+	var cairn := StaticBody3D.new()
+	cairn.name = "Cairn"
+	cairn.collision_layer = 1
+	cairn.collision_mask = 0
+	cairn.position = cg
+	_gen.add_child(cairn)
+	var ccs := CollisionShape3D.new()
+	var ccy := CylinderShape3D.new()
+	ccy.radius = 0.75
+	ccy.height = 1.1
+	ccs.shape = ccy
+	ccs.position = Vector3(0, 0.55, 0)
+	cairn.add_child(ccs)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5150
+	var layers := [[7, 0.62, 0.18], [6, 0.45, 0.42], [4, 0.28, 0.66], [2, 0.12, 0.88]]
+	for L in layers:
+		for k in int(L[0]):
+			var a := TAU * float(k) / float(L[0]) + rng.randf() * 0.5
+			var r: float = L[1]
+			var st := _mesh_sphere(cairn, Vector3(cos(a) * r, float(L[2]) - 0.05, sin(a) * r), rng.randf_range(0.17, 0.26), C_CAIRN[rng.randi() % 3])
+			st.scale = Vector3(rng.randf_range(1.0, 1.4), rng.randf_range(0.55, 0.8), rng.randf_range(0.9, 1.2))
+			st.rotation.y = rng.randf() * TAU
+	var top := _mesh_sphere(cairn, Vector3(0, 1.02, 0), 0.16, C_CAIRN[0])
+	top.scale = Vector3(1.0, 1.3, 0.9)
 
 
 func _build_pasture() -> void:
@@ -1170,7 +1293,6 @@ func _build_ringfort(center: Vector3, radius: float) -> void:
 		body.add_child(cs)
 		_mesh_cyl(body, Vector3.ZERO, 3.0, 3.0, 2.4, C_HUT)
 		_mesh_cyl(_gen, hg + Vector3(0, 3.3, 0), 0.1, 3.5, 2.2, C_THATCH)
-	_label(_on_ground(center + Vector3(0, 7.0, 0)), "Neighbours' ráth (ringfort)", 46, Color(0.82, 0.86, 0.72))
 
 
 func _build_trees(path: Array[Vector3]) -> void:
@@ -1371,16 +1493,9 @@ func _wood_hazel(parts: Dictionary, g: Vector3, rng: RandomNumberGenerator) -> v
 
 
 func _build_labels(path: Array[Vector3]) -> void:
-	_label(Vector3(-7.2, 6.4, 1.77 - HOUSE_R), "Home — the house", 40, Color(0.95, 0.9, 0.75))
-	_label(Vector3(7.0, 4.6, -2.6), "Byre", 40, Color(0.95, 0.9, 0.75))
-	var home := _zone_box(home_zone_path, Vector3(6.5, 1.2, 5.5), Vector3(9.0, 2.4, 8.0))
-	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
-	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
-	_label(_on_ground(Vector3(pas.get_center().x, 4.5, pas.get_center().z - 6.0)), "Secluded pasture", 46, Color(0.85, 0.95, 0.7))
-	# No "Bog edge" sign: the natural patch (dip, peat, pools, rushes) reads on its own.
-	_label(_on_ground(Vector3(-27.0, 2.4, 40.0)), "Ditch (farm edge)", 30, Color(0.7, 0.8, 0.6))
-	if path.size() >= 2:
-		_label(path[0] + Vector3(-3.8, 2.3, 0), "Lane to the pasture ↓", 32, Color(0.95, 0.88, 0.6))
+	# H8: no written place-name signs in the opening (house, byre, pen, pasture, ditch, lane);
+	# a carved post and a cairn mark the way instead.
+	_build_markers(path)
 
 
 # ---------------------------------------------------------------- helpers
