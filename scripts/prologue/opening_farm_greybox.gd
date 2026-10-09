@@ -52,6 +52,9 @@ const C_TRUNK := Color(0.32, 0.25, 0.18)
 const C_CANOPY := Color(0.24, 0.38, 0.2)
 const C_RATH_BANK := Color(0.33, 0.42, 0.25)
 const C_HUT := Color(0.68, 0.62, 0.5)
+const C_DAUB := Color(0.74, 0.66, 0.52)   ## clay/lime daub over wattle (family roundhouse)
+## Family roundhouse radius (m): 7 m across, door on the old spot by Máire.
+const HOUSE_R := 3.5
 
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 ## Terrain mesh tile size (cells). Smaller tiles cull better; same samples as the collider.
@@ -306,13 +309,7 @@ func _terrain_tile(root: Node3D, hs: PackedFloat32Array, cols: PackedColorArray,
 
 func _build_farmstead() -> void:
 	# Muddy yard: painted into the terrain inside the ráth bank (see _build_terrain_mesh).
-	# House (family) — whitewashed walls, thatch, door to the south yard.
-	var house := Vector3(-8.0, 0.0, -1.0)
-	_solid_box(_gen, house + Vector3(0, 1.2, 0), Vector3(7.5, 2.4, 5.5), C_WALL)
-	_roof(_gen, house + Vector3(0, 2.4, 0), Vector3(8.2, 2.1, 6.2), C_THATCH)
-	_mesh_box(_gen, house + Vector3(0.8, 0.95, 2.77), Vector3(1.1, 1.9, 0.08), C_DOOR)
-	_mesh_box(_gen, house + Vector3(-2.2, 1.5, 2.77), Vector3(0.7, 0.6, 0.08), C_DOOR)
-	_mesh_box(_gen, house + Vector3(2.6, 3.6, 0.0), Vector3(0.6, 1.1, 0.6), C_WALL.darkened(0.25))  # smoke-hole chimney stub
+	_build_roundhouse()
 	# Byre / calf shed — small and low inside the ráth, door opening onto the night pen.
 	var byre := Vector3(7.0, 0.0, -2.2)
 	_solid_box(_gen, byre + Vector3(0, 1.0, 0), Vector3(7.5, 2.0, 4.0), C_BYRE)
@@ -324,6 +321,64 @@ func _build_farmstead() -> void:
 	_solid_box(_gen, Vector3(-3.8, 0.45, -6.1), Vector3(2.6, 0.9, 1.0), C_TRUNK)
 	_mesh_cyl(_gen, Vector3(-5.0, 0.2, 3.6), 0.45, 0.45, 0.4, C_WALL.darkened(0.35))
 	_build_spring_scoop()
+
+
+func _build_roundhouse() -> void:
+	## Family house: round wattle-and-daub wall under a thatch cone, door facing the yard on the
+	## same spot as before (OpeningFamilyCaller.DOOR_POS), central hearth under a smoke hole.
+	var door := Vector3(-7.2, 0.0, 1.77)
+	var c := door - Vector3(0.0, 0.0, HOUSE_R)
+	var wall_h := 1.9
+	# Solid round wall (one cylinder collider; the hearth inside is dressing only).
+	var body := StaticBody3D.new()
+	body.name = "Roundhouse"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	body.position = c + Vector3(0, wall_h * 0.5, 0)
+	_gen.add_child(body)
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = HOUSE_R
+	cyl.height = wall_h
+	cs.shape = cyl
+	body.add_child(cs)
+	# Daub skin over the wattle, a darker splash-band at the foot, and wattle weave hints.
+	var wall_mi := _mesh_cyl(body, Vector3.ZERO, HOUSE_R, HOUSE_R, wall_h, C_DAUB)
+	(wall_mi.mesh as CylinderMesh).radial_segments = 36
+	var foot_mi := _mesh_cyl(body, Vector3(0, -wall_h * 0.5 + 0.18, 0), HOUSE_R + 0.03, HOUSE_R + 0.03, 0.36, C_DAUB.darkened(0.3))
+	(foot_mi.mesh as CylinderMesh).radial_segments = 36
+	for i in 28:
+		var ang := TAU * float(i) / 28.0
+		if absf(wrapf(ang - PI * 0.5, -PI, PI)) < 0.32:
+			continue  # door
+		var post := _mesh_box(body, Vector3(cos(ang) * (HOUSE_R + 0.02), 0.1, sin(ang) * (HOUSE_R + 0.02)), Vector3(0.09, wall_h - 0.5, 0.06), C_DAUB.darkened(0.14))
+		post.rotation.y = -ang + PI * 0.5
+	# Doorway: dark opening with timber jambs and lintel.
+	_mesh_box(_gen, door + Vector3(0, 0.82, 0.02), Vector3(1.0, 1.64, 0.12), C_DOOR)
+	for sx in [-0.6, 0.6]:
+		_mesh_box(_gen, door + Vector3(sx, 0.85, 0.06), Vector3(0.14, 1.75, 0.16), C_TRUNK)
+	_mesh_box(_gen, door + Vector3(0, 1.74, 0.06), Vector3(1.36, 0.14, 0.18), C_TRUNK)
+	# Thatch cone: eaves well out past the wall, truncated at the top for the smoke hole.
+	var cone_h := 3.3
+	var cone := _mesh_cyl(_gen, c + Vector3(0, wall_h + cone_h * 0.5 - 0.15, 0), 0.32, HOUSE_R + 0.7, cone_h, C_THATCH)
+	(cone.mesh as CylinderMesh).radial_segments = 36
+	_mesh_cyl(_gen, c + Vector3(0, wall_h - 0.12, 0), HOUSE_R + 0.7, HOUSE_R + 0.72, 0.1, C_THATCH.darkened(0.12))  # eave lip
+	_mesh_cyl(_gen, c + Vector3(0, wall_h + cone_h - 0.12, 0), 0.26, 0.26, 0.06, Color(0.08, 0.07, 0.06))  # smoke hole
+	# Hearth smoke drifting from the hole (a few soft puffs).
+	var smoke := StandardMaterial3D.new()
+	smoke.albedo_color = Color(0.72, 0.72, 0.7, 0.32)
+	smoke.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smoke.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smoke.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for k in 4:
+		var puff := _mesh_sphere(_gen, c + Vector3(0.15 * k, wall_h + cone_h + 0.25 + 0.55 * k, -0.1 * k), 0.28 + 0.14 * k, C_THATCH)
+		puff.material_override = smoke
+		puff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Central hearth (stone kerb + embers), seen through the door.
+	for i in 8:
+		var ang := TAU * float(i) / 8.0
+		_mesh_box(_gen, c + Vector3(cos(ang) * 0.55, 0.08, sin(ang) * 0.55), Vector3(0.28, 0.16, 0.22), C_WALL.darkened(0.4))
+	_mesh_cyl(_gen, c + Vector3(0, 0.05, 0), 0.42, 0.42, 0.06, Color(0.45, 0.16, 0.06))
 
 
 func _build_spring_scoop() -> void:
@@ -887,7 +942,7 @@ func _build_trees(path: Array[Vector3]) -> void:
 
 
 func _build_labels(path: Array[Vector3]) -> void:
-	_label(Vector3(-8.0, 5.6, -1.0), "Home — the house", 40, Color(0.95, 0.9, 0.75))
+	_label(Vector3(-7.2, 6.4, 1.77 - HOUSE_R), "Home — the house", 40, Color(0.95, 0.9, 0.75))
 	_label(Vector3(7.0, 4.6, -2.6), "Byre", 40, Color(0.95, 0.9, 0.75))
 	var home := _zone_box(home_zone_path, Vector3(6.5, 1.2, 5.5), Vector3(9.0, 2.4, 8.0))
 	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
