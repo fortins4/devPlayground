@@ -100,6 +100,7 @@ var _has_slot: bool = false
 
 
 func _ready() -> void:
+	_restyle_native()
 	super._ready()
 	start_position = global_position
 	_start_basis = global_transform.basis
@@ -107,6 +108,123 @@ func _ready() -> void:
 		var n := get_node_or_null(nm) as Node3D
 		if n:
 			_tilt_base[nm] = n.transform
+
+
+# ---------------------------------------------------------------- look (H5, visual only)
+
+## Small dark native cattle (Kerry / Dexter-like): black or dark red, compact, short-horned or
+## polled. Visual only: the collider, hurtbox, legs (rig, length, walk cycle, slope lean) and
+## AI are as before; the leg hips sit a little further in under the narrower body.
+const COAT_BLACK := Color(0.07, 0.062, 0.055)
+const COAT_RED := Color(0.2, 0.075, 0.045)
+const C_HORN_NATIVE := Color(0.82, 0.76, 0.6)
+const C_HORN_TIP := Color(0.18, 0.15, 0.12)
+const C_MUZZLE_NATIVE := Color(0.2, 0.17, 0.15)
+var _coat: Color = COAT_BLACK
+var _coat_mats: Dictionary = {}
+## Hump / tail: share the body's (tinted) material.
+var _coat_parts: Array = []
+
+
+func _restyle_native() -> void:
+	var k := absi(cow_id * 7 + 3) % 6
+	_coat = COAT_RED if (k == 1 or k == 4) else COAT_BLACK
+	_coat = _coat.lightened(float(absi(cow_id * 5) % 3) * 0.025)
+	var horned := (k % 2) == 0  # short horns on some, polled on the rest
+	var body := get_node_or_null("MeshInstance3D") as MeshInstance3D
+	if body:
+		# Capsule (length on local Y → world Z): 1.45 m long, 0.84 m wide, 0.64 m deep, back ≈ 0.87 m.
+		body.transform = Transform3D(Basis(Vector3(1.0, 0, 0), Vector3(0, 0, 1.07), Vector3(0, -0.76, 0)), Vector3(0, 0.55, 0.02))
+		body.set_surface_override_material(0, _coat_mat(_coat))
+		# Low withers hump + a thin tail, counter-scaled so the body's stretch doesn't skew them.
+		_coat_parts.append(_attach(body, Vector3(0, 0.78, -0.42), Basis.from_scale(Vector3(0.36, 0.14, 0.4)), _sphere(1.0), _coat))
+		var tail := Basis(Vector3.RIGHT, 0.25) * Basis.from_scale(Vector3(0.035, 0.55, 0.035))
+		_coat_parts.append(_attach(body, Vector3(0, 0.52, 0.79), tail, _cyl(1.0, 1.0, 1.0), _coat))
+		_attach(body, Vector3(0, 0.27, 0.86), Basis.from_scale(Vector3(0.06, 0.1, 0.06)), _sphere(1.0), _coat.darkened(0.3))
+	var head := get_node_or_null("Head") as MeshInstance3D
+	if head:
+		# Shorter, neater head low on the neck; pale-ish muzzle; small ears.
+		head.transform = Transform3D(Basis(Vector3.RIGHT, -0.3) * Basis.from_scale(Vector3(0.55, 0.62, 1.1)), Vector3(0, 0.6, -1.0))
+		head.set_surface_override_material(0, _coat_mat(_coat))
+		# Short thick neck joining head to the forequarters.
+		_coat_parts.append(_attach(head, Vector3(0, 0.66, -0.78), Basis(Vector3.RIGHT, 0.5) * Basis.from_scale(Vector3(0.21, 0.26, 0.24)), _sphere(1.0), _coat))
+		_attach(head, Vector3(0, 0.5, -1.27), Basis.from_scale(Vector3(0.12, 0.1, 0.1)), _sphere(1.0), C_MUZZLE_NATIVE)
+		for sx in [-1.0, 1.0]:
+			_attach(head, Vector3(sx * 0.19, 0.68, -0.9), Basis(Vector3.FORWARD, sx * 0.5) * Basis.from_scale(Vector3(0.1, 0.04, 0.06)), _sphere(1.0), _coat.darkened(0.15))
+			if horned:
+				# Short horn: out, then up and a touch forward (Kerry-style upturn, kept short).
+				var hb := Basis(Vector3.FORWARD, sx * 0.85) * Basis(Vector3.RIGHT, -0.35)
+				_attach(head, Vector3(sx * 0.1, 0.72, -0.93), hb * Basis.from_scale(Vector3(0.028, 0.16, 0.028)), _cyl(0.55, 1.0, 1.0), C_HORN_NATIVE)
+				var tip := hb * Vector3(0, 0.16, 0)
+				_attach(head, Vector3(sx * 0.1, 0.72, -0.93) + tip * 0.62, hb * Basis.from_scale(Vector3(0.016, 0.05, 0.016)), _cyl(0.2, 1.0, 1.0), C_HORN_TIP)
+	for nm in _LEG_NODES:
+		var leg := get_node_or_null(nm) as MeshInstance3D
+		if leg:
+			var o := leg.position
+			leg.position = Vector3(signf(o.x) * 0.25, o.y, signf(o.z) * 0.47)
+			leg.material_override = _coat_mat(_coat.darkened(0.25))
+
+
+## Child mesh placed at cow-local `pos` with `basis`, cancelling the parent's own transform.
+func _attach(parent: MeshInstance3D, pos: Vector3, basis: Basis, mesh: Mesh, col: Color) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = _coat_mat(col)
+	mi.transform = parent.transform.affine_inverse() * Transform3D(basis, pos)
+	parent.add_child(mi)
+	return mi
+
+
+func _sphere(r: float) -> SphereMesh:
+	var m := SphereMesh.new()
+	m.radius = r
+	m.height = r * 2.0
+	m.radial_segments = 10
+	m.rings = 6
+	return m
+
+
+func _cyl(top: float, bottom: float, h: float) -> CylinderMesh:
+	var m := CylinderMesh.new()
+	m.top_radius = top
+	m.bottom_radius = bottom
+	m.height = h
+	m.radial_segments = 6
+	return m
+
+
+func _coat_mat(c: Color) -> StandardMaterial3D:
+	var key := c.to_html()
+	if not _coat_mats.has(key):
+		var m := StandardMaterial3D.new()
+		m.albedo_color = c
+		m.roughness = 0.85
+		_coat_mats[key] = m
+	return _coat_mats[key]
+
+
+## Body / head colour per state: the coat, lifted a touch when herded / driven, faintly green
+## once delivered (the old tan → yellow → green cue, kept subtle on a dark coat).
+func _refresh_visual() -> void:
+	if _react_timer > 0.0:
+		return
+	super._refresh_visual()  # label text / colour as before
+	var c := _coat
+	if delivered:
+		c = _coat.lerp(Color(0.3, 0.42, 0.2), 0.3)
+	elif driven:
+		c = _coat.lerp(Color(0.55, 0.42, 0.25), 0.18)
+	elif herded:
+		c = _coat.lerp(Color(0.5, 0.4, 0.28), 0.08)
+	for node_name in ["MeshInstance3D", "Head"]:
+		var mi := get_node_or_null(node_name) as MeshInstance3D
+		if mi and mi.get_active_material(0) is StandardMaterial3D:
+			(mi.get_active_material(0) as StandardMaterial3D).albedo_color = c
+	var bm := get_node_or_null("MeshInstance3D") as MeshInstance3D
+	if bm:
+		for n in _coat_parts:
+			if is_instance_valid(n):
+				(n as MeshInstance3D).material_override = bm.get_active_material(0)
 
 
 ## 0..1 — how much the last goad / proximity push still carries the cow along the lane.

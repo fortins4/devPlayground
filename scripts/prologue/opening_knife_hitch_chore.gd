@@ -17,8 +17,8 @@ const ANIMAL_FREE_POS := Vector3(12.2, 0.0, 4.6)
 const C_POST := Color(0.38, 0.28, 0.16)
 const C_POST_DARK := Color(0.28, 0.20, 0.12)
 const C_ROPE := Color(0.55, 0.48, 0.32)
-const C_HIDE := Color(0.62, 0.48, 0.32)
-const C_HIDE_DARK := Color(0.48, 0.36, 0.24)
+const C_HIDE := Color(0.2, 0.075, 0.045)  # H5: dark red native heifer
+const C_HIDE_DARK := Color(0.12, 0.05, 0.035)
 const C_HORN := Color(0.78, 0.72, 0.58)
 
 const SEQ_STEP := &"knife"
