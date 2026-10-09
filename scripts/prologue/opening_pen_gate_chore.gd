@@ -29,7 +29,7 @@ const C_LATCH := Color(0.24, 0.18, 0.11)
 var _state: GateState = GateState.OPEN
 var _player: Node3D = null
 var _director: Node = null
-var _center := Vector3(7.0, 0.0, 12.2)   ## gateway centre on the south fence line (z1)
+var _center := Vector3(6.5, 0.0, 9.9)    ## gateway centre on the south fence line (z1)
 var _west_pivot: Node3D = null
 var _east_pivot: Node3D = null
 var _latch_pivot: Node3D = null
@@ -232,7 +232,7 @@ func _finish_latch() -> void:
 
 func _gate_center() -> Vector3:
 	var zone := get_node_or_null(home_zone_path) as Node3D
-	var c := Vector3(7.0, 0.0, 12.2)
+	var c := Vector3(6.5, 0.0, 9.9)
 	if zone:
 		for ch in zone.get_children():
 			if ch is CollisionShape3D and (ch as CollisionShape3D).shape is BoxShape3D:

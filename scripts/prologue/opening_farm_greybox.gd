@@ -88,6 +88,7 @@ func build() -> void:
 	Terrain.bake()
 	_build_ground()  # terrain mesh + HeightMapShape3D from the same samples
 	_build_farmstead()
+	_build_rath()
 	_build_home_pen()
 	_build_lane(path)
 	_build_pasture()
@@ -218,6 +219,15 @@ func _build_terrain_mesh(hs: PackedFloat32Array, w: int, d: int) -> void:
 					var f := Terrain.cap_value(caps[dom], x, z)
 					var k := smoothstep(-Terrain.FILLET * 0.6, Terrain.FILLET * 0.6, f)
 					c = base.lerp(caps[dom]["color"], k)
+			# Family ráth: trodden yard inside the bank, bank turf, dark wet ditch outside it.
+			var rr := Terrain.rath_radius(x, z)
+			if rr < Terrain.RATH_EXTENT:
+				c = c.lerp(C_YARD, smoothstep(Terrain.RATH_R - 1.2, Terrain.RATH_R - 2.8, rr))
+				var rel := Terrain.rath_relief(x, z)
+				if rel > 0.0:
+					c = c.lerp(C_RATH_BANK, clampf(rel / 0.45, 0.0, 1.0))
+				elif rel < 0.0:
+					c = c.lerp(C_DITCH, clampf(-rel / 0.35, 0.0, 1.0))
 			# Natural bog: blended into the grass by the terrain's own soft bog mask (no overlay
 			# slab, no rim) — mottled moss / peat, darker toward the wet floor.
 			if absf(x - Terrain.BOG_CX) < Terrain.BOG_EXTENT and absf(z - Terrain.BOG_CZ) < Terrain.BOG_EXTENT:
@@ -295,8 +305,7 @@ func _terrain_tile(root: Node3D, hs: PackedFloat32Array, cols: PackedColorArray,
 
 
 func _build_farmstead() -> void:
-	# Muddy yard.
-	_mesh_box(_gen, Vector3(0.0, 0.01, 3.0), Vector3(34.0, 0.04, 24.0), C_YARD)
+	# Muddy yard: painted into the terrain inside the ráth bank (see _build_terrain_mesh).
 	# House (family) — whitewashed walls, thatch, door to the south yard.
 	var house := Vector3(-8.0, 0.0, -1.0)
 	_solid_box(_gen, house + Vector3(0, 1.2, 0), Vector3(7.5, 2.4, 5.5), C_WALL)
@@ -304,15 +313,15 @@ func _build_farmstead() -> void:
 	_mesh_box(_gen, house + Vector3(0.8, 0.95, 2.77), Vector3(1.1, 1.9, 0.08), C_DOOR)
 	_mesh_box(_gen, house + Vector3(-2.2, 1.5, 2.77), Vector3(0.7, 0.6, 0.08), C_DOOR)
 	_mesh_box(_gen, house + Vector3(2.6, 3.6, 0.0), Vector3(0.6, 1.1, 0.6), C_WALL.darkened(0.25))  # smoke-hole chimney stub
-	# Byre — long, low, door opening onto the home pen.
-	var byre := Vector3(7.0, 0.0, -2.6)
-	_solid_box(_gen, byre + Vector3(0, 1.1, 0), Vector3(12.0, 2.2, 5.0), C_BYRE)
-	_roof(_gen, byre + Vector3(0, 2.2, 0), Vector3(12.6, 1.6, 5.6), C_THATCH.darkened(0.08))
-	_mesh_box(_gen, byre + Vector3(0, 0.9, 2.52), Vector3(2.4, 1.8, 0.08), C_DOOR)
-	# Hay rick + woodpile + quern stone dressing.
-	_mesh_cyl(_gen, Vector3(-14.0, 1.0, 5.0), 1.4, 1.4, 2.0, C_THATCH)
-	_mesh_cyl(_gen, Vector3(-14.0, 2.6, 5.0), 0.05, 1.5, 1.2, C_THATCH.darkened(0.05))
-	_solid_box(_gen, Vector3(-12.5, 0.45, -4.6), Vector3(2.6, 0.9, 1.0), C_TRUNK)
+	# Byre / calf shed — small and low inside the ráth, door opening onto the night pen.
+	var byre := Vector3(7.0, 0.0, -2.2)
+	_solid_box(_gen, byre + Vector3(0, 1.0, 0), Vector3(7.5, 2.0, 4.0), C_BYRE)
+	_roof(_gen, byre + Vector3(0, 2.0, 0), Vector3(8.1, 1.5, 4.6), C_THATCH.darkened(0.08))
+	_mesh_box(_gen, byre + Vector3(0, 0.85, 2.02), Vector3(2.2, 1.7, 0.08), C_DOOR)
+	# Hay rick + woodpile + quern stone dressing (rick and woodpile tucked inside the bank).
+	_mesh_cyl(_gen, Vector3(-9.5, 1.0, 8.5), 1.4, 1.4, 2.0, C_THATCH)
+	_mesh_cyl(_gen, Vector3(-9.5, 2.6, 8.5), 0.05, 1.5, 1.2, C_THATCH.darkened(0.05))
+	_solid_box(_gen, Vector3(-3.8, 0.45, -6.1), Vector3(2.6, 0.9, 1.0), C_TRUNK)
 	_mesh_cyl(_gen, Vector3(-5.0, 0.2, 3.6), 0.45, 0.45, 0.4, C_WALL.darkened(0.35))
 	_build_spring_scoop()
 
@@ -347,8 +356,101 @@ func _build_spring_scoop() -> void:
 	_mesh_box(_gen, spring + Vector3(3.2, 0.005, 1.9), Vector3(0.9, 0.03, 0.35), Color(0.22, 0.28, 0.28))
 
 
+func _build_rath() -> void:
+	## Family ráth: the bank + ditch are terrain relief (OpeningTerrain.rath_relief); here the
+	## palisade on the crest (stakes + solid collider runs) and the entrance gateposts.
+	var c := Vector3(Terrain.RATH_CX, 0.0, Terrain.RATH_CZ)
+	var r := Terrain.RATH_R - 0.15
+	var segs := 64
+	var stakes: Array[Transform3D] = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4471
+	var ends: Array[Vector3] = []
+	var was_on := true
+	for i in segs:
+		var a0 := TAU * float(i) / float(segs)
+		var a1 := TAU * float(i + 1) / float(segs)
+		var p0 := c + Vector3(cos(a0), 0.0, sin(a0)) * r
+		var p1 := c + Vector3(cos(a1), 0.0, sin(a1)) * r
+		var on := Terrain.rath_gap_mask(p0.x, p0.z) > 0.85 and Terrain.rath_gap_mask(p1.x, p1.z) > 0.85
+		if on != was_on:
+			ends.append(p0)
+		was_on = on
+		if not on:
+			continue
+		var y0 := _ground_y(p0)
+		var y1 := _ground_y(p1)
+		var mid := (p0 + p1) * 0.5
+		var seg := Vector2(p1.x - p0.x, p1.z - p0.z).length()
+		var body := StaticBody3D.new()
+		body.name = "Palisade"
+		body.collision_layer = 1
+		body.collision_mask = 0
+		body.position = Vector3(mid.x, (y0 + y1) * 0.5, mid.z)
+		body.rotation = Vector3(0.0, atan2(p1.x - p0.x, p1.z - p0.z), 0.0)
+		_gen.add_child(body)
+		var cs := CollisionShape3D.new()
+		var bs := BoxShape3D.new()
+		bs.size = Vector3(0.3, 2.1, seg + 0.08)
+		cs.shape = bs
+		cs.position = Vector3(0.0, 0.75, 0.0)
+		body.add_child(cs)
+		# Close-set split stakes, slightly uneven tops.
+		var n := int(ceil(seg / 0.21))
+		for k in n:
+			var t := (float(k) + 0.5) / float(n)
+			var sp := p0.lerp(p1, t)
+			var h := rng.randf_range(1.55, 1.95)
+			var basis := Basis(Vector3.UP, atan2(p1.x - p0.x, p1.z - p0.z)).rotated(Vector3.UP, 0.0)
+			basis = basis.scaled(Vector3(1.0, h, 1.0))
+			stakes.append(Transform3D(basis, Vector3(sp.x, _ground_y(sp) + h * 0.5 - 0.25, sp.z)))
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.17, 1.0, 0.2)
+	mm.mesh = bm
+	mm.instance_count = stakes.size()
+	for i in stakes.size():
+		mm.set_instance_transform(i, stakes[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = "PalisadeStakes"
+	mmi.multimesh = mm
+	mmi.material_override = _mat(C_RAIL.darkened(0.12))
+	_gen.add_child(mmi)
+	# Entrance: a pair of stout gateposts at the palisade ends.
+	for e in ends:
+		_mesh_box(_gen, _on_ground(e + Vector3(0, 1.05, 0), -0.2), Vector3(0.36, 2.5, 0.36), C_RAIL.darkened(0.25))
+
+
+## Inside the entrance: rails from the bank's inner toe (behind each palisade end) toward the
+## night-pen gate. East side closes to the pen's east gate post (just outside it, so the open
+## east leaf swings back against it); west side stops short so Cian can step in from the yard.
+func _build_rath_funnel() -> void:
+	var box := _zone_box(home_zone_path, Vector3(6.5, 1.2, 5.5), Vector3(9.0, 2.4, 8.0))
+	var z1 := box.end.z + 0.4
+	var cx := box.get_center().x
+	_rail(Vector3(cx + 2.3 + 0.35, 0.0, z1), _rath_toe_point(-1.0))
+	var west_toe := _rath_toe_point(1.0)
+	_rail(west_toe, west_toe.lerp(Vector3(cx - 2.3, 0.0, z1), 0.45))
+
+
+## Inner bank toe radially behind the palisade end on one side of the entrance
+## (side -1 = east / clockwise, +1 = west / anticlockwise).
+func _rath_toe_point(side: float) -> Vector3:
+	var c := Vector2(Terrain.RATH_CX, Terrain.RATH_CZ)
+	var mid := Terrain.RATH_GAP_A + Terrain.RATH_GAP_DIR * 3.0
+	var a := (mid - c).angle()
+	for k in 180:
+		var ang := a + side * deg_to_rad(float(k) * 0.5)
+		var q := c + Vector2(cos(ang), sin(ang)) * Terrain.RATH_R
+		if Terrain.rath_gap_mask(q.x, q.y) > 0.85:
+			var t := c + Vector2(cos(ang), sin(ang)) * (Terrain.RATH_R - Terrain.RATH_BANK_HALF - 0.3)
+			return Vector3(t.x, 0.0, t.y)
+	return Vector3(mid.x, 0.0, mid.y)
+
+
 func _build_home_pen() -> void:
-	var box := _zone_box(home_zone_path, Vector3(7.0, 1.2, 6.5), Vector3(12.6, 2.4, 10.6))
+	var box := _zone_box(home_zone_path, Vector3(6.5, 1.2, 5.5), Vector3(9.0, 2.4, 8.0))
 	var x0 := box.position.x - 0.4
 	var x1 := box.end.x + 0.4
 	var z0 := box.position.z - 0.4
@@ -384,12 +486,9 @@ func _build_lane(path: Array[Vector3]) -> void:
 		var sp := Vector3(p.x + LANE_WIDTH * 0.62, 0.0, p.z)
 		_mesh_box(_gen, _on_ground(sp + Vector3(0, 0.5, 0)), Vector3(0.18, 1.1, 0.18), C_RAIL)
 		_mesh_box(_gen, _on_ground(sp + Vector3(0, 1.1, 0)), Vector3(0.24, 0.16, 0.24), C_STAKE_TOP)
-	# Boreen out of the pen: fenced first leg so the herd funnels into the gate.
-	var g := path[0]
-	var b1 := path[1]
-	# West side starts a little south of the gate so the player can step in from the yard.
-	_rail(Vector3(g.x - 3.4, 0, g.z + 1.0), Vector3(b1.x - 3.4, 0, b1.z - 3.0))
-	_rail(Vector3(g.x + 3.4, 0, g.z - 2.4), Vector3(b1.x + 3.4, 0, b1.z - 3.0))
+	# The boreen enters the ráth over the causeway; inside, short rails funnel the herd from
+	# the entrance to the night-pen gate (bank + ditch do the funnelling outside).
+	_build_rath_funnel()
 	# Outer-bend wattle rails: on each interior bend, fence the side the herd overshoots
 	# when walking home (home-ward = toward lower marker index).
 	for i in range(1, path.size() - 1):
@@ -408,6 +507,8 @@ func _build_lane(path: Array[Vector3]) -> void:
 		var c := p + outer * (LANE_WIDTH * 0.5 + 1.8)
 		if _on_hill(c, 0.5) or _on_hill(c - along * 5.0, 0.5) or _on_hill(c + along * 5.0, 0.5):
 			continue  # keep wattle off knoll volumes
+		if Terrain.rath_radius(c.x, c.z) < Terrain.RATH_EXTENT + 8.0:
+			continue  # clear of the ráth bank / ditch
 		_rail(c - along * 7.0, c + along * 7.0)
 
 
@@ -722,7 +823,7 @@ func _build_edges() -> void:
 	_drape_wall(Vector3(PADDOCK_X1, 0, sz), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
 	_drape_wall(Vector3(PADDOCK_X0, 0, PADDOCK_Z1), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
 	# North hedge behind the farmstead.
-	_drape_wall(Vector3(-35.0, 0, -14.0), Vector3(35.0, 0, -14.0), 1.4, 1.8, C_HEDGE)
+	_drape_wall(Vector3(-35.0, 0, -22.0), Vector3(35.0, 0, -22.0), 1.4, 1.8, C_HEDGE)
 
 
 func _build_ringfort(center: Vector3, radius: float) -> void:
@@ -767,8 +868,8 @@ func _build_trees(path: Array[Vector3]) -> void:
 		var p := Vector3(rng.randf_range(-70.0, 70.0), 0.0, rng.randf_range(-40.0, 220.0))
 		if _near_lane(p, path, 7.0):
 			continue
-		if p.x > -18.0 and p.x < 20.0 and p.z > -10.0 and p.z < 18.0:
-			continue  # farmstead
+		if Terrain.rath_radius(p.x, p.z) < Terrain.RATH_EXTENT + 3.0:
+			continue  # farmstead ráth
 		var bog := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(28.0, 2.0, 28.0)).grow(1.0)
 		var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0)).grow(1.0)
 		if _in_xz(bog, p) or _in_xz(pas, p):
@@ -788,7 +889,7 @@ func _build_trees(path: Array[Vector3]) -> void:
 func _build_labels(path: Array[Vector3]) -> void:
 	_label(Vector3(-8.0, 5.6, -1.0), "Home — the house", 40, Color(0.95, 0.9, 0.75))
 	_label(Vector3(7.0, 4.6, -2.6), "Byre", 40, Color(0.95, 0.9, 0.75))
-	var home := _zone_box(home_zone_path, Vector3(7.0, 1.2, 6.5), Vector3(12.6, 2.4, 10.6))
+	var home := _zone_box(home_zone_path, Vector3(6.5, 1.2, 5.5), Vector3(9.0, 2.4, 8.0))
 	_label(home.get_center() + Vector3(0, 2.0, 0), "Home pen\n(drive the herd in)", 34, Color(0.7, 0.92, 0.55))
 	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
 	_label(_on_ground(Vector3(pas.get_center().x, 4.5, pas.get_center().z - 6.0)), "Secluded pasture", 46, Color(0.85, 0.95, 0.7))

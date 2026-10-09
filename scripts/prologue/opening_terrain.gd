@@ -41,6 +41,25 @@ const BOG_HUMMOCK := 0.2     # hummock relief inside the dip (± m)
 ## Standing water level (absolute y): pools show wherever the dip floor drops below it.
 const BOG_WATER_Y := -0.53
 
+## --- Family ráth (ringfort) round the farmstead: an earth bank with an outer ditch, one entrance
+## where the lane leaves. Added AFTER the cap union / bog dips (it is the only relief near the
+## yard). Bank = raised cosine on the crest circle; ditch = raised-cosine trough just outside it;
+## both fade to nothing across a causeway that follows the lane's first leg (PathMarkers
+## Gate (7,14) → Bend1 (4,25); if those markers move, move RATH_GAP_* with them).
+const RATH_CX := 0.5
+const RATH_CZ := 3.0
+const RATH_R := 15.0            # bank crest radius (30 m across the crest)
+const RATH_BANK_H := 1.3        # crest height above the yard (m)
+const RATH_BANK_HALF := 2.2     # bank half-width (toe to crest)
+const RATH_DITCH_OFF := 3.9     # ditch centre this far outside the crest
+const RATH_DITCH_HALF := 1.7
+const RATH_DITCH_D := 0.9
+const RATH_GAP_A := Vector2(7.0, 14.0)
+const RATH_GAP_DIR := Vector2(-0.2631174, 0.9647638)   # normalized (-3, 11)
+const RATH_GAP_HALF := 3.4      # causeway half-width (flat) …
+const RATH_GAP_FADE := 1.6      # … then bank / ditch rise over this many metres
+const RATH_EXTENT := RATH_R + RATH_DITCH_OFF + RATH_DITCH_HALF + 0.5
+
 static var _bog_noise: FastNoiseLite = null
 static var _deco_noises: Dictionary = {}  # seed → FastNoiseLite
 static var _caps: Array = []  # [{cx, cz, rx, rz, ry, sink, color, kind, name}]
@@ -176,7 +195,45 @@ static func height_at(x: float, z: float) -> float:
 		var f := cap_value(cap, x, z)
 		if f > acc - FILLET:
 			acc = _smax(acc, f, FILLET)
-	return acc - bog_depth(x, z) - deco_bog_depth(x, z)
+	return acc - bog_depth(x, z) - deco_bog_depth(x, z) + rath_relief(x, z)
+
+
+# ---------------------------------------------------------------- family ráth
+
+## Distance (m) from the ráth centre.
+static func rath_radius(x: float, z: float) -> float:
+	return Vector2(x - RATH_CX, z - RATH_CZ).length()
+
+
+## 0 across the entrance causeway → 1 on the full bank / ditch.
+static func rath_gap_mask(x: float, z: float) -> float:
+	var q := Vector2(x, z) - RATH_GAP_A
+	if q.dot(RATH_GAP_DIR) < -2.0:
+		return 1.0  # only the lane side of the gate (the line re-crosses the ring to the north)
+	var lateral := absf(q.cross(RATH_GAP_DIR))
+	return smoothstep(RATH_GAP_HALF, RATH_GAP_HALF + RATH_GAP_FADE, lateral)
+
+
+## Bank (+) and outer ditch (−) height at xz; 0 inside the yard and beyond the ditch.
+static func rath_relief(x: float, z: float) -> float:
+	var r := rath_radius(x, z)
+	if r < RATH_R - RATH_BANK_HALF or r > RATH_EXTENT:
+		return 0.0
+	var h := 0.0
+	var ub := (r - RATH_R) / RATH_BANK_HALF
+	if absf(ub) < 1.0:
+		h += RATH_BANK_H * (1.0 + cos(PI * ub)) * 0.5
+	var ud := (r - RATH_R - RATH_DITCH_OFF) / RATH_DITCH_HALF
+	if absf(ud) < 1.0:
+		h -= RATH_DITCH_D * (1.0 + cos(PI * ud)) * 0.5
+	if h == 0.0:
+		return 0.0
+	return h * rath_gap_mask(x, z)
+
+
+## Inside the ráth's yard (inner toe of the bank).
+static func in_rath(p: Vector3) -> bool:
+	return rath_radius(p.x, p.z) < RATH_R - RATH_BANK_HALF
 
 
 # ---------------------------------------------------------------- bog patch
@@ -363,6 +420,15 @@ static func bake() -> PackedFloat32Array:
 			var z := MIN_Z + float(iz) * STEP
 			for ix in range(dx0, dx1 + 1):
 				hs[iz * w + ix] -= deco_bog_depth_one(p, MIN_X + float(ix) * STEP, z)
+	# Family ráth bank + ditch (same order as height_at).
+	var rx0 := maxi(0, int(floor((RATH_CX - RATH_EXTENT - MIN_X) / STEP)))
+	var rx1 := mini(w - 1, int(ceil((RATH_CX + RATH_EXTENT - MIN_X) / STEP)))
+	var rz0 := maxi(0, int(floor((RATH_CZ - RATH_EXTENT - MIN_Z) / STEP)))
+	var rz1 := mini(d - 1, int(ceil((RATH_CZ + RATH_EXTENT - MIN_Z) / STEP)))
+	for iz in range(rz0, rz1 + 1):
+		var z := MIN_Z + float(iz) * STEP
+		for ix in range(rx0, rx1 + 1):
+			hs[iz * w + ix] += rath_relief(MIN_X + float(ix) * STEP, z)
 	_heights = hs
 	_baked_for = _mouth_x
 	return _heights

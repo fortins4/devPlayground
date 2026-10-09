@@ -236,7 +236,7 @@ func _drive_text() -> String:
 		"stir":
 			return "She's back with the herd. Draw the goad (3) and prod a cow (LMB / RMB) to start all six home."
 		"latch":
-			return "All six in. Swing the pen gate shut and latch it — E at the gateway.%s" % _dist_suffix(Vector3(7.0, 0.0, 13.8))
+			return "All six in. Swing the pen gate shut and latch it — E at the gateway.%s" % _dist_suffix(Vector3(6.5, 0.0, 11.5))
 		"ambush":
 			return "A stray dog's at the herd! Scare it off — E or a goad prod, up close."
 		"regather":
