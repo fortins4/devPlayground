@@ -127,9 +127,9 @@ static func _define_caps() -> void:
 	_hill("mouth_berm_w", Vector3(west_end - 9.0, 0.0, 177.0), 12.0, Vector3(1.3, 0.36, 0.85), C_BANK.lightened(0.05))
 	_hill("mouth_berm_e", Vector3(east_start + 10.0, 0.0, 176.5), 13.0, Vector3(1.35, 0.38, 0.9), C_BANK)
 	_hill("mouth_berm_e_far", Vector3(-4.0, 0.0, 177.5), 13.0, Vector3(1.3, 0.34, 0.85), C_HEDGE.lightened(0.08))
-	# Pasture side banks — long low N–S hedge-bank berms.
-	_hill("pasture_bank_e", Vector3(-8.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_HEDGE)
-	_hill("pasture_bank_w", Vector3(-42.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_HEDGE)
+	# Pasture side banks — long low N–S turfed earth banks.
+	_hill("pasture_bank_e", Vector3(-8.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_BANK)
+	_hill("pasture_bank_w", Vector3(-42.0, 0.0, 191.0), 16.0, Vector3(0.5, 0.40, 2.0), C_BANK)
 	# South ridge behind the pasture — screens the back paddock (and its bog) from the lane and
 	# the pasture mouth. Raised-cosine profile: crest 4.5 m, flanks ≤ ~33° (walkable for cattle,
 	# floor_max_angle 47°); the back-paddock gap in the pasture's south rail sits at its north toe.

@@ -52,6 +52,8 @@ const C_TRUNK := Color(0.32, 0.25, 0.18)
 const C_CANOPY := Color(0.24, 0.38, 0.2)
 const C_RATH_BANK := Color(0.33, 0.42, 0.25)
 const C_HUT := Color(0.68, 0.62, 0.5)
+const C_WATTLE := Color(0.5, 0.4, 0.25)    ## woven hazel rods
+const C_EARTH_BANK := Color(0.36, 0.42, 0.24)  ## turfed earth bank (field boundary)
 const C_DAUB := Color(0.74, 0.66, 0.52)   ## clay/lime daub over wattle (family roundhouse)
 ## Family roundhouse radius (m): 7 m across, door on the old spot by Máire.
 const HOUSE_R := 3.5
@@ -484,9 +486,9 @@ func _build_rath_funnel() -> void:
 	var box := _zone_box(home_zone_path, Vector3(6.5, 1.2, 5.5), Vector3(9.0, 2.4, 8.0))
 	var z1 := box.end.z + 0.4
 	var cx := box.get_center().x
-	_rail(Vector3(cx + 2.3 + 0.35, 0.0, z1), _rath_toe_point(-1.0))
+	_rail(Vector3(cx + 2.3 + 0.35, 0.0, z1), _rath_toe_point(-1.0), true)
 	var west_toe := _rath_toe_point(1.0)
-	_rail(west_toe, west_toe.lerp(Vector3(cx - 2.3, 0.0, z1), 0.45))
+	_rail(west_toe, west_toe.lerp(Vector3(cx - 2.3, 0.0, z1), 0.45), true)
 
 
 ## Inner bank toe radially behind the palisade end on one side of the entrance
@@ -564,7 +566,7 @@ func _build_lane(path: Array[Vector3]) -> void:
 			continue  # keep wattle off knoll volumes
 		if Terrain.rath_radius(c.x, c.z) < Terrain.RATH_EXTENT + 8.0:
 			continue  # clear of the ráth bank / ditch
-		_rail(c - along * 7.0, c + along * 7.0)
+		_rail(c - along * 7.0, c + along * 7.0, true)
 
 
 func _build_pasture() -> void:
@@ -575,18 +577,18 @@ func _build_pasture() -> void:
 	var x1 := box.end.x
 	var z0 := box.position.z
 	var z1 := box.end.z
-	# North rail with a mouth where the lane enters; west rail. East/south are hedge banks.
+	# Woven wattle round the pasture, with a mouth where the lane enters. (Earth banks beyond.)
 	var path := _path_points()
 	var mouth_x := path[-1].x if path.size() > 0 else c.x
-	_rail(Vector3(x0, 0, z0), Vector3(mouth_x - 4.0, 0, z0))
-	_rail(Vector3(mouth_x + 4.0, 0, z0), Vector3(x1, 0, z0))
-	_rail(Vector3(x0, 0, z0), Vector3(x0, 0, z1))
-	_rail(Vector3(x1, 0, z0), Vector3(x1, 0, z1))
+	_rail(Vector3(x0, 0, z0), Vector3(mouth_x - 4.0, 0, z0), true)
+	_rail(Vector3(mouth_x + 4.0, 0, z0), Vector3(x1, 0, z0), true)
+	_rail(Vector3(x0, 0, z0), Vector3(x0, 0, z1), true)
+	_rail(Vector3(x1, 0, z0), Vector3(x1, 0, z1), true)
 	# South rail with a gap into the back paddock (over the south ridge to the bog), lined up
 	# with the bog so a freed cow walks straight back to the herd.
 	var gx := _back_gap_x()
-	_rail(Vector3(x0, 0, z1), Vector3(gx - BACK_GAP_HALF, 0, z1))
-	_rail(Vector3(gx + BACK_GAP_HALF, 0, z1), Vector3(x1, 0, z1))
+	_rail(Vector3(x0, 0, z1), Vector3(gx - BACK_GAP_HALF, 0, z1), true)
+	_rail(Vector3(gx + BACK_GAP_HALF, 0, z1), Vector3(x1, 0, z1), true)
 	# Water trough + rubbing stone.
 	# Both sit on the pasture side banks — rest them on the surface (sunk a touch, no float).
 	_solid_box(_gen, _on_ground(Vector3(x1 - 4.0, 0.3, c.z + 4.0)), Vector3(2.6, 0.7, 0.9), C_TRUNK)
@@ -859,27 +861,45 @@ func _back_gap_x() -> float:
 
 
 func _build_edges() -> void:
-	## Field boundaries are solid and follow the ground: each run is cut into short pieces that
-	## sit on (and slightly into) the terrain, so they climb over the rolls they cross.
-	# West ditch + bank: the farm edge beyond the early lane (cattle cannot climb the bank).
+	## Field boundaries: low turfed earth banks with a ditch on the outer side (no hedges), plus
+	## short woven-wattle runs. Each bank keeps a solid collider of the old width (cattle and Cian
+	## cannot climb it); the visible bank is a touch wider at the foot with sloped sides, cut into
+	## pieces that follow the ground over the rolls they cross.
+	# West ditch + bank: the farm edge beyond the early lane.
 	_drape_rect(Vector3(-27.0, 0.0, 70.0), 2.6, 140.0, 0.0, 0.02, C_DITCH)
-	_drape_wall(Vector3(-25.2, 0, 0.0), Vector3(-25.2, 0, 140.0), 0.9, 0.7, C_BANK)
-	_drape_wall(Vector3(-28.8, 0, 0.0), Vector3(-28.8, 0, 140.0), 1.0, 0.9, C_HEDGE)
-	# East hedge bank (field boundary) and south hedge behind the secluded pasture.
-	_drape_wall(Vector3(42.0, 0, -20.0), Vector3(42.0, 0, 200.0), 1.6, 1.8, C_HEDGE)
+	_earth_bank(Vector3(-25.2, 0, 0.0), Vector3(-25.2, 0, 140.0), 0.9, 0.75)
+	# Beyond the west ditch: short wattle runs where the old hedge stood (gapped — the bank holds).
+	for z in [8.0, 34.0, 61.0, 92.0, 118.0]:
+		_rail(Vector3(-28.9, 0, z), Vector3(-28.9, 0, z + 9.0), true)
+	# East bank (field boundary) with its ditch outside.
+	_earth_bank(Vector3(42.0, 0, -20.0), Vector3(42.0, 0, 200.0), 1.6, 0.9, 1.0)
 	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
 	var sz := pas.end.z + 3.0
-	# South hedge behind the pasture, with the back-paddock gap; the paddock beyond is hedged on
+	# South bank behind the pasture, with the back-paddock gap; the paddock beyond is banked on
 	# its other three sides (holds the bog, screened from the lane by the south ridge).
 	var gx := _back_gap_x()
-	_drape_wall(Vector3(PADDOCK_X0, 0, sz), Vector3(gx - BACK_GAP_HALF, 0, sz), 1.6, 1.8, C_HEDGE)
-	_drape_wall(Vector3(gx + BACK_GAP_HALF, 0, sz), Vector3(PADDOCK_X1, 0, sz), 1.6, 1.8, C_HEDGE)
-	_drape_wall(Vector3(PADDOCK_X0, 0, sz), Vector3(PADDOCK_X0, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
-	_drape_wall(Vector3(PADDOCK_X1, 0, sz), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
-	_drape_wall(Vector3(PADDOCK_X0, 0, PADDOCK_Z1), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 1.8, C_HEDGE)
-	# North hedge behind the farmstead.
-	_drape_wall(Vector3(-35.0, 0, -22.0), Vector3(35.0, 0, -22.0), 1.4, 1.8, C_HEDGE)
+	_earth_bank(Vector3(PADDOCK_X0, 0, sz), Vector3(gx - BACK_GAP_HALF, 0, sz), 1.6, 0.9, -1.0)
+	_earth_bank(Vector3(gx + BACK_GAP_HALF, 0, sz), Vector3(PADDOCK_X1, 0, sz), 1.6, 0.9, -1.0)
+	_earth_bank(Vector3(PADDOCK_X0, 0, sz), Vector3(PADDOCK_X0, 0, PADDOCK_Z1), 1.6, 0.9, -1.0)
+	_earth_bank(Vector3(PADDOCK_X1, 0, sz), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 0.9, 1.0)
+	_earth_bank(Vector3(PADDOCK_X0, 0, PADDOCK_Z1), Vector3(PADDOCK_X1, 0, PADDOCK_Z1), 1.6, 0.9, -1.0)
+	# North bank behind the farmstead.
+	_earth_bank(Vector3(-35.0, 0, -22.0), Vector3(35.0, 0, -22.0), 1.4, 0.9, 1.0)
 
+
+## Low turfed earth bank a→b: solid collider `coll_w` wide (as the old hedge / bank), visible
+## bank 0.5 m wider at the foot with sloped sides. ditch_side (+1 / −1 along the run's right-hand
+## normal, 0 = none) paints a ditch strip along that foot.
+func _earth_bank(a: Vector3, b: Vector3, coll_w: float, height: float, ditch_side: float = 0.0) -> void:
+	_drape_wall(a, b, coll_w, height, C_EARTH_BANK, coll_w + 0.5, 0.42)
+	if ditch_side == 0.0:
+		return
+	var d := Vector3(b.x - a.x, 0.0, b.z - a.z)
+	var length := d.length()
+	d /= length
+	var side := Vector3(d.z, 0.0, -d.x) * ditch_side
+	var mid := (a + b) * 0.5 + side * (coll_w * 0.5 + 1.3)
+	_drape_rect(mid, 1.8, length, atan2(d.x, d.z), 0.02, C_DITCH)
 
 func _build_ringfort(center: Vector3, radius: float) -> void:
 	# Neighbours' ráth — solid earthen ring bank with a gap facing east, a few round houses,
@@ -918,13 +938,15 @@ func _build_trees(path: Array[Vector3]) -> void:
 	rng.seed = 1169
 	var placed := 0
 	var tries := 0
-	while placed < 58 and tries < 800:
+	while placed < 40 and tries < 800:
 		tries += 1
 		var p := Vector3(rng.randf_range(-70.0, 70.0), 0.0, rng.randf_range(-40.0, 220.0))
 		if _near_lane(p, path, 7.0):
 			continue
 		if Terrain.rath_radius(p.x, p.z) < Terrain.RATH_EXTENT + 3.0:
 			continue  # farmstead ráth
+		if absf(p.x) < 32.0 and p.z > 22.0 and p.z < 176.0:
+			continue  # open grazing either side of the lane — trees keep to the margins
 		var bog := _zone_box(bog_zone_path, Vector3(-25.0, 1.0, 242.0), Vector3(28.0, 2.0, 28.0)).grow(1.0)
 		var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0)).grow(1.0)
 		if _in_xz(bog, p) or _in_xz(pas, p):
@@ -1069,7 +1091,7 @@ func _roof(parent: Node, base: Vector3, size: Vector3, color: Color) -> void:
 	parent.add_child(mi)
 
 
-func _rail(a: Vector3, b: Vector3) -> void:
+func _rail(a: Vector3, b: Vector3, wattle: bool = false) -> void:
 	## Wattle/post-and-rail fence run (blocks cattle + player). Cut into post-spaced pieces that
 	## follow the ground: rails + collider pitch with the slope, posts stay plumb.
 	var flat_a := Vector3(a.x, 0.0, a.z)
@@ -1079,10 +1101,10 @@ func _rail(a: Vector3, b: Vector3) -> void:
 		return
 	var n := maxi(1, int(ceil(length / DRAPE_STEP)))
 	for k in n:
-		_rail_piece(flat_a.lerp(flat_b, float(k) / float(n)), flat_a.lerp(flat_b, float(k + 1) / float(n)), k == n - 1)
+		_rail_piece(flat_a.lerp(flat_b, float(k) / float(n)), flat_a.lerp(flat_b, float(k + 1) / float(n)), k == n - 1, wattle)
 
 
-func _rail_piece(a: Vector3, b: Vector3, last: bool) -> void:
+func _rail_piece(a: Vector3, b: Vector3, last: bool, wattle: bool = false) -> void:
 	var length := a.distance_to(b)
 	var ya := _ground_y(a) - 0.04
 	var yb := _ground_y(b) - 0.04
@@ -1105,6 +1127,17 @@ func _rail_piece(a: Vector3, b: Vector3, last: bool) -> void:
 	cs.shape = bs
 	cs.transform = Transform3D(tilt, tilt * Vector3(0, RAIL_HEIGHT * 0.5, 0))
 	body.add_child(cs)
+	if wattle:
+		# Woven hazel hurdle: close stakes with rods woven in and out between them.
+		var ns := maxi(2, int(ceil(length / 0.45)))
+		for k in ns + 1:
+			var lz := (float(k) / float(ns) - 0.5) * length
+			var gy := lerpf(ya, yb, float(k) / float(ns)) - ym
+			_mesh_box(body, Vector3(0, gy + 0.5, lz), Vector3(0.06, 1.08, 0.06), C_WATTLE.darkened(0.2))
+		for j in 7:
+			var band := _mesh_box(body, Vector3.ZERO, Vector3(0.07, 0.11, len3 + 0.02), C_WATTLE.darkened(0.08 * float(j % 2)))
+			band.transform = Transform3D(tilt, tilt * Vector3(0.035 * (1.0 if j % 2 == 0 else -1.0), 0.16 + 0.125 * float(j), 0))
+		return
 	for h in [0.32, 0.78]:
 		var bar := _mesh_box(body, Vector3.ZERO, Vector3(0.1, 0.12, len3 + 0.05), C_RAIL)
 		bar.transform = Transform3D(tilt, tilt * Vector3(0, h, 0))
@@ -1116,7 +1149,7 @@ func _rail_piece(a: Vector3, b: Vector3, last: bool) -> void:
 		_mesh_box(body, Vector3(0, gy + RAIL_HEIGHT * 0.5, lz), Vector3(0.16, RAIL_HEIGHT + 0.08, 0.16), C_RAIL.darkened(0.15))
 
 
-func _drape_wall(a: Vector3, b: Vector3, width: float, height: float, color: Color) -> void:
+func _drape_wall(a: Vector3, b: Vector3, width: float, height: float, color: Color, vis_width: float = -1.0, top_frac: float = 1.0) -> void:
 	## Solid bank / hedge run along a→b on the ground. Visual: one continuous extruded mesh whose
 	## base (sunk 0.15 m) and top follow the terrain every ~1 m (no saw-tooth joints).
 	## Collision: short pitched boxes of the same width/height (vertical side faces), so the
@@ -1147,12 +1180,16 @@ func _drape_wall(a: Vector3, b: Vector3, width: float, height: float, color: Col
 		cs.shape = bs
 		cs.position = Vector3(0, (height + sink) * 0.5 - sink, 0)
 		body.add_child(cs)
-	_wall_mesh(flat_a, flat_b, width, height, sink, color)
+	_wall_mesh(flat_a, flat_b, width if vis_width <= 0.0 else vis_width, height, sink, color, top_frac)
 
 
-func _wall_mesh(a: Vector3, b: Vector3, width: float, height: float, sink: float, color: Color) -> void:
+func _wall_mesh(a: Vector3, b: Vector3, width: float, height: float, sink: float, color: Color, top_frac: float = 1.0) -> void:
+	## top_frac < 1 narrows the top (sloped sides): a turfed earth bank instead of a box wall.
 	var dir := (b - a).normalized()
 	var side := Vector3(dir.z, 0.0, -dir.x) * (width * 0.5)
+	var top := side * top_frac
+	var sn := (side.normalized() * height + Vector3.UP * (width * 0.5 * (1.0 - top_frac))).normalized()
+	var sn2 := (-side.normalized() * height + Vector3.UP * (width * 0.5 * (1.0 - top_frac))).normalized()
 	var n := maxi(1, int(ceil(a.distance_to(b) / 1.0)))
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
@@ -1172,17 +1209,17 @@ func _wall_mesh(a: Vector3, b: Vector3, width: float, height: float, sink: float
 			match face:
 				0:
 					verts.append(lo + side)
-					verts.append(hi + side)
-					norms.append(side.normalized())
-					norms.append(side.normalized())
+					verts.append(hi + top)
+					norms.append(sn)
+					norms.append(sn)
 				1:
 					verts.append(lo - side)
-					verts.append(hi - side)
-					norms.append(-side.normalized())
-					norms.append(-side.normalized())
+					verts.append(hi - top)
+					norms.append(sn2)
+					norms.append(sn2)
 				2:
-					verts.append(hi - side)
-					verts.append(hi + side)
+					verts.append(hi - top)
+					verts.append(hi + top)
 					var up := Vector3.UP
 					if i < n:
 						var t := pts[i + 1] - pts[i]
@@ -1205,7 +1242,7 @@ func _wall_mesh(a: Vector3, b: Vector3, width: float, height: float, sink: float
 		var p := pts[0] if e == 0 else pts[n]
 		var base := verts.size()
 		var nn := -dir if e == 0 else dir
-		for v in [p + Vector3(0, -sink, 0) - side, p + Vector3(0, -sink, 0) + side, p + Vector3(0, height, 0) + side, p + Vector3(0, height, 0) - side]:
+		for v in [p + Vector3(0, -sink, 0) - side, p + Vector3(0, -sink, 0) + side, p + Vector3(0, height, 0) + top, p + Vector3(0, height, 0) - top]:
 			verts.append(v)
 			norms.append(nn)
 		if e == 0:
