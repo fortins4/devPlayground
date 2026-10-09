@@ -101,6 +101,7 @@ func build() -> void:
 	_build_edges()
 	_build_ringfort(Vector3(-78.0, 0.0, 42.0), 16.0)
 	_build_trees(path)
+	_build_woodland(path)
 	_build_labels(path)
 
 
@@ -961,6 +962,171 @@ func _build_trees(path: Array[Vector3]) -> void:
 		var crown := _mesh_sphere(_gen, g + Vector3(0, h * 0.85 - 0.1, 0), rng.randf_range(1.6, 2.6), C_CANOPY.darkened(rng.randf_range(0.0, 0.15)))
 		crown.scale = Vector3(1.0, 0.85, 1.0)
 		placed += 1
+
+
+## H4 — woodland at the edges: a dark broadleaf tree line (oak, ash, alder, hazel at the margin)
+## with holly + hawthorn under it, beyond the field banks on every side, so the farm reads as a
+## secluded clearing. Set dressing only (no colliders); nothing inside the banks, the lane, the
+## pasture, the back paddock or near the neighbours' ráth, so drive routes stay as they were.
+const WOOD_STEP := 4.2
+const C_OAK := Color(0.13, 0.22, 0.09)
+const C_ASH := Color(0.2, 0.3, 0.13)
+const C_ALDER := Color(0.1, 0.18, 0.1)
+const C_HAZEL := Color(0.2, 0.3, 0.12)
+const C_HOLLY := Color(0.08, 0.17, 0.09)
+const C_HAWTHORN := Color(0.27, 0.3, 0.15)
+const C_BARK := Color(0.27, 0.23, 0.18)
+const C_ASH_BARK := Color(0.42, 0.4, 0.35)
+
+func _build_woodland(path: Array[Vector3]) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4407
+	var pas := _zone_box(pasture_zone_path, Vector3(-25.0, 1.0, 192.0), Vector3(40.0, 2.0, 28.0))
+	var sz := pas.end.z + 3.0
+	# Inner edge of the wood per side (just past each bank's ditch) and how deep the band runs.
+	var east_x0 := 46.5
+	var west_x0 := -32.5
+	var north_z0 := -26.5
+	var paddock := AABB(Vector3(PADDOCK_X0 - 4.0, -5.0, sz - 4.0), Vector3(PADDOCK_X1 - PADDOCK_X0 + 8.0, 10.0, 300.0))
+	var wet: Array[Vector2] = [Vector2(Terrain.BOG_CX, Terrain.BOG_CZ), Vector2(-55.0, 160.0), Vector2(-14.0, 102.0)]
+	# trunk (cyl), crown (sphere), cone (alder/holly), shrub (hazel/hawthorn) — one MultiMesh each.
+	var parts := {"trunk": [], "crown": [], "cone": [], "shrub": []}
+	var x := -110.0
+	while x <= 110.0:
+		var z := -66.0
+		while z <= 258.0:
+			var p := Vector3(x + rng.randf_range(-1.8, 1.8), 0.0, z + rng.randf_range(-1.8, 1.8))
+			z += WOOD_STEP
+			# depth into the wood from the nearest field edge (≤ 0 → inside the farm)
+			var depth := maxf(maxf(p.x - east_x0, west_x0 - p.x), north_z0 - p.z)
+			if p.z > sz - 6.0 and (p.x < PADDOCK_X0 - 4.0 or p.x > PADDOCK_X1 + 4.0):
+				depth = maxf(depth, minf(PADDOCK_X0 - 4.0 - p.x, p.x - PADDOCK_X1 - 4.0) + 6.0)
+				depth = maxf(depth, maxf(PADDOCK_X0 - 4.0 - p.x, p.x - PADDOCK_X1 - 4.0))
+			if depth <= 0.0:
+				continue
+			if _in_xz(paddock, p) or _in_xz(pas.grow(5.0), p):
+				continue
+			if _near_lane(p, path, 9.0):
+				continue
+			if p.distance_to(Vector3(-78, 0, 42)) < 24.0:
+				continue  # neighbours' ráth keeps its cleared ground
+			var near_wet := false
+			for w in wet:
+				var dw := Vector2(p.x, p.z).distance_to(w)
+				if dw < 13.0:
+					near_wet = true
+				if dw < 9.0 and w != wet[0]:
+					depth = -1.0
+			if depth <= 0.0:
+				continue
+			# Thicker the deeper in; a ragged margin.
+			if rng.randf() > clampf(0.45 + depth * 0.05, 0.0, 0.93):
+				continue
+			if _on_hill(p, 1.2):
+				continue
+			var g := _on_ground(p)
+			var r := rng.randf()
+			if depth < 5.0 and r < 0.55:
+				_wood_hazel(parts, g, rng)
+			elif near_wet or (r < 0.2 and p.x < 0.0):
+				_wood_tree(parts, g, rng, "alder")
+			elif r < 0.62:
+				_wood_tree(parts, g, rng, "oak")
+			else:
+				_wood_tree(parts, g, rng, "ash")
+			# Understorey: holly and hawthorn, mostly at the margin.
+			if rng.randf() < (0.55 if depth < 9.0 else 0.25):
+				var u := g + Vector3(rng.randf_range(-2.0, 2.0), 0.0, rng.randf_range(-2.0, 2.0))
+				u = _on_ground(Vector3(u.x, 0.0, u.z))
+				if rng.randf() < 0.5:
+					var hh := rng.randf_range(1.6, 3.0)
+					parts["cone"].append([Transform3D(Basis.from_scale(Vector3(hh * 0.32, hh, hh * 0.32)), u + Vector3(0, hh * 0.5, 0)), C_HOLLY.lightened(rng.randf_range(0.0, 0.06))])
+				else:
+					var hr := rng.randf_range(0.9, 1.4)
+					parts["shrub"].append([Transform3D(Basis.from_scale(Vector3(hr * 1.1, hr * 0.85, hr)), u + Vector3(0, hr * 0.75, 0)), C_HAWTHORN.lerp(Color(0.45, 0.2, 0.14), rng.randf_range(0.0, 0.18))])
+		x += WOOD_STEP
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.75
+	cyl.bottom_radius = 1.0
+	cyl.height = 1.0
+	cyl.radial_segments = 6
+	cyl.rings = 0
+	var sph := SphereMesh.new()
+	sph.radius = 1.0
+	sph.height = 2.0
+	sph.radial_segments = 9
+	sph.rings = 5
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 1.0
+	cone.height = 1.0
+	cone.radial_segments = 8
+	cone.rings = 0
+	var lumpy := SphereMesh.new()
+	lumpy.radius = 1.0
+	lumpy.height = 1.6
+	lumpy.radial_segments = 7
+	lumpy.rings = 4
+	var meshes := {"trunk": cyl, "crown": sph, "cone": cone, "shrub": lumpy}
+	var total := 0
+	for k in parts:
+		var arr: Array = parts[k]
+		if arr.is_empty():
+			continue
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = meshes[k]
+		mm.instance_count = arr.size()
+		for i in arr.size():
+			mm.set_instance_transform(i, arr[i][0])
+			mm.set_instance_color(i, arr[i][1])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "Woodland_" + k
+		mmi.multimesh = mm
+		var m := StandardMaterial3D.new()
+		m.vertex_color_use_as_albedo = true
+		m.roughness = 0.95
+		mmi.material_override = m
+		_gen.add_child(mmi)
+		total += arr.size()
+	print("OPENING_WOODLAND parts=%d trees=%d" % [total, (parts["trunk"] as Array).size()])
+
+
+func _wood_tree(parts: Dictionary, g: Vector3, rng: RandomNumberGenerator, kind: String) -> void:
+	match kind:
+		"oak":  # broad, spreading, low-domed crown
+			var h := rng.randf_range(7.0, 10.5)
+			var tw := rng.randf_range(0.32, 0.45)
+			parts["trunk"].append([Transform3D(Basis.from_scale(Vector3(tw, h * 0.6, tw)), g + Vector3(0, h * 0.3 - 0.1, 0)), C_BARK])
+			var cr := rng.randf_range(3.0, 4.2)
+			parts["crown"].append([Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(cr * 1.2, cr * 0.75, cr * 1.05)), g + Vector3(0, h - cr * 0.55, 0)), C_OAK.lightened(rng.randf_range(0.0, 0.07))])
+			if rng.randf() < 0.6:
+				var o := Vector3(rng.randf_range(-1.6, 1.6), 0.0, rng.randf_range(-1.6, 1.6))
+				parts["crown"].append([Transform3D(Basis.from_scale(Vector3(cr * 0.8, cr * 0.6, cr * 0.8)), g + o + Vector3(0, h - cr * 0.9, 0)), C_OAK.darkened(rng.randf_range(0.0, 0.1))])
+		"ash":  # taller, lighter, open oval crown on a pale stem
+			var h := rng.randf_range(9.0, 13.0)
+			var tw := rng.randf_range(0.24, 0.32)
+			parts["trunk"].append([Transform3D(Basis.from_scale(Vector3(tw, h * 0.7, tw)), g + Vector3(0, h * 0.35 - 0.1, 0)), C_ASH_BARK])
+			var cr := rng.randf_range(2.4, 3.2)
+			parts["crown"].append([Transform3D(Basis.from_scale(Vector3(cr * 0.95, cr * 1.15, cr * 0.95)), g + Vector3(0, h - cr * 0.8, 0)), C_ASH.lightened(rng.randf_range(0.0, 0.08))])
+		"alder":  # narrow dark cone, wet ground
+			var h := rng.randf_range(7.0, 10.0)
+			var tw := rng.randf_range(0.2, 0.28)
+			parts["trunk"].append([Transform3D(Basis.from_scale(Vector3(tw, h * 0.45, tw)), g + Vector3(0, h * 0.22 - 0.1, 0)), C_BARK.darkened(0.15)])
+			var cw := rng.randf_range(1.8, 2.4)
+			parts["cone"].append([Transform3D(Basis.from_scale(Vector3(cw, h * 0.8, cw)), g + Vector3(0, h * 0.58, 0)), C_ALDER.lightened(rng.randf_range(0.0, 0.05))])
+
+
+## Hazel: a multi-stemmed low clump at the wood's edge.
+func _wood_hazel(parts: Dictionary, g: Vector3, rng: RandomNumberGenerator) -> void:
+	var h := rng.randf_range(3.0, 4.5)
+	for i in 3:
+		var o := Vector3(rng.randf_range(-0.5, 0.5), 0.0, rng.randf_range(-0.5, 0.5))
+		var lean := Basis(Vector3(o.z, 0, -o.x).normalized() if o.length() > 0.05 else Vector3.RIGHT, 0.18)
+		parts["trunk"].append([Transform3D(lean.scaled(Vector3(0.07, h * 0.7, 0.07)), g + o + Vector3(0, h * 0.35 - 0.1, 0)), C_BARK.lightened(0.1)])
+	var cr := rng.randf_range(1.7, 2.4)
+	parts["crown"].append([Transform3D(Basis.from_scale(Vector3(cr * 1.15, cr * 0.8, cr * 1.15)), g + Vector3(0, h - cr * 0.45, 0)), C_HAZEL.lightened(rng.randf_range(0.0, 0.08))])
 
 
 func _build_labels(path: Array[Vector3]) -> void:
