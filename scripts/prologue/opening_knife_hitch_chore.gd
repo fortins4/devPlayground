@@ -19,7 +19,8 @@ const C_POST_DARK := Color(0.28, 0.20, 0.12)
 const C_ROPE := Color(0.55, 0.48, 0.32)
 const C_HIDE := Color(0.2, 0.075, 0.045)  # H5: dark red native heifer
 const C_HIDE_DARK := Color(0.12, 0.05, 0.035)
-const C_HORN := Color(0.78, 0.72, 0.58)
+const CattleLook := preload("res://scripts/prologue/opening_cattle_look.gd")
+const HEIFER_SCALE := 0.9
 
 const SEQ_STEP := &"knife"
 
@@ -251,7 +252,7 @@ func _build_props() -> void:
 func _build_rope() -> void:
 	# Simple segmented rope from post rail toward animal neck.
 	var from := HITCH_POS + Vector3(0.0, 1.15, 0.0)
-	var to := ANIMAL_TETHERED_POS + Vector3(0.0, 0.85, 0.15)
+	var to := ANIMAL_TETHERED_POS + Basis(Vector3.UP, -0.55) * _calf_neck_offset()
 	var mid := from.lerp(to, 0.5) + Vector3(0.0, -0.18, 0.0)
 	_rope_seg(from, mid)
 	_rope_seg(mid, to)
@@ -281,20 +282,36 @@ func _rope_seg(a: Vector3, b: Vector3) -> void:
 
 
 func _make_calf_mesh(node_name: String) -> Node3D:
+	## The tethered heifer: the herd's small native cattle look (dark red, short horns), a touch
+	## smaller, standing still on four legs. The model faces +Z under the root (as the old prop
+	## did) so the placement, tether and free-wander rotations stay as they were.
 	var root := Node3D.new()
 	root.name = node_name
-	# Compact greybox calf — smaller than herd cows, readable next to hitch.
-	_mesh_box(root, Vector3(0.0, 0.55, 0.0), Vector3(0.55, 0.55, 1.05), C_HIDE)
-	_mesh_box(root, Vector3(0.0, 0.72, 0.58), Vector3(0.38, 0.38, 0.42), C_HIDE_DARK)
-	_mesh_box(root, Vector3(0.0, 0.55, 0.82), Vector3(0.22, 0.18, 0.2), C_HIDE)
-	# Legs.
-	for ox in [-0.18, 0.18]:
-		for oz in [-0.35, 0.32]:
-			_mesh_box(root, Vector3(ox, 0.18, oz), Vector3(0.1, 0.36, 0.1), C_HIDE_DARK)
-	# Short horns.
-	_mesh_box(root, Vector3(-0.16, 0.95, 0.55), Vector3(0.06, 0.12, 0.06), C_HORN)
-	_mesh_box(root, Vector3(0.16, 0.95, 0.55), Vector3(0.06, 0.12, 0.06), C_HORN)
+	var model := Node3D.new()
+	model.name = "Model"
+	model.rotation.y = PI
+	model.scale = Vector3.ONE * HEIFER_SCALE
+	root.add_child(model)
+	var body := MeshInstance3D.new()
+	body.name = "Body"
+	var cap := CapsuleMesh.new()
+	cap.radius = 0.42
+	cap.height = 1.35
+	body.mesh = cap
+	model.add_child(body)
+	var head := MeshInstance3D.new()
+	head.name = "Head"
+	model.add_child(head)
+	CattleLook.dress(body, head, C_HIDE, true, _mat)
+	for ox in [-0.25, 0.25]:
+		for oz in [-0.47, 0.47]:
+			_mesh_box(model, Vector3(ox, 0.17, oz), Vector3(0.14, 0.34, 0.14), C_HIDE_DARK)
 	return root
+
+
+## Tether end at the heifer's neck (root-local, before the root's yaw).
+func _calf_neck_offset() -> Vector3:
+	return Vector3(0.0, 0.72, 0.8) * HEIFER_SCALE
 
 
 # ---------------------------------------------------------------- helpers
