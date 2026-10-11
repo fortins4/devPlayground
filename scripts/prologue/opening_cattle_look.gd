@@ -2,11 +2,14 @@ extends RefCounted
 ## Shared look for the opening's small native cattle (Kerry / Dexter-like): used by the herd
 ## cows (opening_cow.gd, on the raid-cow body/head nodes) and the knife-hitch heifer prop.
 ## Visual only. Everything is placed in the animal's local frame (head toward −Z, ground y 0,
-## legs at x ±0.25, z ±0.47, hips 0.34 m up); parts parented under the non-uniformly scaled
+## legs at x ±LEG_X, z ±LEG_Z, hips LEG_LEN up); parts parented under the non-uniformly scaled
 ## body / head meshes are counter-transformed so they keep their own shape.
 ##
-## Silhouette: the barrel (1.45 m long, 0.84 m wide, back ≈ 0.87 m), a raised withers with a
-## slight dip behind it and a squarer rump, a deep brisket hanging between the forelegs, a
+## Proportions (H5 fix 3, Dexter / Kerry): withers ≈ 1.07 m on 0.6 m legs (≈ 0.55 m of clear
+## leg under the belly); a long, flat-backed trunk (1.75 m × 0.62 m wide × 0.5 m deep, back
+## 1.05 m, belly 0.55 m); nose to rump ≈ 2.3 m. Over that: a low withers with a slight dip
+## behind it and a level, square rump, shoulders and thighs, a brisket hanging between the
+## forelegs, a
 ## thick neck, and a long tapered face (broad poll → narrow muzzle, with a jaw line) carried
 ## nose-down. Ears stand out sideways just below the horn roots; short pale horns run out and
 ## then turn up with dark tips (polled beasts get none); the tail hangs from the tailhead to a
@@ -25,13 +28,22 @@ const DARK_LUMA := 0.12
 
 ## Face axis: from the poll down and forward to the muzzle (≈ 40° nose-down).
 const FACE_DIR := Vector3(0.0, -0.57, -0.82)
-const POLL := Vector3(0.0, 0.84, -0.98)
+const POLL := Vector3(0.0, 0.98, -1.06)
 const FACE_LEN := 0.49
 
 
-## Dress `body` (a CapsuleMesh r 0.42 h 1.35 instance) and `head` (any MeshInstance3D; its mesh
-## is replaced) in the cattle look. `mat` maps a Color to a Material. Returns the parts that
-## should share the body's (state-tinted) material.
+## Trunk: a capsule laid along Z (own mesh), centre height and half-length.
+const BODY_Y := 0.8
+const BODY_HALF_LEN := 0.875
+## Legs: hip spacing and length (hip at LEG_LEN, inside the belly; hoof on the ground). The leg
+## mesh is LEG_MESH_H tall (the gait rig's hoof sits at −LEG_MESH_H/2 in mesh space) and is
+## stretched to LEG_LEN by its rest basis.
+const LEG_X := 0.19
+const LEG_Z := 0.6
+const LEG_LEN := 0.6
+const LEG_MESH_H := 0.34
+
+
 ## True for the black coats (and their state tints).
 static func is_dark(coat: Color) -> bool:
 	return coat.get_luminance() < DARK_LUMA
@@ -42,28 +54,59 @@ static func face_tone(coat: Color) -> Color:
 	return coat.lerp(DARK_FACE_TINT, DARK_FACE_LIFT) if is_dark(coat) else coat
 
 
+## Rest transform for a leg at hip (sx, sz) signs: plumb, mesh stretched to LEG_LEN.
+static func leg_rest(sx: float, sz: float) -> Transform3D:
+	return Transform3D(Basis.from_scale(Vector3(1.0, LEG_LEN / LEG_MESH_H, 1.0)), Vector3(sx * LEG_X, LEG_LEN * 0.5, sz * LEG_Z))
+
+
+## Slim, slightly tapered cannon-and-forearm leg (mesh space: LEG_MESH_H tall).
+static func leg_mesh() -> CylinderMesh:
+	var m := CylinderMesh.new()
+	m.top_radius = 0.068
+	m.bottom_radius = 0.047
+	m.height = LEG_MESH_H
+	m.radial_segments = 8
+	m.rings = 1
+	return m
+
+
+## Dress `body` (any MeshInstance3D; its mesh is replaced by the trunk capsule) and `head` (its
+## mesh is replaced by the face) in the cattle look. `mat` maps a Color to a Material. Returns
+## the parts that should share the body's (state-tinted) material.
 static func dress(body: MeshInstance3D, head: MeshInstance3D, coat: Color, horned: bool, mat: Callable) -> Array:
 	var coat_parts: Array = []
 	var sph := _sphere()
 	var dark := is_dark(coat)
 	var face := face_tone(coat)
 	if body:
-		body.transform = Transform3D(Basis(Vector3(1.0, 0, 0), Vector3(0, 0, 1.07), Vector3(0, -0.76, 0)), Vector3(0, 0.55, 0.02))
+		var cap := CapsuleMesh.new()
+		cap.radius = 0.25
+		cap.height = BODY_HALF_LEN * 2.0
+		cap.radial_segments = 16
+		cap.rings = 6
+		body.mesh = cap
+		# Capsule axis (local Y) along Z; 1.24 wide on X → 0.62 m wide, 0.5 m deep.
+		body.transform = Transform3D(Basis(Vector3(1.24, 0, 0), Vector3(0, 0, 1), Vector3(0, -1, 0)), Vector3(0, BODY_Y, 0.0))
 		body.set_surface_override_material(0, mat.call(coat))
-		# Withers: raised over the shoulders; a squarer rump behind leaves a slight dip between.
-		coat_parts.append(_attach(body, Vector3(0, 0.8, -0.4), Basis.from_scale(Vector3(0.3, 0.16, 0.3)), sph, coat, mat))
-		coat_parts.append(_attach(body, Vector3(0, 0.79, 0.43), Basis.from_scale(Vector3(0.38, 0.13, 0.3)), sph, coat, mat))
-		coat_parts.append(_attach(body, Vector3(0, 0.79, 0.6), Basis.from_scale(Vector3(0.27, 0.08, 0.13)), sph, coat, mat))  # pins / tailhead
-		# Deep brisket and chest hanging between the forelegs.
-		coat_parts.append(_attach(body, Vector3(0, 0.42, -0.5), Basis.from_scale(Vector3(0.27, 0.27, 0.28)), sph, coat, mat))
-		coat_parts.append(_attach(body, Vector3(0, 0.33, -0.66), Basis.from_scale(Vector3(0.14, 0.16, 0.12)), sph, coat, mat))  # dewlap fold
-		# Tail: from the tailhead down the rump to a dark switch near the hocks.
-		var top := Vector3(0, 0.8, 0.7)
-		var bot := Vector3(0, 0.34, 0.8)
+		# Low withers, a slight dip behind, a level square rump with pins / tailhead.
+		coat_parts.append(_attach(body, Vector3(0, 1.0, -0.52), Basis.from_scale(Vector3(0.22, 0.075, 0.26)), sph, coat, mat))
+		coat_parts.append(_attach(body, Vector3(0, 1.0, 0.5), Basis.from_scale(Vector3(0.29, 0.07, 0.3)), sph, coat, mat))
+		coat_parts.append(_attach(body, Vector3(0, 1.01, 0.78), Basis.from_scale(Vector3(0.22, 0.055, 0.12)), sph, coat, mat))
+		# Shoulders and thighs over the leg tops.
+		for sx in [-1.0, 1.0]:
+			coat_parts.append(_attach(body, Vector3(sx * 0.15, 0.8, -0.56), Basis.from_scale(Vector3(0.15, 0.23, 0.2)), sph, coat, mat))
+			coat_parts.append(_attach(body, Vector3(sx * 0.15, 0.76, 0.6), Basis.from_scale(Vector3(0.15, 0.24, 0.22)), sph, coat, mat))
+		# Brisket and dewlap hanging between the forelegs; a little belly depth mid-trunk.
+		coat_parts.append(_attach(body, Vector3(0, 0.62, -0.7), Basis.from_scale(Vector3(0.21, 0.2, 0.2)), sph, coat, mat))
+		coat_parts.append(_attach(body, Vector3(0, 0.52, -0.84), Basis.from_scale(Vector3(0.1, 0.14, 0.1)), sph, coat, mat))
+		coat_parts.append(_attach(body, Vector3(0, 0.6, -0.05), Basis.from_scale(Vector3(0.27, 0.09, 0.45)), sph, coat, mat))
+		# Tail: from the tailhead down the buttocks to a dark switch at the hocks.
+		var top := Vector3(0, 1.0, 0.86)
+		var bot := Vector3(0, 0.42, 0.95)
 		var ax := (bot - top)
 		var tb := _axis_basis(ax.normalized())
 		coat_parts.append(_attach(body, (top + bot) * 0.5, tb * Basis.from_scale(Vector3(0.028, ax.length(), 0.028)), _cyl(1.0, 1.0), coat, mat))
-		_attach(body, bot + Vector3(0, -0.05, 0.005), Basis.from_scale(Vector3(0.055, 0.11, 0.055)), sph, coat.darkened(0.45), mat)
+		_attach(body, bot + Vector3(0, -0.06, 0.005), Basis.from_scale(Vector3(0.055, 0.12, 0.055)), sph, coat.darkened(0.45), mat)
 	if head:
 		# Tapered face: a cone frustum along FACE_DIR, broad at the poll, narrow at the muzzle.
 		var fm := CylinderMesh.new()
@@ -78,7 +121,7 @@ static func dress(body: MeshInstance3D, head: MeshInstance3D, coat: Color, horne
 		head.set_surface_override_material(0, mat.call(face))
 		var tip := POLL + FACE_DIR * FACE_LEN
 		# Thick neck from the withers down into the poll.
-		coat_parts.append(_attach(head, Vector3(0, 0.7, -0.76), Basis(Vector3.RIGHT, 0.55) * Basis.from_scale(Vector3(0.2, 0.25, 0.25)), sph, coat, mat))
+		coat_parts.append(_attach(head, Vector3(0, 0.93, -0.86), Basis(Vector3.RIGHT, 0.45) * Basis.from_scale(Vector3(0.17, 0.21, 0.27)), sph, coat, mat))
 		# Broad forehead / poll and cheeks.
 		coat_parts.append(_attach(head, POLL + Vector3(0, -0.02, -0.02), Basis.from_scale(Vector3(0.16, 0.11, 0.13)), sph, coat, mat))
 		_attach(head, POLL + FACE_DIR * 0.2 + Vector3(0, -0.03, 0.04), Basis.from_scale(Vector3(0.13, 0.11, 0.12)), sph, face, mat)

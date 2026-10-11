@@ -50,11 +50,13 @@ const GAIT_TROT_OFFSETS := [0.0, 0.5, 0.5, 1.0]
 const GAIT_WALK_DUTY := 0.75
 const GAIT_TROT_DUTY := 0.5
 ## Metres travelled per full cycle (cadence = speed / stride).
-const GAIT_WALK_STRIDE := 0.55
-const GAIT_TROT_STRIDE := 0.9
+## (H5 fix 3: lengthened with the 0.6 m legs, from 0.55 / 0.9.)
+const GAIT_WALK_STRIDE := 0.72
+const GAIT_TROT_STRIDE := 1.15
 ## Peak hip swing either side of plumb (deg).
-const GAIT_WALK_AMP_DEG := 20.0
-const GAIT_TROT_AMP_DEG := 30.0
+## (H5 fix 3: 20 / 30 → 21 / 27 so the longer legs' hoof sweep ≈ the ground covered in stance.)
+const GAIT_WALK_AMP_DEG := 21.0
+const GAIT_TROT_AMP_DEG := 27.0
 ## Trot blend: pure walk below TROT_START, pure trot above TROT_FULL (m/s).
 const GAIT_TROT_START := 1.45
 const GAIT_TROT_FULL := 2.2
@@ -66,8 +68,9 @@ const GAIT_SPEED_SMOOTH := 12.0
 ## Swing-phase hoof lift as a fraction of leg length (leg shortens from the hip).
 const GAIT_WALK_LIFT := 0.22
 const GAIT_TROT_LIFT := 0.32
-const LEG_HIP_Y := 0.34
-const LEG_LEN := 0.34
+## Hip height / nominal leg (= opening_cattle_look LEG_LEN; H5 fix 3: 0.34 → 0.6).
+const LEG_HIP_Y := 0.6
+const LEG_LEN := 0.6
 ## Planted legs may stretch to this × nominal to reach the ground on steep downhill sides.
 const LEG_STRETCH_MAX := 2.2
 
@@ -104,9 +107,8 @@ func _ready() -> void:
 	super._ready()
 	start_position = global_position
 	_start_basis = global_transform.basis
-	# No floating "cattle" / state text over the opening herd (the node stays, hidden).
-	if label:
-		label.visible = false
+	# Idle "cattle" text hidden from the start; status words show via _sync_label_visibility.
+	_sync_label_visibility()
 	for nm in _TILT_NODES:
 		var n := get_node_or_null(nm) as Node3D
 		if n:
@@ -139,7 +141,8 @@ func _restyle_native() -> void:
 		var leg := get_node_or_null(nm) as MeshInstance3D
 		if leg:
 			var o := leg.position
-			leg.position = Vector3(signf(o.x) * 0.25, o.y, signf(o.z) * 0.47)
+			leg.mesh = CattleLook.leg_mesh()
+			leg.transform = CattleLook.leg_rest(signf(o.x), signf(o.z))
 			leg.material_override = _coat_mat(_coat.darkened(0.25))
 
 
@@ -315,6 +318,17 @@ func _physics_process(delta: float) -> void:
 	_tick_slope_tilt(delta)
 	_tick_gait(delta)
 	_apply_pose()
+	_sync_label_visibility()
+
+
+## Only the status words show over an opening cow; the idle "cattle" (and "herd", the goad
+## flashes) stay hidden. The shared raid-cow label node / text logic is untouched.
+const STATUS_WORDS := ["bogged!", "scattered — goad back", "grazing — goad on", "drove", "delivered"]
+
+
+func _sync_label_visibility() -> void:
+	if label:
+		label.visible = STATUS_WORDS.has(label.text)
 
 
 func _keep_on_terrain() -> void:
@@ -418,6 +432,7 @@ func _apply_pose() -> void:
 		# Swinging legs shorten from the hip so the hoof clears the grass.
 		var length := clampf(reach - lift * LEG_LEN, LEG_LEN * 0.5, LEG_LEN * LEG_STRETCH_MAX)
 		var sy := length / LEG_LEN
+		# base.basis already stretches the leg mesh to LEG_LEN; sy fits it to the ground.
 		n.transform = Transform3D(rot * base.basis * Basis.from_scale(Vector3(1.0, sy, 1.0)),
 			hip_l + axis_l * (length * 0.5))
 

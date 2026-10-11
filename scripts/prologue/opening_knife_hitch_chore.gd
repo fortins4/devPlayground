@@ -303,15 +303,19 @@ func _make_calf_mesh(node_name: String) -> Node3D:
 	head.name = "Head"
 	model.add_child(head)
 	CattleLook.dress(body, head, C_HIDE, true, _mat)
-	for ox in [-0.25, 0.25]:
-		for oz in [-0.47, 0.47]:
-			_mesh_box(model, Vector3(ox, 0.17, oz), Vector3(0.14, 0.34, 0.14), C_HIDE_DARK)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			var leg := MeshInstance3D.new()
+			leg.mesh = CattleLook.leg_mesh()
+			leg.transform = CattleLook.leg_rest(sx, sz)
+			leg.material_override = _mat(C_HIDE_DARK)
+			model.add_child(leg)
 	return root
 
 
 ## Tether end at the heifer's neck (root-local, before the root's yaw).
 func _calf_neck_offset() -> Vector3:
-	return Vector3(0.0, 0.72, 0.8) * HEIFER_SCALE
+	return Vector3(0.0, 0.92, 0.95) * HEIFER_SCALE
 
 
 # ---------------------------------------------------------------- helpers
