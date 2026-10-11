@@ -104,6 +104,9 @@ func _ready() -> void:
 	super._ready()
 	start_position = global_position
 	_start_basis = global_transform.basis
+	# No floating "cattle" / state text over the opening herd (the node stays, hidden).
+	if label:
+		label.visible = false
 	for nm in _TILT_NODES:
 		var n := get_node_or_null(nm) as Node3D
 		if n:
@@ -146,6 +149,11 @@ func _coat_mat(c: Color) -> StandardMaterial3D:
 		var m := StandardMaterial3D.new()
 		m.albedo_color = c
 		m.roughness = 0.85
+		if CattleLook.is_dark(c):
+			# Soft rim light on black coats so the outline (face, ears, horns) reads at distance.
+			m.rim_enabled = true
+			m.rim = 0.6
+			m.rim_tint = 0.4
 		_coat_mats[key] = m
 	return _coat_mats[key]
 
@@ -166,7 +174,7 @@ func _refresh_visual() -> void:
 	for node_name in ["MeshInstance3D", "Head"]:
 		var mi := get_node_or_null(node_name) as MeshInstance3D
 		if mi and mi.get_active_material(0) is StandardMaterial3D:
-			(mi.get_active_material(0) as StandardMaterial3D).albedo_color = c
+			(mi.get_active_material(0) as StandardMaterial3D).albedo_color = c if node_name != "Head" else CattleLook.face_tone(c)
 	var bm := get_node_or_null("MeshInstance3D") as MeshInstance3D
 	if bm:
 		for n in _coat_parts:

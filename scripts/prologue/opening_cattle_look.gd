@@ -15,19 +15,38 @@ extends RefCounted
 const C_HORN := Color(0.86, 0.8, 0.64)
 const C_HORN_TIP := Color(0.16, 0.13, 0.1)
 const C_MUZZLE := Color(0.22, 0.19, 0.17)
+## Black coats (H5 fix 2): a mealy, lighter muzzle and a subtly browner face so the head's
+## wedge reads against the dark body at walk-up / herd distance.
+const C_MUZZLE_MEALY := Color(0.42, 0.35, 0.27)
+const C_NOSE_PAD := Color(0.1, 0.085, 0.08)
+const DARK_FACE_TINT := Color(0.34, 0.25, 0.17)
+const DARK_FACE_LIFT := 0.32
+const DARK_LUMA := 0.12
 
 ## Face axis: from the poll down and forward to the muzzle (≈ 40° nose-down).
-const FACE_DIR := Vector3(0.0, -0.64, -0.77)
+const FACE_DIR := Vector3(0.0, -0.57, -0.82)
 const POLL := Vector3(0.0, 0.84, -0.98)
-const FACE_LEN := 0.46
+const FACE_LEN := 0.49
 
 
 ## Dress `body` (a CapsuleMesh r 0.42 h 1.35 instance) and `head` (any MeshInstance3D; its mesh
 ## is replaced) in the cattle look. `mat` maps a Color to a Material. Returns the parts that
 ## should share the body's (state-tinted) material.
+## True for the black coats (and their state tints).
+static func is_dark(coat: Color) -> bool:
+	return coat.get_luminance() < DARK_LUMA
+
+
+## Face (head mesh) tone for a coat: unchanged on red coats, lifted toward brown on black ones.
+static func face_tone(coat: Color) -> Color:
+	return coat.lerp(DARK_FACE_TINT, DARK_FACE_LIFT) if is_dark(coat) else coat
+
+
 static func dress(body: MeshInstance3D, head: MeshInstance3D, coat: Color, horned: bool, mat: Callable) -> Array:
 	var coat_parts: Array = []
 	var sph := _sphere()
+	var dark := is_dark(coat)
+	var face := face_tone(coat)
 	if body:
 		body.transform = Transform3D(Basis(Vector3(1.0, 0, 0), Vector3(0, 0, 1.07), Vector3(0, -0.76, 0)), Vector3(0, 0.55, 0.02))
 		body.set_surface_override_material(0, mat.call(coat))
@@ -56,24 +75,30 @@ static func dress(body: MeshInstance3D, head: MeshInstance3D, coat: Color, horne
 		head.mesh = fm
 		var fb := _axis_basis(FACE_DIR) * Basis.from_scale(Vector3(1.0, FACE_LEN, 0.82))
 		head.transform = Transform3D(fb, POLL + FACE_DIR * (FACE_LEN * 0.5))
-		head.set_surface_override_material(0, mat.call(coat))
+		head.set_surface_override_material(0, mat.call(face))
 		var tip := POLL + FACE_DIR * FACE_LEN
 		# Thick neck from the withers down into the poll.
 		coat_parts.append(_attach(head, Vector3(0, 0.7, -0.76), Basis(Vector3.RIGHT, 0.55) * Basis.from_scale(Vector3(0.2, 0.25, 0.25)), sph, coat, mat))
 		# Broad forehead / poll and cheeks.
-		coat_parts.append(_attach(head, POLL + Vector3(0, -0.02, -0.02), Basis.from_scale(Vector3(0.15, 0.12, 0.12)), sph, coat, mat))
-		coat_parts.append(_attach(head, POLL + FACE_DIR * 0.2 + Vector3(0, -0.03, 0.04), Basis.from_scale(Vector3(0.13, 0.11, 0.12)), sph, coat, mat))
+		coat_parts.append(_attach(head, POLL + Vector3(0, -0.02, -0.02), Basis.from_scale(Vector3(0.16, 0.11, 0.13)), sph, coat, mat))
+		_attach(head, POLL + FACE_DIR * 0.2 + Vector3(0, -0.03, 0.04), Basis.from_scale(Vector3(0.13, 0.11, 0.12)), sph, face, mat)
 		# Jaw line under the face, and the muzzle (greyer) with two nostrils at the tip.
 		coat_parts.append(_attach(head, POLL + FACE_DIR * 0.3 + Vector3(0, -0.08, 0.06), Basis(Vector3.RIGHT, -0.65) * Basis.from_scale(Vector3(0.075, 0.06, 0.17)), sph, coat, mat))
-		_attach(head, tip + Vector3(0, 0.01, 0.0), Basis.from_scale(Vector3(0.09, 0.075, 0.07)), sph, C_MUZZLE, mat)
+		if dark:
+			# Mealy band along the lower face and jaw (not a disc at the tip), capped by a dark
+			# moist nose pad, so the face reads as a long bovine wedge rather than a snout.
+			_attach(head, tip - FACE_DIR * 0.1 + Vector3(0, -0.005, 0), _axis_basis(FACE_DIR) * Basis.from_scale(Vector3(0.088, 0.15, 0.074)), sph, C_MUZZLE_MEALY, mat)
+			_attach(head, tip + FACE_DIR * 0.03 + Vector3(0, 0.005, 0), Basis.from_scale(Vector3(0.07, 0.05, 0.035)), sph, C_NOSE_PAD, mat)
+		else:
+			_attach(head, tip + Vector3(0, 0.01, 0.0), Basis.from_scale(Vector3(0.09, 0.075, 0.07)), sph, C_MUZZLE, mat)
 		for sx in [-1.0, 1.0]:
 			_attach(head, tip + Vector3(sx * 0.035, 0.02, -0.055), Basis.from_scale(Vector3(0.018, 0.014, 0.01)), sph, Color(0.05, 0.04, 0.04), mat)
 		for sx in [-1.0, 1.0]:
 			# Ear: a leaf standing out sideways (a touch down and back) just below the horn root.
 			var ear_root := POLL + Vector3(sx * 0.13, -0.04, 0.05)
-			var eb := Basis(Vector3.FORWARD, sx * 0.2) * Basis(Vector3.UP, sx * -0.25)
-			_attach(head, ear_root + eb * Vector3(sx * 0.1, 0, 0), eb * Basis.from_scale(Vector3(0.11, 0.055, 0.022)), sph, coat.lightened(0.04), mat)
-			_attach(head, ear_root + eb * Vector3(sx * 0.11, 0, -0.012), eb * Basis.from_scale(Vector3(0.08, 0.035, 0.01)), sph, coat.lightened(0.18), mat)  # inner ear
+			var eb := Basis(Vector3.FORWARD, sx * 0.12) * Basis(Vector3.UP, sx * -0.2)
+			_attach(head, ear_root + eb * Vector3(sx * 0.115, 0, 0), eb * Basis.from_scale(Vector3(0.125, 0.06, 0.024)), sph, coat.lightened(0.04), mat)
+			_attach(head, ear_root + eb * Vector3(sx * 0.125, 0, -0.013), eb * Basis.from_scale(Vector3(0.09, 0.038, 0.01)), sph, coat.lightened(0.24 if dark else 0.18), mat)  # inner ear
 			if horned:
 				# Short horn: out sideways from the poll, then up and a little forward, pale with
 				# a dark tip — thick enough to read at walk-up distance.
@@ -81,10 +106,11 @@ static func dress(body: MeshInstance3D, head: MeshInstance3D, coat: Color, horne
 				var out := Vector3(sx * 0.9, 0.3, -0.25).normalized()
 				var up := Vector3(sx * 0.25, 0.95, -0.2).normalized()
 				var mid := root + out * 0.12
-				var end := mid + up * 0.1
-				_attach(head, (root + mid) * 0.5, _axis_basis(out) * Basis.from_scale(Vector3(0.036, 0.13, 0.036)), _cyl(0.8, 1.0), C_HORN, mat)
-				_attach(head, mid, Basis.from_scale(Vector3(0.03, 0.03, 0.03)), sph, C_HORN, mat)
-				_attach(head, (mid + end) * 0.5, _axis_basis(up) * Basis.from_scale(Vector3(0.029, 0.1, 0.029)), _cyl(0.35, 1.0), C_HORN, mat)
+				var end := mid + up * 0.11
+				_attach(head, (root + mid) * 0.5, _axis_basis(out) * Basis.from_scale(Vector3(0.047, 0.13, 0.047)), _cyl(0.78, 1.0), C_HORN, mat)
+				_attach(head, root, Basis.from_scale(Vector3(0.05, 0.045, 0.05)), sph, C_HORN, mat)  # boss at the root
+				_attach(head, mid, Basis.from_scale(Vector3(0.037, 0.037, 0.037)), sph, C_HORN, mat)
+				_attach(head, (mid + end) * 0.5, _axis_basis(up) * Basis.from_scale(Vector3(0.036, 0.11, 0.036)), _cyl(0.4, 1.0), C_HORN, mat)
 				_attach(head, end + up * 0.025, _axis_basis(up) * Basis.from_scale(Vector3(0.011, 0.05, 0.011)), _cyl(0.1, 1.0), C_HORN_TIP, mat)
 	return coat_parts
 
