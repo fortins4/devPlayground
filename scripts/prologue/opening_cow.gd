@@ -322,13 +322,14 @@ func _physics_process(delta: float) -> void:
 
 
 ## Only the status words show over an opening cow; the idle "cattle" (and "herd", the goad
-## flashes) stay hidden. The shared raid-cow label node / text logic is untouched.
-const STATUS_WORDS := ["bogged!", "scattered — goad back", "grazing — goad on", "drove", "delivered"]
+## flashes) stay hidden, and so does everything once she's penned (no "delivered" over the
+## pen). The shared raid-cow label node / text logic is untouched.
+const STATUS_WORDS := ["bogged!", "scattered — goad back", "grazing — goad on", "drove"]
 
 
 func _sync_label_visibility() -> void:
 	if label:
-		label.visible = STATUS_WORDS.has(label.text)
+		label.visible = not delivered and STATUS_WORDS.has(label.text)
 
 
 func _keep_on_terrain() -> void:
