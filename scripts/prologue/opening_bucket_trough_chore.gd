@@ -14,6 +14,10 @@ const SPRING_OUTFLOW := Vector3(-20.7, 0.0, 20.5)
 const FILL_CLEAR_MAX := 1.85
 const BUCKET_SPAWN := Vector3(5.2, 0.0, 2.5)
 const TROUGH_POS := Vector3(8.2, 0.0, 0.4)
+## Where the emptied bucket is left after the pour: on the yard side of the trough rail, at the
+## trough's west end (reachable ground, clear of the hitch post and the pour spot).
+const BUCKET_SETDOWN := Vector3(7.0, 0.0, 1.8)
+const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 const C_WOOD := Color(0.42, 0.30, 0.18)
 const C_WOOD_DARK := Color(0.32, 0.22, 0.12)
@@ -205,6 +209,10 @@ func _pour() -> void:
 	_state = BucketState.DONE
 	if _carried:
 		_carried.visible = false
+	# The emptied bucket is set down on the ground at the trough's west end.
+	if _world_bucket:
+		_world_bucket.position = Vector3(BUCKET_SETDOWN.x, Terrain.surface_y(BUCKET_SETDOWN.x, BUCKET_SETDOWN.z) + 0.22, BUCKET_SETDOWN.z)
+		_world_bucket.visible = true
 	if _trough_water:
 		_trough_water.visible = true
 	_flash("Trough filled.", 4.0)
@@ -215,6 +223,7 @@ func _pour() -> void:
 func _set_none() -> void:
 	_state = BucketState.NONE
 	if _world_bucket:
+		_world_bucket.position = BUCKET_SPAWN + Vector3(0.0, 0.28, 0.0)
 		_world_bucket.visible = true
 	if _carried:
 		_carried.visible = false

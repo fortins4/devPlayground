@@ -158,6 +158,10 @@ func _try_interact() -> bool:
 	if not _near(p, HITCH_POS):
 		return false
 	if not _gate_open():
+		# The hitch post stands within E range of the byre trough: while the bucket chore has
+		# its own E action here (pour), leave the key to it instead of eating it with "not yet".
+		if _bucket_chore_wants_e():
+			return false
 		# Out of order: say so, change nothing.
 		_flash(_not_yet(), 2.5)
 		return true
@@ -167,6 +171,11 @@ func _try_interact() -> bool:
 	_apply_cut(true)
 	_finish_free(true)
 	return true
+
+
+func _bucket_chore_wants_e() -> bool:
+	var bucket := get_tree().get_first_node_in_group("opening_bucket_trough")
+	return bucket != null and bucket.has_method("interact_prompt") and String(bucket.call("interact_prompt")).begins_with("E —")
 
 
 func _knife_equipped() -> bool:
