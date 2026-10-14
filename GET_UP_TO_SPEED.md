@@ -21,6 +21,7 @@ Read this file before doing any Ríocht task. These are the locked rules. Each n
 - 2026-10-07: The farm's water source is a natural spring dug out into a ditch scoop, not a village-style well.
 
 ## Combat and movement
+- 2026-10-13: Carrying any object like a bucket slows Cian's walk and blocks sprint.
 - 2026-10-06: There is no stamina system at all: no meter, drain or gates on attacks, charges or sprint.
 - 2026-10-06: Cian can walk normally while attacking (charge, release, swing, jab, settle). Feet stay planted and natural; sprint still blocks attacks.
 - 2026-10-06: While sprinting with the goad, Cian carries it in one hand at his side (head forward, butt trailing, off the ground) with the other arm pumping. The second hand rejoins the shaft when the sprint ends.
