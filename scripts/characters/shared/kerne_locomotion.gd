@@ -32,17 +32,20 @@ var _attack_walk_back: bool = false
 ## quicker steps matched to the carry speed, a heavier bob and a braced forward lean. The arms
 ## are posed by the carrier (two-hand grip IK), so the cycle leaves them still.
 var carry_load: bool = false
-## Loaded walk legs: a two-bone solve on planted soles (no sinusoid), so the stance sole moves
-## back at exactly the body's ground speed (no slide). One cycle = CARRY_CYCLE s, each sole
-## planted for CARRY_DUTY of it; the planted sweep sits mostly behind the hip (CARRY_FRONT of it
-## in front) so the forward knee stays under the hanging bucket. Knees braced (root drop).
-const CARRY_CYCLE := 0.5
-const CARRY_DUTY := 0.42
-const CARRY_FRONT := 0.45
-const CARRY_LIFT := 0.07
-const CARRY_KNEE_DROP := 0.10
-const CARRY_BOB := 0.012
-const CARRY_LEAN_DEG := 5.0
+## Loaded walk legs (braced walk with a ~12 kg bucket at ~1.4 m/s): a two-bone solve on planted
+## soles, not a sinusoid. 1.7 steps/s; each foot down CARRY_DUTY of the cycle (> 0.5 = double
+## support). Flat foot planted, then the heel rises about the planted toe at push-off (the toe
+## stays put; the ankle pivots up and a little forward). The hip rides the stance legs (inverted
+## pendulum) capped by a slight stance-knee flex, so it vaults ~6 cm instead of crouching.
+const CARRY_CYCLE := 2.0 / 1.7
+const CARRY_DUTY := 0.56
+const CARRY_FRONT := 0.43
+const CARRY_TOE := 0.15 ## ankle → toe pivot (m)
+const CARRY_HEEL_RISE := 0.05
+const CARRY_LIFT := 0.05
+const CARRY_LEG_REACH := 0.83
+const CARRY_KNEE_SOFT := 0.055 ## stance-knee flex at mid-stance (hip below straight-leg height)
+const CARRY_LEAN_DEG := 7.0
 var _carry_sweep: float = 0.0 ## planted sweep (m) this tick, for probes
 ## Per-joint rotation offset the cycle itself wrote this tick (before combat
 ## additives). A caller blending its own pose in or out of the plain cycle
@@ -451,7 +454,7 @@ func tick(
 		cadence = TAU / CARRY_CYCLE
 		stride = 0.0  # legs are solved below (planted soles)
 		arm_amp = 0.0
-		bob = CARRY_BOB
+		bob = 0.0  # the hip height comes from the stance legs (_carry_legs)
 
 	if cadence > 0.0:
 		_phase += delta * cadence
@@ -546,28 +549,62 @@ func tick(
 			torso_n.rotation.z += lean
 
 
-func _carry_legs(speed: float, bob_y: float) -> void:
+var _carry_contact := {"left": 0.0, "right": 0.0} ## contact point fore of the ankle (m), probes
+
+
+var _carry_stance := {"left": false, "right": false}
+
+func carry_in_stance(side: String) -> bool:
+	return bool(_carry_stance.get(side, false))
+
+
+func carry_contact_offset(side: String) -> float:
+	return float(_carry_contact.get(side, 0.0))
+
+
+func _carry_legs(speed: float, _bob_y: float) -> void:
 	## Planted-sole loaded walk: stance sole sweeps back at `speed` (world-still), swing arcs it
 	## forward again. Hip height: rest minus the braced-knee drop, plus the body bob.
-	var root_n: Node3D = joints.get("root") as Node3D
-	if root_n and _rest.has("root"):
-		root_n.position.y -= CARRY_KNEE_DROP
-	var sweep := speed * CARRY_DUTY * CARRY_CYCLE
+	var k := clampf(speed / 1.4, 0.0, 1.0)
+	var sweep := speed * CARRY_DUTY * CARRY_CYCLE  # flat-foot ankle travel behind the hip
 	_carry_sweep = sweep
 	var front := sweep * CARRY_FRONT
-	var h0 := HIP_TO_SOLE - CARRY_KNEE_DROP - _root_drop + bob_y
 	var u0 := fposmod(_phase / TAU, 1.0)
+	var tg := {}
+	var hip_h := HIP_TO_SOLE - CARRY_KNEE_SOFT
 	for side in ["left", "right"]:
 		var u := fposmod(u0 + (0.0 if side == "left" else 0.5), 1.0)
 		var fx: float
 		var lift := 0.0
+		var contact := 0.0
 		if u < CARRY_DUTY:
-			fx = front - sweep * (u / CARRY_DUTY)
+			var sp := u / CARRY_DUTY
+			fx = front - sweep * sp
+			var rise := clampf((sp - 0.65) / 0.35, 0.0, 1.0)
+			lift = CARRY_HEEL_RISE * k * rise * rise * (3.0 - 2.0 * rise)
+			# Heel rise pivots the ankle about the planted toe.
+			var cphi := sqrt(maxf(0.0, 1.0 - pow(lift / CARRY_TOE, 2.0)))
+			fx += CARRY_TOE * (1.0 - cphi)
+			contact = CARRY_TOE * cphi  # the toe, ahead of the ankle
+			hip_h = minf(hip_h, sqrt(maxf(0.0, CARRY_LEG_REACH * CARRY_LEG_REACH - fx * fx)) + lift)
 		else:
 			var w := (u - CARRY_DUTY) / (1.0 - CARRY_DUTY)
 			fx = (front - sweep) + sweep * (w * w * (3.0 - 2.0 * w))
-			lift = sin(w * PI) * CARRY_LIFT * clampf(speed, 0.0, 1.0)
-		var ik := _solve_leg(fx, h0 - lift)
+			lift = maxf(sin(w * PI) * CARRY_LIFT, CARRY_HEEL_RISE * (1.0 - w) * 2.0) * k
+			# Reaching heel strike: the hip is already settling onto the coming leg (no pop).
+			var reach_w := clampf((w - 0.7) / 0.3, 0.0, 1.0)
+			if reach_w > 0.0:
+				var h_land := sqrt(maxf(0.0, CARRY_LEG_REACH * CARRY_LEG_REACH - front * front))
+				hip_h = minf(hip_h, lerpf(HIP_TO_SOLE, h_land, reach_w * reach_w * (3.0 - 2.0 * reach_w)))
+		_carry_contact[side] = contact
+		_carry_stance[side] = u < CARRY_DUTY
+		tg[side] = Vector2(fx, lift)
+	var root_n: Node3D = joints.get("root") as Node3D
+	if root_n and _rest.has("root"):
+		root_n.position.y = (_rest["root"]["pos"] as Vector3).y - _root_drop - (HIP_TO_SOLE - hip_h)
+	for side in ["left", "right"]:
+		var t: Vector2 = tg[side]
+		var ik := _solve_leg(t.x, hip_h - t.y)
 		_apply_joint(side + "_thigh", Vector3.ZERO, Vector3(ik.x, 0.0, deg_to_rad(-2.0 if side == "left" else 2.0)))
 		_apply_joint(side + "_shin", Vector3.ZERO, Vector3(ik.y, 0.0, 0.0))
 

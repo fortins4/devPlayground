@@ -20,7 +20,7 @@ const CROUCH_SPEED := 2.4
 const DRAG_SPEED := 1.75
 ## Carrying an object in his hands (bucket, …): slower walk and no sprint. Tools (goad,
 ## knife) are not carried objects. Sources register with begin_carry / end_carry.
-const CARRIED_WALK_SPEED := 3.2
+const CARRIED_WALK_SPEED := 1.4
 const ACCEL := 18.0
 const DECEL := 22.0
 const JUMP_VELOCITY := 4.5
@@ -4340,7 +4340,7 @@ func tick_mounted_rider_pose(delta: float, horse_speed: float, galloping: bool) 
 ## a little forward, and the load hangs below the hands. Setting it down / pouring lets go and
 ## the existing draw brings the goad back. Grip in the Visual frame (−Z forward, y up, feet 0):
 ## far enough out and high enough that the hanging bucket clears the thighs on the loaded stride.
-const LOAD_GRIP := Vector3(0.0, 1.24, -0.50)
+const LOAD_GRIP := Vector3(0.0, 1.06, -0.34)
 const LOAD_GRIP_HALF := 0.06 ## hands either side of the handle centre
 const LOAD_UPPER_LEN := 0.30 ## shoulder → elbow (kerne rig)
 const LOAD_FORE_LEN := 0.24 ## elbow → grip (palm on the bail)
@@ -4410,12 +4410,33 @@ func _tick_load_carry(delta: float) -> void:
 	var stowed := combat == null or (combat.current_weapon == CombatSystem.Weapon.UNARMED and not _goad_stowing)
 	var target := 1.0 if (carrying and stowed) else 0.0
 	_load_w = move_toward(_load_w, target, LOAD_HOLD_RATE * delta)
+	_seat_back_goad_for_carry(_load_w)
 	if _load_w > 0.0:
 		_pose_load_arms(_load_w)
 	elif _load_redraw and not carrying:
 		_load_redraw = false
 		if combat and combat.current_weapon == CombatSystem.Weapon.UNARMED:
 			combat.set_weapon(_load_prev_weapon)  # the existing draw
+
+
+## While the bucket is carried the stowed goad rides diagonally across the back: head up beside the
+## right shoulder, butt behind the left hip and well off the ground. Blended by the hold weight;
+## w = 0 puts back the locked stow seat exactly (stow/draw untouched).
+const CARRY_GOAD_POS := Vector3(-0.30, -0.40, 0.21)
+const CARRY_GOAD_ROT_DEG := Vector3(-4.0, 0.0, -30.0)
+var _carry_goad_seated: bool = false
+
+func _seat_back_goad_for_carry(w: float) -> void:
+	if not _goad_seat_ready:
+		return
+	if w <= 0.0 and not _carry_goad_seated:
+		return
+	var back := _back_goad_node()
+	if back == null:
+		return
+	var seat := Transform3D(Basis.from_euler(CARRY_GOAD_ROT_DEG * (PI / 180.0)), CARRY_GOAD_POS)
+	back.transform = _back_goad_seat.interpolate_with(seat, w)
+	_carry_goad_seated = w > 0.0
 
 
 ## Two-bone IK for both arms onto the handle, blended over whatever the arms hold by `w`.

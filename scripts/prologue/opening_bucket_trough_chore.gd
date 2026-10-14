@@ -17,8 +17,9 @@ const TROUGH_POS := Vector3(8.2, 0.0, 0.4)
 ## Where the emptied bucket is left after the pour: on the yard side of the trough rail, at the
 ## trough's west end (reachable ground, clear of the hitch post and the pour spot).
 const BUCKET_SETDOWN := Vector3(7.0, 0.0, 1.8)
-## Carried: bail bar (0.32 up, 0.04 thick) sits in the palms → bucket origin this far below the grip.
-const HANDLE_TO_ORIGIN := 0.35
+## Period stave bucket: 0.30 m across, 0.30 m tall, ~11 L carried (~12 kg full).
+## Carried: bail bar (0.26 up, 0.03 thick) sits in the palms → bucket origin this far below the grip.
+const HANDLE_TO_ORIGIN := 0.28
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 const C_WOOD := Color(0.42, 0.30, 0.18)
@@ -218,7 +219,7 @@ func _pour() -> void:
 		_carried.visible = false
 	# The emptied bucket is set down on the ground at the trough's west end.
 	if _world_bucket:
-		_world_bucket.position = Vector3(BUCKET_SETDOWN.x, Terrain.surface_y(BUCKET_SETDOWN.x, BUCKET_SETDOWN.z) + 0.22, BUCKET_SETDOWN.z)
+		_world_bucket.position = Vector3(BUCKET_SETDOWN.x, Terrain.surface_y(BUCKET_SETDOWN.x, BUCKET_SETDOWN.z) + 0.15, BUCKET_SETDOWN.z)
 		_world_bucket.visible = true
 	if _trough_water:
 		_trough_water.visible = true
@@ -231,7 +232,7 @@ func _set_none() -> void:
 	_state = BucketState.NONE
 	_set_carrying(false)
 	if _world_bucket:
-		_world_bucket.position = BUCKET_SPAWN + Vector3(0.0, 0.28, 0.0)
+		_world_bucket.position = BUCKET_SPAWN + Vector3(0.0, 0.22, 0.0)
 		_world_bucket.visible = true
 	if _carried:
 		_carried.visible = false
@@ -243,7 +244,7 @@ func _set_none() -> void:
 
 func _build_props() -> void:
 	_world_bucket = _make_bucket_mesh("WorldBucket", false)
-	_world_bucket.position = BUCKET_SPAWN + Vector3(0.0, 0.28, 0.0)
+	_world_bucket.position = BUCKET_SPAWN + Vector3(0.0, 0.22, 0.0)
 	add_child(_world_bucket)
 
 	_trough = Node3D.new()
@@ -276,14 +277,16 @@ func _make_bucket_mesh(node_name: String, full: bool) -> Node3D:
 	var root := Node3D.new()
 	root.name = node_name
 	var body_col := C_WOOD if not full else C_EMPTY_TINT.lerp(C_WATER_FULL, 0.15)
-	_mesh_cyl(root, Vector3(0.0, 0.0, 0.0), 0.22, 0.26, 0.42, body_col)
-	_mesh_cyl(root, Vector3(0.0, 0.18, 0.0), 0.24, 0.24, 0.04, C_BAND)
-	_mesh_cyl(root, Vector3(0.0, -0.12, 0.0), 0.24, 0.24, 0.04, C_BAND)
-	# Bail handle.
-	_mesh_box(root, Vector3(0.0, 0.32, 0.0), Vector3(0.38, 0.04, 0.04), C_BAND)
-	_mesh_box(root, Vector3(-0.18, 0.22, 0.0), Vector3(0.04, 0.22, 0.04), C_BAND)
-	_mesh_box(root, Vector3(0.18, 0.22, 0.0), Vector3(0.04, 0.22, 0.04), C_BAND)
-	var water := _mesh_cyl(root, Vector3(0.0, 0.08, 0.0), 0.18, 0.18, 0.08, C_WATER_FULL)
+	# Staves taper slightly to the rim (0.28 top, 0.30 base), two hoops.
+	_mesh_cyl(root, Vector3(0.0, 0.0, 0.0), 0.14, 0.15, 0.30, body_col)
+	_mesh_cyl(root, Vector3(0.0, 0.09, 0.0), 0.148, 0.148, 0.025, C_BAND)
+	_mesh_cyl(root, Vector3(0.0, -0.09, 0.0), 0.153, 0.153, 0.025, C_BAND)
+	# Bail handle: lugs on two long staves, a bar 0.11 m over the rim.
+	_mesh_box(root, Vector3(0.0, 0.26, 0.0), Vector3(0.30, 0.03, 0.03), C_BAND)
+	_mesh_box(root, Vector3(-0.135, 0.19, 0.0), Vector3(0.03, 0.14, 0.03), C_BAND)
+	_mesh_box(root, Vector3(0.135, 0.19, 0.0), Vector3(0.03, 0.14, 0.03), C_BAND)
+	# ~80 % full (inner r 0.13, ~0.21 deep ≈ 11 L): headroom against slopping.
+	var water := _mesh_cyl(root, Vector3(0.0, 0.07, 0.0), 0.13, 0.13, 0.06, C_WATER_FULL)
 	water.name = "Water"
 	water.visible = full
 	return root
