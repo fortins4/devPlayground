@@ -28,6 +28,22 @@ var _walk_legs: Dictionary = {} ## "left"/"right" -> Vector2(sole forward m, lif
 const LEG_JOINTS := ["left_thigh", "left_shin", "right_thigh", "right_shin"]
 const ATTACK_WALK_BLEND_RATE := 9.0 ## 1/s; ~0.11 s from plant to stride
 var _attack_walk_back: bool = false
+## Loaded walk (player carrying a full bucket by its handle, both hands in front): shorter,
+## quicker steps matched to the carry speed, a heavier bob and a braced forward lean. The arms
+## are posed by the carrier (two-hand grip IK), so the cycle leaves them still.
+var carry_load: bool = false
+## Loaded walk legs: a two-bone solve on planted soles (no sinusoid), so the stance sole moves
+## back at exactly the body's ground speed (no slide). One cycle = CARRY_CYCLE s, each sole
+## planted for CARRY_DUTY of it; the planted sweep sits mostly behind the hip (CARRY_FRONT of it
+## in front) so the forward knee stays under the hanging bucket. Knees braced (root drop).
+const CARRY_CYCLE := 0.5
+const CARRY_DUTY := 0.42
+const CARRY_FRONT := 0.45
+const CARRY_LIFT := 0.07
+const CARRY_KNEE_DROP := 0.10
+const CARRY_BOB := 0.012
+const CARRY_LEAN_DEG := 5.0
+var _carry_sweep: float = 0.0 ## planted sweep (m) this tick, for probes
 ## Per-joint rotation offset the cycle itself wrote this tick (before combat
 ## additives). A caller blending its own pose in or out of the plain cycle
 ## (the player's sprint carry) reads it so the hand-off does not pop.
@@ -431,6 +447,12 @@ func tick(
 		_:
 			pass
 
+	if carry_load and _state == &"walk":
+		cadence = TAU / CARRY_CYCLE
+		stride = 0.0  # legs are solved below (planted soles)
+		arm_amp = 0.0
+		bob = CARRY_BOB
+
 	if cadence > 0.0:
 		_phase += delta * cadence
 	elif _state == &"idle" or _state == &"crouch_idle":
@@ -456,7 +478,10 @@ func tick(
 		torso_breath.x += deg_to_rad(12.0)
 	elif _state == &"walk":
 		torso_breath.x += deg_to_rad(3.0)
-	torso_breath.y += s * stride * 0.06
+	if carry_load and (_state == &"walk" or _state == &"idle" or _state == &"turn"):
+		# Braced against the load in front: a touch more forward over the hips.
+		torso_breath.x += deg_to_rad(CARRY_LEAN_DEG - (3.0 if _state == &"walk" else 0.0))
+	torso_breath.y += s * stride * 0.06 * (0.4 if carry_load else 1.0)
 	_apply_joint("torso", Vector3.ZERO, torso_breath)
 
 	_apply_joint("head", Vector3.ZERO, Vector3(-breath * 0.5 - torso_breath.x * 0.3, -hip_sway.y * 0.5, 0.0))
@@ -481,6 +506,9 @@ func tick(
 	# Shin bend on forward swing (positive thigh pitch → less bend; backward → more)
 	_apply_joint("left_shin", Vector3.ZERO, Vector3(maxf(0.0, -thigh_f) * 0.9 + 0.05, 0.0, 0.0))
 	_apply_joint("right_shin", Vector3.ZERO, Vector3(maxf(0.0, -thigh_b) * 0.9 + 0.05, 0.0, 0.0))
+
+	if carry_load and (_state == &"walk" or _state == &"idle" or _state == &"turn"):
+		_carry_legs(horiz_speed if _state == &"walk" else 0.0, bob * absf(s))
 
 	# Arms opposite to legs (unless attacking — additives may override).
 	# Z abduction: left -Z / right +Z swing NEXT TO the torso. The old +10/-10
@@ -516,6 +544,32 @@ func tick(
 		var torso_n: Node3D = joints.get("torso") as Node3D
 		if torso_n:
 			torso_n.rotation.z += lean
+
+
+func _carry_legs(speed: float, bob_y: float) -> void:
+	## Planted-sole loaded walk: stance sole sweeps back at `speed` (world-still), swing arcs it
+	## forward again. Hip height: rest minus the braced-knee drop, plus the body bob.
+	var root_n: Node3D = joints.get("root") as Node3D
+	if root_n and _rest.has("root"):
+		root_n.position.y -= CARRY_KNEE_DROP
+	var sweep := speed * CARRY_DUTY * CARRY_CYCLE
+	_carry_sweep = sweep
+	var front := sweep * CARRY_FRONT
+	var h0 := HIP_TO_SOLE - CARRY_KNEE_DROP - _root_drop + bob_y
+	var u0 := fposmod(_phase / TAU, 1.0)
+	for side in ["left", "right"]:
+		var u := fposmod(u0 + (0.0 if side == "left" else 0.5), 1.0)
+		var fx: float
+		var lift := 0.0
+		if u < CARRY_DUTY:
+			fx = front - sweep * (u / CARRY_DUTY)
+		else:
+			var w := (u - CARRY_DUTY) / (1.0 - CARRY_DUTY)
+			fx = (front - sweep) + sweep * (w * w * (3.0 - 2.0 * w))
+			lift = sin(w * PI) * CARRY_LIFT * clampf(speed, 0.0, 1.0)
+		var ik := _solve_leg(fx, h0 - lift)
+		_apply_joint(side + "_thigh", Vector3.ZERO, Vector3(ik.x, 0.0, deg_to_rad(-2.0 if side == "left" else 2.0)))
+		_apply_joint(side + "_shin", Vector3.ZERO, Vector3(ik.y, 0.0, 0.0))
 
 
 func _solve_leg(fx: float, h: float) -> Vector2:

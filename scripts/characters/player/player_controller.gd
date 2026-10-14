@@ -363,6 +363,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if dragging_body != null and is_instance_valid(dragging_body):
 		return
+	# Both hands on a carried load (bucket): the goad is on his back — no strikes, no draw.
+	if is_carrying():
+		_discard_attack_buffer(&"carry")
+		return
 
 	# No melee while mounted — dismount to fight (slice rule).
 	if is_mounted:
@@ -530,6 +534,7 @@ func _physics_process(delta: float) -> void:
 		_tick_shaft_block()
 		_tick_sprint_carry(delta)
 		_sync_weapon_to_hand()
+		_tick_load_carry(delta)
 
 
 func _process(_delta: float) -> void:
@@ -543,6 +548,7 @@ func _process(_delta: float) -> void:
 func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked: bool) -> void:
 	if locomotion == null:
 		return
+	locomotion.carry_load = is_carrying()
 	# Charge and a strike plant the feet. A guard does not: walking keeps the
 	# walk cycle on the legs while the arms and the shaft stay in the seat.
 	var guard_step := _guard_wants_steps(horiz_speed)
@@ -4329,17 +4335,45 @@ func tick_mounted_rider_pose(delta: float, horse_speed: float, galloping: bool) 
 
 
 # ---------------------------------------------------------------- carried objects
+## Two-hand load carry (bucket by its handle). Picking a load up stows the goad with the
+## existing stow (seated on his back); both hands then take the handle in front, arms down and
+## a little forward, and the load hangs below the hands. Setting it down / pouring lets go and
+## the existing draw brings the goad back. Grip in the Visual frame (−Z forward, y up, feet 0):
+## far enough out and high enough that the hanging bucket clears the thighs on the loaded stride.
+const LOAD_GRIP := Vector3(0.0, 1.24, -0.50)
+const LOAD_GRIP_HALF := 0.06 ## hands either side of the handle centre
+const LOAD_UPPER_LEN := 0.30 ## shoulder → elbow (kerne rig)
+const LOAD_FORE_LEN := 0.24 ## elbow → grip (palm on the bail)
+const LOAD_HOLD_RATE := 1.0 / 0.3 ## arms in / out over 0.3 s
+var _load_w: float = 0.0
+var _load_prev_weapon: int = -1
+var _load_redraw: bool = false
+
 
 ## `source` starts carrying something in Cian's hands (slower walk, no sprint).
 func begin_carry(source: Object) -> void:
-	if source:
-		_carry_sources[source.get_instance_id()] = source
+	if source == null:
+		return
+	var was_empty := not is_carrying()
+	_carry_sources[source.get_instance_id()] = source
+	if was_empty:
+		_load_redraw = false
+		if combat:
+			_load_prev_weapon = int(combat.current_weapon)
+			if combat.is_charging:
+				combat.cancel_charge()
+			if combat.current_weapon != CombatSystem.Weapon.UNARMED:
+				combat.set_weapon(CombatSystem.Weapon.UNARMED)  # the existing stow
 
 
 ## `source` put its object down (or poured / used it up).
 func end_carry(source: Object) -> void:
-	if source:
-		_carry_sources.erase(source.get_instance_id())
+	if source == null:
+		return
+	var had := is_carrying()
+	_carry_sources.erase(source.get_instance_id())
+	if had and not is_carrying():
+		_load_redraw = _load_prev_weapon >= 0 and _load_prev_weapon != int(CombatSystem.Weapon.UNARMED)
 
 
 ## True while any live source has Cian carrying an object.
@@ -4348,3 +4382,74 @@ func is_carrying() -> bool:
 		if not is_instance_valid(_carry_sources[id]):
 			_carry_sources.erase(id)
 	return not _carry_sources.is_empty()
+
+
+## 0..1: how far the hands have taken the load (0 while the goad is still going on his back).
+func carry_hold_weight() -> float:
+	return _load_w
+
+
+## World point midway between the two hands (on the handle).
+func carry_grip_point() -> Vector3:
+	var l := _hand_tip(&"left_forearm")
+	var r := _hand_tip(&"right_forearm")
+	return (l + r) * 0.5
+
+
+func _hand_tip(joint: StringName) -> Vector3:
+	var n := locomotion.get_joint(String(joint)) if locomotion else null
+	if n == null:
+		return global_position + Vector3(0.0, 1.0, 0.0)
+	return n.global_transform * Vector3(0.0, -LOAD_FORE_LEN, 0.0)
+
+
+func _tick_load_carry(delta: float) -> void:
+	if locomotion == null:
+		return
+	var carrying := is_carrying()
+	var stowed := combat == null or (combat.current_weapon == CombatSystem.Weapon.UNARMED and not _goad_stowing)
+	var target := 1.0 if (carrying and stowed) else 0.0
+	_load_w = move_toward(_load_w, target, LOAD_HOLD_RATE * delta)
+	if _load_w > 0.0:
+		_pose_load_arms(_load_w)
+	elif _load_redraw and not carrying:
+		_load_redraw = false
+		if combat and combat.current_weapon == CombatSystem.Weapon.UNARMED:
+			combat.set_weapon(_load_prev_weapon)  # the existing draw
+
+
+## Two-bone IK for both arms onto the handle, blended over whatever the arms hold by `w`.
+func _pose_load_arms(w: float) -> void:
+	var visual := locomotion.get_node_or_null(locomotion.visual_path) as Node3D
+	var torso := locomotion.get_joint("torso")
+	if visual == null or torso == null:
+		return
+	for side in [-1.0, 1.0]:
+		var arm := locomotion.get_joint("left_arm" if side < 0.0 else "right_arm")
+		var fore := locomotion.get_joint("left_forearm" if side < 0.0 else "right_forearm")
+		if arm == null or fore == null:
+			continue
+		var tgt_w := visual.global_transform * (LOAD_GRIP + Vector3(side * LOAD_GRIP_HALF, 0.0, 0.0))
+		var t := torso.global_transform.affine_inverse() * tgt_w  # torso space
+		var sh := arm.position
+		var v := t - sh
+		var l1 := LOAD_UPPER_LEN
+		var l2 := LOAD_FORE_LEN
+		var d := clampf(v.length(), 0.08, l1 + l2 - 0.002)
+		var vn := v.normalized()
+		var cos_e := clampf((l1 * l1 + l2 * l2 - d * d) / (2.0 * l1 * l2), -1.0, 1.0)
+		var flex := PI - acos(cos_e)
+		var cos_a := clampf((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0)
+		var a := acos(cos_a)
+		# Elbows point back and a little out (the forearm flexes forward onto the handle).
+		var pole := Vector3(side * 0.35, 0.0, 1.0)
+		var pp := (pole - vn * pole.dot(vn)).normalized()
+		var u := (vn * cos(a) + pp * sin(a)).normalized()  # upper-arm direction (bone −Y)
+		var y := -u
+		var z := (pp - u * pp.dot(u)).normalized()
+		# Forearm bends toward the arm's −Z: −Z must face the hands' side (away from the pole).
+		var x := y.cross(z).normalized()
+		var arm_b := Basis(x, y, z).orthonormalized()
+		var fore_b := Basis(Vector3.RIGHT, flex)
+		arm.basis = arm.basis.orthonormalized().slerp(arm_b, w) if w < 1.0 else arm_b
+		fore.basis = fore.basis.orthonormalized().slerp(fore_b, w) if w < 1.0 else fore_b

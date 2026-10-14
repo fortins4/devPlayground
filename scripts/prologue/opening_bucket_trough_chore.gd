@@ -17,6 +17,8 @@ const TROUGH_POS := Vector3(8.2, 0.0, 0.4)
 ## Where the emptied bucket is left after the pour: on the yard side of the trough rail, at the
 ## trough's west end (reachable ground, clear of the hitch post and the pour spot).
 const BUCKET_SETDOWN := Vector3(7.0, 0.0, 1.8)
+## Carried: bail bar (0.32 up, 0.04 thick) sits in the palms → bucket origin this far below the grip.
+const HANDLE_TO_ORIGIN := 0.35
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 const C_WOOD := Color(0.42, 0.30, 0.18)
@@ -40,6 +42,8 @@ var _trough: Node3D = null
 var _trough_water: MeshInstance3D = null
 var _prompt_timer: float = 0.0
 var _mats: Dictionary = {}
+## Where the bucket stood when picked up (it is lifted from here as the hands take it).
+var _lift_from: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -193,6 +197,7 @@ func _pickup() -> void:
 	_state = BucketState.EMPTY
 	_set_carrying(true)
 	if _world_bucket:
+		_lift_from = _world_bucket.global_position
 		_world_bucket.visible = false
 	_ensure_carried(false)
 	_flash("Bucket in hand — fill it at the spring scoop.", 3.5)
@@ -326,11 +331,15 @@ func _sync_carried() -> void:
 		_player = get_tree().get_first_node_in_group("player") as Node3D
 	if _player == null:
 		return
-	# Float in front / right of player — greybox carry pose.
-	var basis := _player.global_transform.basis
-	var offset := basis * Vector3(0.42, 1.05, -0.35)
-	_carried.global_position = _player.global_position + offset
-	_carried.global_rotation.y = _player.global_rotation.y
+	_carried.global_rotation = Vector3(0.0, _player.global_rotation.y, 0.0)
+	if not _player.has_method("carry_grip_point"):
+		_carried.global_position = _player.global_position + _player.global_transform.basis * Vector3(0.42, 1.05, -0.35)
+		return
+	# Hangs from its bail in both hands (the bar sits in the palms); until the hands have it
+	# (goad still going onto his back) it stays where it stood and is lifted as they take it.
+	var hang := Vector3(_player.call("carry_grip_point")) - Vector3(0.0, HANDLE_TO_ORIGIN, 0.0)
+	var w := float(_player.call("carry_hold_weight"))
+	_carried.global_position = _lift_from.lerp(hang, w)
 
 
 # ---------------------------------------------------------------- helpers
