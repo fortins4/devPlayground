@@ -191,6 +191,7 @@ func _try_interact() -> bool:
 
 func _pickup() -> void:
 	_state = BucketState.EMPTY
+	_set_carrying(true)
 	if _world_bucket:
 		_world_bucket.visible = false
 	_ensure_carried(false)
@@ -207,6 +208,7 @@ func _fill() -> void:
 
 func _pour() -> void:
 	_state = BucketState.DONE
+	_set_carrying(false)
 	if _carried:
 		_carried.visible = false
 	# The emptied bucket is set down on the ground at the trough's west end.
@@ -222,6 +224,7 @@ func _pour() -> void:
 
 func _set_none() -> void:
 	_state = BucketState.NONE
+	_set_carrying(false)
 	if _world_bucket:
 		_world_bucket.position = BUCKET_SPAWN + Vector3(0.0, 0.28, 0.0)
 		_world_bucket.visible = true
@@ -279,6 +282,18 @@ func _make_bucket_mesh(node_name: String, full: bool) -> Node3D:
 	water.name = "Water"
 	water.visible = full
 	return root
+
+
+## The bucket in hand is a carried object for the player's movement (slow walk, no sprint).
+func _set_carrying(on: bool) -> void:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player") as Node3D
+	if _player == null:
+		return
+	if on and _player.has_method("begin_carry"):
+		_player.call("begin_carry", self)
+	elif not on and _player.has_method("end_carry"):
+		_player.call("end_carry", self)
 
 
 func _ensure_carried(full: bool) -> void:

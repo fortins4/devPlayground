@@ -18,6 +18,9 @@ const WALK_SPEED := 5.0
 const SPRINT_SPEED := 8.0
 const CROUCH_SPEED := 2.4
 const DRAG_SPEED := 1.75
+## Carrying an object in his hands (bucket, …): slower walk and no sprint. Tools (goad,
+## knife) are not carried objects. Sources register with begin_carry / end_carry.
+const CARRIED_WALK_SPEED := 3.2
 const ACCEL := 18.0
 const DECEL := 22.0
 const JUMP_VELOCITY := 4.5
@@ -52,6 +55,8 @@ var _torso_tween: Tween
 var _camera_base_pos: Vector3
 var _punch_tween: Tween
 var _sprinting: bool = false
+## Carried-object registry: instance id → source object (any chore / prop holding a load).
+var _carry_sources: Dictionary = {}
 var _arm_fore_scale: float = 0.35
 
 ## Stealth footprint (read by DetectionSensor).
@@ -467,6 +472,7 @@ func _physics_process(delta: float) -> void:
 		and not is_crouching
 		and not dragging
 		and not (bog and bog.blocks_sprint())
+		and not is_carrying()
 	)
 	var sprinting := false
 	if want_sprint and combat:
@@ -486,6 +492,8 @@ func _physics_process(delta: float) -> void:
 		_sprinting = false
 	elif is_crouching:
 		target_speed = CROUCH_SPEED
+	elif is_carrying():
+		target_speed = CARRIED_WALK_SPEED
 	elif sprinting:
 		target_speed = SPRINT_SPEED
 	if bog:
@@ -4318,3 +4326,25 @@ func tick_mounted_rider_pose(delta: float, horse_speed: float, galloping: bool) 
 		return
 	locomotion.tick_mounted(delta, horse_speed, galloping)
 	_sync_weapon_to_hand()
+
+
+# ---------------------------------------------------------------- carried objects
+
+## `source` starts carrying something in Cian's hands (slower walk, no sprint).
+func begin_carry(source: Object) -> void:
+	if source:
+		_carry_sources[source.get_instance_id()] = source
+
+
+## `source` put its object down (or poured / used it up).
+func end_carry(source: Object) -> void:
+	if source:
+		_carry_sources.erase(source.get_instance_id())
+
+
+## True while any live source has Cian carrying an object.
+func is_carrying() -> bool:
+	for id in _carry_sources.keys():
+		if not is_instance_valid(_carry_sources[id]):
+			_carry_sources.erase(id)
+	return not _carry_sources.is_empty()
