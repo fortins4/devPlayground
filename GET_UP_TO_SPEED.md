@@ -3,6 +3,7 @@
 Read this file before doing any Ríocht task. These are the locked rules. Each new locked rule is added here when it's made.
 
 ## Workflow
+- 2026-10-13: Always be realistic, physically and historically. Check every change and suggestion for realism before sending it.
 - 2026-10-13: Read this file before doing any task.
 - 2026-10-13: Whenever a new locked rule is made, it is added to this file.
 - 2026-10-12: Merges to main are approved only by the user's A/B in Lead's chat. The user doesn't approve in Godot's chat. If Godot won't act on a relayed approval, Lead does the fast-forward push itself.
@@ -21,6 +22,7 @@ Read this file before doing any Ríocht task. These are the locked rules. Each n
 - 2026-10-07: The farm's water source is a natural spring dug out into a ditch scoop, not a village-style well.
 
 ## Combat and movement
+- 2026-10-13: Cian can't hold the goad while carrying the bucket. He stows the goad and carries the bucket by its handle with both hands.
 - 2026-10-13: Carrying any object like a bucket slows Cian's walk and blocks sprint.
 - 2026-10-06: There is no stamina system at all: no meter, drain or gates on attacks, charges or sprint.
 - 2026-10-06: Cian can walk normally while attacking (charge, release, swing, jab, settle). Feet stay planted and natural; sprint still blocks attacks.
