@@ -20,6 +20,10 @@ const BUCKET_SETDOWN := Vector3(7.0, 0.0, 1.8)
 ## Period stave bucket: 0.32 m across the base (0.30 rim), 0.36 m tall, ~15 L carried (~17 kg full).
 ## Carried: bail bar (0.31 up, 0.03 thick) sits in the palms → bucket origin this far below the grip.
 const HANDLE_TO_ORIGIN := 0.325
+## Three bucket trips fill the trough (~15 L each ≈ 45 L ≈ 5 cm over the 1.7 × 0.5 m floor).
+const POURS_NEEDED := 3
+const TROUGH_FLOOR_Y := 0.41 ## top of the trough's inner floor (local)
+const TROUGH_FULL_DEPTH := 0.053
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 const C_WOOD := Color(0.42, 0.30, 0.18)
@@ -45,6 +49,7 @@ var _prompt_timer: float = 0.0
 var _mats: Dictionary = {}
 ## Where the bucket stood when picked up (it is lifted from here as the hands take it).
 var _lift_from: Vector3 = Vector3.ZERO
+var _pours: int = 0
 
 
 func _ready() -> void:
@@ -92,6 +97,19 @@ func bucket_state() -> String:
 		BucketState.DONE:
 			return "done"
 	return "unknown"
+
+
+func pours_done() -> int:
+	return _pours
+
+
+func pours_needed() -> int:
+	return POURS_NEEDED
+
+
+## 0..1 of the full trough's water depth.
+func trough_level() -> float:
+	return float(_pours) / float(POURS_NEEDED)
 
 
 func bucket_spawn_pos() -> Vector3:
@@ -145,9 +163,10 @@ func debug_set_state(state_name: String) -> void:
 		"done":
 			if _state == BucketState.NONE:
 				_pickup()
-			if _state == BucketState.EMPTY:
-				_fill()
-			_pour()
+			while _state != BucketState.DONE:
+				if _state == BucketState.EMPTY:
+					_fill()
+				_pour()
 		_:
 			push_warning("OpeningBucketTroughChore.debug_set_state unknown: " + state_name)
 
@@ -213,6 +232,15 @@ func _fill() -> void:
 
 
 func _pour() -> void:
+	_pours = mini(_pours + 1, POURS_NEEDED)
+	_set_trough_level()
+	if _pours < POURS_NEEDED:
+		# Emptied, still in both hands: back to the spring for the next one (still a carry).
+		_state = BucketState.EMPTY
+		_ensure_carried(false)
+		_flash("Trough %d/%d — back to the spring for another bucket." % [_pours, POURS_NEEDED], 4.0)
+		print("OPENING_BUCKET_POURED %d/%d" % [_pours, POURS_NEEDED])
+		return
 	_state = BucketState.DONE
 	_set_carrying(false)
 	if _carried:
@@ -221,23 +249,31 @@ func _pour() -> void:
 	if _world_bucket:
 		_world_bucket.position = Vector3(BUCKET_SETDOWN.x, Terrain.surface_y(BUCKET_SETDOWN.x, BUCKET_SETDOWN.z) + 0.18, BUCKET_SETDOWN.z)
 		_world_bucket.visible = true
-	if _trough_water:
-		_trough_water.visible = true
 	_flash("Trough filled.", 4.0)
 	print("OPENING_BUCKET_TROUGH_SOFT_SUCCESS")
 	_report_done()
 
 
+func _set_trough_level() -> void:
+	if _trough_water == null:
+		return
+	var f := trough_level()
+	_trough_water.visible = f > 0.0
+	var d := maxf(TROUGH_FULL_DEPTH * f, 0.004)
+	_trough_water.scale = Vector3(1.0, d / TROUGH_FULL_DEPTH, 1.0)
+	_trough_water.position.y = TROUGH_FLOOR_Y + d * 0.5
+
+
 func _set_none() -> void:
 	_state = BucketState.NONE
+	_pours = 0
 	_set_carrying(false)
 	if _world_bucket:
 		_world_bucket.position = BUCKET_SPAWN + Vector3(0.0, 0.25, 0.0)
 		_world_bucket.visible = true
 	if _carried:
 		_carried.visible = false
-	if _trough_water:
-		_trough_water.visible = false
+	_set_trough_level()
 
 
 # ---------------------------------------------------------------- geometry
@@ -251,14 +287,16 @@ func _build_props() -> void:
 	_trough.name = "ByreTrough"
 	_trough.position = TROUGH_POS
 	add_child(_trough)
-	# Low wood trough — outer shell + hollow.
-	_mesh_box(_trough, Vector3(0.0, 0.28, 0.0), Vector3(2.2, 0.55, 0.85), C_WOOD)
-	_mesh_box(_trough, Vector3(0.0, 0.42, 0.0), Vector3(1.85, 0.12, 0.55), C_WOOD_DARK)
+	# Low wood trough — base block, inner floor, and the side / end boards standing above it so
+	# the hollow (0.41 → 0.575, ~16 cm deep) can hold the water that is poured in.
+	_mesh_box(_trough, Vector3(0.0, 0.20, 0.0), Vector3(2.2, 0.40, 0.85), C_WOOD)
+	_mesh_box(_trough, Vector3(0.0, 0.40, 0.0), Vector3(1.85, 0.02, 0.55), C_WOOD_DARK)
 	_mesh_box(_trough, Vector3(-1.0, 0.35, 0.0), Vector3(0.12, 0.5, 0.78), C_WOOD_DARK)
 	_mesh_box(_trough, Vector3(1.0, 0.35, 0.0), Vector3(0.12, 0.5, 0.78), C_WOOD_DARK)
 	_mesh_box(_trough, Vector3(0.0, 0.35, -0.36), Vector3(2.05, 0.45, 0.1), C_WOOD_DARK)
 	_mesh_box(_trough, Vector3(0.0, 0.35, 0.36), Vector3(2.05, 0.45, 0.1), C_WOOD_DARK)
-	_trough_water = _mesh_box(_trough, Vector3(0.0, 0.38, 0.0), Vector3(1.7, 0.08, 0.5), C_WATER)
+	# Water sits on the inner floor; its depth follows the pours (_set_trough_level).
+	_trough_water = _mesh_box(_trough, Vector3(0.0, TROUGH_FLOOR_Y + TROUGH_FULL_DEPTH * 0.5, 0.0), Vector3(1.7, TROUGH_FULL_DEPTH, 0.5), C_WATER)
 	_trough_water.visible = false
 	_trough_water.name = "TroughWater"
 

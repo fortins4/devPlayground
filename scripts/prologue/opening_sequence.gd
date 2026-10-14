@@ -202,10 +202,16 @@ func objective_text() -> String:
 		&"bucket":
 			var bucket := _group("opening_bucket_trough")
 			var st := String(bucket.call("bucket_state")) if bucket else "none"
+			var poured := int(bucket.call("pours_done")) if bucket and bucket.has_method("pours_done") else 0
+			var need := int(bucket.call("pours_needed")) if bucket and bucket.has_method("pours_needed") else 1
 			match st:
 				"empty":
+					if poured > 0:
+						return "Trough %d/%d — back to the spring scoop for another bucket.%s" % [poured, need, _dist_suffix(Vector3(-23.5, 0, 19.0))]
 					return "Fill the bucket at the spring scoop — west of the house.%s" % _dist_suffix(Vector3(-23.5, 0, 19.0))
 				"full":
+					if poured > 0:
+						return "Trough %d/%d — pour this one into the trough at the byre.%s" % [poured, need, _dist_suffix(Vector3(8.2, 0, 0.4))]
 					return "Pour the water into the trough at the byre.%s" % _dist_suffix(Vector3(8.2, 0, 0.4))
 			return "Water the trough: pick up the bucket by the byre.%s" % _dist_suffix(Vector3(5.2, 0, 2.5))
 		&"knife":
