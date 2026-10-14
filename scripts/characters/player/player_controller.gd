@@ -4340,7 +4340,7 @@ func tick_mounted_rider_pose(delta: float, horse_speed: float, galloping: bool) 
 ## a little forward, and the load hangs below the hands. Setting it down / pouring lets go and
 ## the existing draw brings the goad back. Grip in the Visual frame (−Z forward, y up, feet 0):
 ## far enough out and high enough that the hanging bucket clears the thighs on the loaded stride.
-const LOAD_GRIP := Vector3(0.0, 1.06, -0.34)
+const LOAD_GRIP := Vector3(0.0, 1.12, -0.38)
 const LOAD_GRIP_HALF := 0.06 ## hands either side of the handle centre
 const LOAD_UPPER_LEN := 0.30 ## shoulder → elbow (kerne rig)
 const LOAD_FORE_LEN := 0.24 ## elbow → grip (palm on the bail)
