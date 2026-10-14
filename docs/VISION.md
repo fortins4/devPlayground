@@ -24,7 +24,8 @@ An open-world, historically grounded action-adventure set in **Ireland, 1169–1
 ## The Protagonist & Opening
 - **Placeholder name:** Cian (young man; final name TBD).
 - From a minor Gaelic clan in Leinster.
-- Recently traumatized by an **English (Anglo-Norman) invading raid** on his village; driven into the wilderness and forced to survive outside settled túath life.
+- **Máire** is Cian's mother; in the opening she is the hub at the house door who gives each farm task.
+- Recently traumatized by an **English (Anglo-Norman) invading raid** on his family's ringfort farm (a single ráth, not a village); driven into the wilderness and forced to survive outside settled túath life.
 - The **opening sequence** is a tightly authored, emotional prologue built around that raid and exile. It ends in personal loss that gives him a reason to act, then opens the full world.
 - After the prologue, the personal story is **what you make of it** — optional threads the player can pursue at any pace, or not at all; no mandatory critical path.
 - The protagonist has a defined voice and personality, but the player controls choices, alliances, and methods.
@@ -71,7 +72,7 @@ A persistent base the player rebuilds after the opening tragedy. Recruit smiths,
 ## Key Systems
 | System | Description |
 |---|---|
-| Combat | Stamina-based and directional; **hatchet-first** early kit, then spears/javelins; shield breaks and terrain modifiers as gear unlocks |
+| Combat | Directional (no stamina system at all); **hatchet-first** early kit, then spears/javelins; shield breaks and terrain modifiers as gear unlocks |
 | Stealth & Raiding | Crouch/cover, noise, vision cones; night cattle raids with watchmen, dogs, fog, escape routes |
 | Bog disposal | Hide bodies in peat bogs to delay discovery and reduce honor / patrol heat |
 | Honor (Enech) | Reputation per faction and overall. Gates dialogue, alliances, and law options |

@@ -8,7 +8,7 @@ Tip: `527008a` (2026-10-13 22:15 ET), "Trough takes three bucket trips".
 
 The opening (`scenes/prologue/opening_cattle_drive.tscn`, F4 from the main greybox) is a set sequence with Máire as the hub:
 
-1. **Máire at the door.** She waves and talks on her own when Cian comes near. After each task he goes back to her for the next one.
+1. **Máire at the door.** Máire is Cian's mother. She waves and talks on her own when Cian comes near. After each task he goes back to her for the next one.
 2. **Bucket to the trough.** Pick up the stave bucket by the byre, fill it at the dug-out spring scoop west of the house, and pour it at the trough. It takes three trips, and each pour raises the water by a third (HUD shows "Trough n/3"). Cian stows the goad and carries the bucket by the handle with both hands. The load slows him to a braced walk and blocks sprint. The goad is drawn again after the last pour.
 3. **Knife hitch.** Cut the heifer's tether at the byre.
 4. **Herd drive.** One of the 6 cows is bogged at the pasture. Free her, drive her back to the herd, then drive all 6 home. A stray dog ambushes and scatters them on the lane.
@@ -45,6 +45,7 @@ None of these has a fix on main yet:
 ## In progress (local, not on main)
 1. **Realism audit** by the Godot bot.
 2. **Next-story-beat plan** by the Systems bot.
+3. **Opening crops** being changed to young green May growth (Godot, local).
 
 ## How we work
 1. Every option or rough-edge list is numbered, and the user picks by number.

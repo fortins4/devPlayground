@@ -44,7 +44,7 @@ Ship criteria: a player can finish the greybox prologue, roam a small Leinster g
 
 | System | Slice target |
 |---|---|
-| Combat | Third-person stamina + directional attacks; **hatchet** as starter weapon (cattle-farm kit); knife + staff/goad available; spear/shield later; terrain modifiers stubbed |
+| Combat | Third-person directional attacks (no stamina); **hatchet** as starter weapon (cattle-farm kit); knife + staff/goad available; spear/shield later; terrain modifiers stubbed |
 | Honor (Enech) | Per-faction + overall reputation; gates at least dialogue tone and one law option |
 | Factions | **3 active** in Leinster (Uí Chennselaig, Anglo-Normans, Norse-Gaelic Wexford/Waterford); attitudes −100…+100; basic needs → 1–2 dynamic quests |
 | Timeline | Calendar clock; **one** event: Bannow Bay landing; absent-player weighted historical resolve; present-player can shift variables (troops, morale, survivors) |
@@ -71,7 +71,7 @@ Everything below is the **intended** product if the slice succeeds. It expands s
 
 ### Narrative & structure
 
-- Fixed authored protagonist: **Cian** (placeholder) — young Gaelic man from a **cattle-farming family**, traumatized by an Anglo-Norman raid on his village, forced into wilderness exile
+- Fixed authored protagonist: **Cian** (placeholder) — young Gaelic man from a **cattle-farming family** (his mother is **Máire**), traumatized by an Anglo-Norman raid on his family's ringfort farm, forced into wilderness exile
 - **Starting kit:** knife, hatchet (primary), cattle goad/staff; spear unlocked later — not a starting sword/shield
 - Mandatory emotional prologue (raid + exile) → personal story is **player-driven** (what you make of it); no mandatory critical path
 - Living history 1169 → 1171 (Bannow Bay → Waterford → Aífe/Strongbow marriage → Siege of Dublin → Henry II arrival)
@@ -128,7 +128,7 @@ Warlord · Cattle Lord · Mercenary · Brehon / fili influence · Outlaw · Pilg
 
 | System | Full intent |
 |---|---|
-| Combat | Gaelic arms (spear, axe, javelin, light armor, ambush) vs Norman knights / crossbows; stamina, directionality, shield breaks, terrain (bog / forest / open) |
+| Combat | Gaelic arms (spear, axe, javelin, light armor, ambush) vs Norman knights / crossbows; directionality, shield breaks, terrain (bog / forest / open) |
 | Stealth & raiding | Crouch/cover, noise, vision; night raids; watchmen, dogs, fog; **hide bodies in bogs** to delay discovery and cut patrol heat |
 | Honor & Brehon law | Éraic / honor-price tables, hospitality, sanctuary; law as alternative to bloodshed; breaking law has lasting cost |
 | Economy | Cattle core; Norse town trade goods; upkeep + faction retaliation against endless raiding |
@@ -195,8 +195,8 @@ Godot-owned clarity for scenes, player, combat, raid, ringfort, and regions. **I
 - **Deferred:** Character creator / blank-slate protagonist; deep skill trees / class locks; full body IK / photoreal fidelity
 
 ### Combat (`systems/combat/`)
-- **IN:** Stamina + directional attacks; shield breaks; thrown spears/javelins; Gaelic kit vs Norman knights/crossbows; terrain modifiers (bog/forest favor Gael; open favors Norman)
-- **Slice:** Stamina + directional basics + spear/shield; terrain modifiers stubbed
+- **IN:** Directional attacks (no stamina); shield breaks; thrown spears/javelins; Gaelic kit vs Norman knights/crossbows; terrain modifiers (bog/forest favor Gael; open favors Norman)
+- **Slice:** Directional basics + spear/shield; terrain modifiers stubbed
 - **Deferred:** Large-scale army battles as the everyday loop (rare major-battle set pieces **are** intended later); full mounted combat depth before foot combat feels good; filí satire as combat-adjacent until systems-depth phase
 
 ### Raid (`systems/raid/`)
@@ -288,7 +288,7 @@ Exact quest / NPC counts TBD after slice proves systems cost.
 | Rumor spam vs silence | Priority and decay on the news bus |
 | Invisible honor | Slice ships with readable honor UI and at least one gated law/dialogue beat |
 | Event plumbing drift | Lock one shared EventOutcome schema before content multiplies |
-| Combat feel (slice make-or-break) | Do not expand regions until stamina/directional + Gael-vs-Norman read clearly |
+| Combat feel (slice make-or-break) | Do not expand regions until directional combat + Gael-vs-Norman read clearly |
 | Prologue → world handoff | Concrete first-hour checklist after `Game.finish_prologue()` |
 | Raid soft-lock for new players | Mercy window before full retaliation / upkeep pressure |
 | Terrain3D install gate | Greybox landscapes remain truth until local addon install |
@@ -303,7 +303,7 @@ Exact quest / NPC counts TBD after slice proves systems cost.
 
 ## Locked product decisions (2026-10-01)
 
-1. **Protagonist:** Cian (placeholder) — young man; village destroyed by Anglo-Norman raid; wilderness exile  
+1. **Protagonist:** Cian (placeholder) — young man; family ringfort farm destroyed by Anglo-Norman raid; wilderness exile  
 2. **Ending:** No hard end — sandbox continues after the main/historical arc  
 3. **Personal story:** Player-authored through play (“what you make of it”); no mandatory critical path after prologue  
 4. **Regions:** List compiled (see Regions above); **no fixed unlock order**
