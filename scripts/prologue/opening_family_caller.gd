@@ -25,7 +25,10 @@ const WAVE_CENTER_DEG := -28.0
 const WAVE_SWING_DEG := 30.0
 const ARM_DOWN_DEG := -165.0
 const ARM_TALK_DEG := -70.0
-const BARK_Y := 2.32
+## Máire stands ~1.60 m (Irish women of the period averaged ~1.58–1.62 m).
+const STATURE_M := 1.60
+const BUILT_STATURE_M := 1.915 ## top of the hair as the figure is modelled
+const BARK_Y := 2.00
 ## House door south face (authored FamilyCaller sits just outside).
 const DOOR_POS := Vector3(-7.2, 0.0, 1.77)
 
@@ -404,11 +407,21 @@ func _near(p: Vector3, target: Vector3, range_m: float = INTERACT_RANGE) -> bool
 
 # ---------------------------------------------------------------- figure
 
+var _figure: Node3D = null
+
+
 func _build_figure() -> void:
 	# Clear any authored placeholders.
 	for c in get_children():
 		remove_child(c)
 		c.free()
+
+	# Built at the old 1.92 m and scaled as one piece to her real stature (~1.60 m, a head
+	# shorter than her grown son), so the wave / talk arm keeps its proportions.
+	_figure = Node3D.new()
+	_figure.name = "Figure"
+	_figure.scale = Vector3.ONE * (STATURE_M / BUILT_STATURE_M)
+	add_child(_figure)
 
 	var skin := _mat(Color(0.86, 0.70, 0.58))
 	var hair := _mat(Color(0.28, 0.16, 0.08))
@@ -423,7 +436,7 @@ func _build_figure() -> void:
 	body.mesh = body_mesh
 	body.material_override = léine
 	body.position = Vector3(0.0, 0.85, 0.0)
-	add_child(body)
+	_figure.add_child(body)
 
 	var skirt := MeshInstance3D.new()
 	var skirt_mesh := CylinderMesh.new()
@@ -434,7 +447,7 @@ func _build_figure() -> void:
 	skirt.material_override = léine.duplicate()
 	(skirt.material_override as StandardMaterial3D).albedo_color = Color(0.62, 0.58, 0.48)
 	skirt.position = Vector3(0.0, 0.42, 0.0)
-	add_child(skirt)
+	_figure.add_child(skirt)
 
 	var cloak := MeshInstance3D.new()
 	var cloak_mesh := BoxMesh.new()
@@ -442,7 +455,7 @@ func _build_figure() -> void:
 	cloak.mesh = cloak_mesh
 	cloak.material_override = brat
 	cloak.position = Vector3(0.0, 1.15, -0.12)
-	add_child(cloak)
+	_figure.add_child(cloak)
 
 	var head := MeshInstance3D.new()
 	var head_mesh := SphereMesh.new()
@@ -451,7 +464,7 @@ func _build_figure() -> void:
 	head.mesh = head_mesh
 	head.material_override = skin
 	head.position = Vector3(0.0, 1.72, 0.0)
-	add_child(head)
+	_figure.add_child(head)
 
 	var hair_mi := MeshInstance3D.new()
 	var hair_mesh := SphereMesh.new()
@@ -461,7 +474,7 @@ func _build_figure() -> void:
 	hair_mi.material_override = hair
 	hair_mi.position = Vector3(0.0, 1.82, -0.02)
 	hair_mi.scale = Vector3(1.05, 0.75, 1.1)
-	add_child(hair_mi)
+	_figure.add_child(hair_mi)
 
 	# Resting left arm.
 	var left_arm := MeshInstance3D.new()
@@ -472,14 +485,14 @@ func _build_figure() -> void:
 	left_arm.material_override = skin
 	left_arm.position = Vector3(-0.38, 1.15, 0.05)
 	left_arm.rotation_degrees = Vector3(12.0, 0.0, 18.0)
-	add_child(left_arm)
+	_figure.add_child(left_arm)
 
 	# Raised right arm (calling / waving) — joint so we can animate a little.
 	_arm = Node3D.new()
 	_arm.name = "CallArm"
 	_arm.position = Vector3(0.32, 1.35, 0.05)
 	_arm.rotation_degrees = Vector3(10.0, 0.0, ARM_DOWN_DEG)
-	add_child(_arm)
+	_figure.add_child(_arm)
 	var right_arm := MeshInstance3D.new()
 	var ra_mesh := CapsuleMesh.new()
 	ra_mesh.radius = 0.055
@@ -514,10 +527,10 @@ func _build_figure() -> void:
 	shoe_l.mesh = shoe_mesh
 	shoe_l.material_override = shoes
 	shoe_l.position = Vector3(-0.12, 0.06, 0.04)
-	add_child(shoe_l)
+	_figure.add_child(shoe_l)
 	var shoe_r := shoe_l.duplicate() as MeshInstance3D
 	shoe_r.position = Vector3(0.12, 0.06, 0.04)
-	add_child(shoe_r)
+	_figure.add_child(shoe_r)
 
 	_name_label = Label3D.new()
 	_name_label.text = speaker_name
@@ -527,7 +540,7 @@ func _build_figure() -> void:
 	_name_label.modulate = Color(0.95, 0.88, 0.7)
 	_name_label.outline_size = 10
 	_name_label.outline_modulate = Color(0.05, 0.05, 0.04, 0.85)
-	_name_label.position = Vector3(0.0, 2.15, 0.0)
+	_name_label.position = Vector3(0.0, STATURE_M + 0.23, 0.0)
 	add_child(_name_label)
 
 	_bark = Label3D.new()
