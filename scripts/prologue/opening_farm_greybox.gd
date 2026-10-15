@@ -424,23 +424,23 @@ func _build_quern() -> void:
 
 
 ## H6 — two small fenced grain plots just outside the ráth on its south-west side, between the
-## bank and the lane: oats (paler, nodding) and barley (golden, bearded), on ridged tilled earth
+## bank and the lane: spring-sown oats and barley as a May crop (May 1169: young green leafy tufts
+## at tillering / early stem, ~15–35 cm, no heads yet; oats a touch bluer-green), on ridged tilled earth
 ## behind low wattle hurdles with a gap toward the house. Set dressing only; well off the lane,
 ## the spring and the bucket walk.
 const C_TILTH := Color(0.3, 0.24, 0.16)
 const C_RIDGE := Color(0.36, 0.29, 0.19)
-const C_OATS := Color(0.62, 0.6, 0.38)
-const C_BARLEY := Color(0.72, 0.57, 0.27)
+const C_OATS := Color(0.27, 0.47, 0.30)    ## May 1169: young spring oats, a touch bluer-green
+const C_BARLEY := Color(0.33, 0.52, 0.19)  ## May 1169: young spring barley, fresh mid-green
 
 func _build_crop_plots() -> void:
 	var plots := [
-		{"c": Vector3(-15.5, 0, 23.8), "sx": 6.0, "sz": 4.4, "col": C_OATS, "h": 1.0, "name": "oats"},
-		{"c": Vector3(-21.8, 0, 26.6), "sx": 4.6, "sz": 4.8, "col": C_BARLEY, "h": 0.8, "name": "barley"},
+		{"c": Vector3(-15.5, 0, 23.8), "sx": 6.0, "sz": 4.4, "col": C_OATS, "h": 0.28, "name": "oats"},
+		{"c": Vector3(-21.8, 0, 26.6), "sx": 4.6, "sz": 4.8, "col": C_BARLEY, "h": 0.24, "name": "barley"},
 	]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 6061
 	var stalks: Array = []
-	var heads: Array = []
 	for pl in plots:
 		var c: Vector3 = pl["c"]
 		var sx: float = pl["sx"]
@@ -451,20 +451,28 @@ func _build_crop_plots() -> void:
 		for i in nr:
 			var rx := c.x - sx * 0.5 + 0.375 + float(i) * 0.75
 			_drape_rect(Vector3(rx, 0, c.z), 0.42, sz - 0.3, 0.0, 0.04, C_RIDGE)
-			var z := c.z - sz * 0.5 + 0.3
-			var row := 0
-			while z < c.z + sz * 0.5 - 0.3:
-				row += 1
-				var p := Vector3(rx + (0.1 if row % 2 == 0 else -0.1) + rng.randf_range(-0.06, 0.06), 0, z + rng.randf_range(-0.05, 0.05))
-				var g := _on_ground(p)
-				var h: float = pl["h"] * rng.randf_range(0.8, 1.1)
-				var col: Color = (pl["col"] as Color).darkened(rng.randf_range(0.0, 0.12))
-				var lean := Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.18))
-				stalks.append([Transform3D(lean * Basis.from_scale(Vector3(0.035, h, 0.035)), g + lean * Vector3(0, h * 0.5, 0)), col.darkened(0.1)])
-				# Grain heads: oats nod in a loose spray, barley a tight bearded head.
-				var hs := Vector3(0.06, 0.13, 0.06) if pl["name"] == "oats" else Vector3(0.045, 0.12, 0.045)
-				heads.append([Transform3D(lean * Basis.from_scale(hs), g + lean * Vector3(0, h * 0.96, 0)), col.lightened(0.03)])
-				z += 0.16
+			# May: tillering / early stem — leafy tufts 15–35 cm, no heads yet. Crop is on the
+			# ridge top (~0.42 m), so the furrow soil shows between ridges and a little between tufts.
+			var z := c.z - sz * 0.5 + 0.25
+			while z < c.z + sz * 0.5 - 0.25:
+				for lane in [-0.12, 0.0, 0.12]:
+					if rng.randf() < 0.12:
+						continue  # a few gaps: bare soil shows through
+					var p := Vector3(rx + lane + rng.randf_range(-0.04, 0.04), 0, z + rng.randf_range(-0.05, 0.05))
+					var g := _on_ground(p, 0.03)
+					var tuft_h: float = pl["h"] * rng.randf_range(0.65, 1.25)
+					var col: Color = (pl["col"] as Color).darkened(rng.randf_range(-0.06, 0.1))
+					col.g += rng.randf_range(-0.025, 0.025)
+					var yaw := rng.randf_range(0.0, TAU)
+					# 3–4 arching leaf blades per tuft fanned out from the base.
+					var nb := 3 + rng.randi_range(0, 1)
+					for b in nb:
+						var bh := tuft_h * rng.randf_range(0.7, 1.0)
+						var dir := Vector3(cos(yaw + TAU * b / nb), 0, sin(yaw + TAU * b / nb))
+						var tilt := Basis(Vector3.UP.cross(dir).normalized(), rng.randf_range(0.2, 0.55))
+						var leaf := tilt * Basis.from_scale(Vector3(0.022, bh, 0.008))
+						stalks.append([Transform3D(leaf, g + tilt * Vector3(0, bh * 0.5, 0)), col.lightened(0.04 if b == 0 else 0.0)])
+				z += 0.15
 		# Low wattle hurdles round the plot, with a gap on the east (house / ráth) side.
 		var x0 := c.x - sx * 0.5 - 0.35
 		var x1 := c.x + sx * 0.5 + 0.35
@@ -476,18 +484,14 @@ func _build_crop_plots() -> void:
 		var zm := (z0 + z1) * 0.5
 		_rail(Vector3(x1, 0, z0), Vector3(x1, 0, zm - 0.8), true)
 		_rail(Vector3(x1, 0, zm + 0.8), Vector3(x1, 0, z1), true)
+	# Leaf blade: tapered flat strip (wide base, pointed tip).
 	var stalk_mesh := CylinderMesh.new()
-	stalk_mesh.top_radius = 0.35
+	stalk_mesh.top_radius = 0.05
 	stalk_mesh.bottom_radius = 0.6
 	stalk_mesh.height = 1.0
-	stalk_mesh.radial_segments = 5
+	stalk_mesh.radial_segments = 4
 	stalk_mesh.rings = 0
-	var head_mesh := SphereMesh.new()
-	head_mesh.radius = 1.0
-	head_mesh.height = 2.0
-	head_mesh.radial_segments = 6
-	head_mesh.rings = 3
-	for pair in [["CropStalks", stalks, stalk_mesh], ["CropHeads", heads, head_mesh]]:
+	for pair in [["CropStalks", stalks, stalk_mesh]]:
 		var arr: Array = pair[1]
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
