@@ -47,6 +47,31 @@ const CARRY_LEG_REACH := 0.83
 const CARRY_KNEE_SOFT := 0.055 ## stance-knee flex at mid-stance (hip below straight-leg height)
 const CARRY_LEAN_DEG := 7.0
 var _carry_sweep: float = 0.0 ## planted sweep (m) this tick, for probes
+## Plain walk (~1.5 m/s): same planted-sole solve as the carry, natural cadence 1.9 steps/s,
+## ~60 % duty (double support), relaxed arm swing (~±20°).
+const WALK_CYCLE := 2.0 / 1.9
+const WALK_DUTY := 0.60
+const WALK_FRONT := 0.45
+const WALK_LIFT := 0.05
+const WALK_HEEL_RISE := 0.05
+const WALK_KNEE_SOFT := 0.04
+const WALK_ARM_AMP := 0.35
+## Run (sprint, ~5.5 m/s): 3.0 steps/s, each foot down only ~20 % of the cycle, so there is a
+## flight phase between steps (both feet off the ground; the hips ride a short ballistic arc).
+## Stance soles stay planted; the swing leg folds high behind and drives the knee forward.
+const RUN_CYCLE := 2.0 / 3.0
+const RUN_DUTY := 0.20
+const RUN_FRONT := 0.45
+const RUN_LIFT := 0.24
+const RUN_HEEL_RISE := 0.07
+const RUN_KNEE_SOFT := 0.07
+const RUN_FLIGHT_RISE := 0.045 ## g·t²/8 for ~0.2 s of flight
+const RUN_ARM_AMP := 0.85
+const RUN_LEAN_DEG := 9.0
+const PLANTED_MAX_SWEEP := 1.0
+var _gait_flight: bool = false ## both feet off the ground this tick (run), for probes
+func in_flight() -> bool:
+	return _gait_flight
 ## Per-joint rotation offset the cycle itself wrote this tick (before combat
 ## additives). A caller blending its own pose in or out of the plain cycle
 ## (the player's sprint carry) reads it so the hand-off does not pop.
@@ -455,6 +480,16 @@ func tick(
 		stride = 0.0  # legs are solved below (planted soles)
 		arm_amp = 0.0
 		bob = 0.0  # the hip height comes from the stance legs (_carry_legs)
+	elif _state == &"walk":
+		cadence = TAU / WALK_CYCLE
+		stride = 0.0
+		arm_amp = WALK_ARM_AMP
+		bob = 0.0
+	elif _state == &"sprint":
+		cadence = TAU / RUN_CYCLE
+		stride = 0.0
+		arm_amp = RUN_ARM_AMP
+		bob = 0.0
 
 	if cadence > 0.0:
 		_phase += delta * cadence
@@ -476,7 +511,7 @@ func tick(
 
 	var torso_breath := Vector3(breath * 0.35, 0.0, 0.0)
 	if _state == &"sprint":
-		torso_breath.x += deg_to_rad(8.0)
+		torso_breath.x += deg_to_rad(RUN_LEAN_DEG)
 	elif _state == &"crouch_walk" or _state == &"crouch_idle":
 		torso_breath.x += deg_to_rad(12.0)
 	elif _state == &"walk":
@@ -510,8 +545,14 @@ func tick(
 	_apply_joint("left_shin", Vector3.ZERO, Vector3(maxf(0.0, -thigh_f) * 0.9 + 0.05, 0.0, 0.0))
 	_apply_joint("right_shin", Vector3.ZERO, Vector3(maxf(0.0, -thigh_b) * 0.9 + 0.05, 0.0, 0.0))
 
+	_gait_flight = false
+	var back_step := move_dir_local.z > 0.3
 	if carry_load and (_state == &"walk" or _state == &"idle" or _state == &"turn"):
 		_carry_legs(horiz_speed if _state == &"walk" else 0.0, bob * absf(s))
+	elif _state == &"walk":
+		_planted_legs(horiz_speed, WALK_CYCLE, WALK_DUTY, WALK_FRONT, WALK_LIFT, WALK_HEEL_RISE, WALK_KNEE_SOFT, 0.0, back_step)
+	elif _state == &"sprint":
+		_planted_legs(horiz_speed, RUN_CYCLE, RUN_DUTY, RUN_FRONT, RUN_LIFT, RUN_HEEL_RISE, RUN_KNEE_SOFT, RUN_FLIGHT_RISE, back_step)
 
 	# Arms opposite to legs (unless attacking — additives may override).
 	# Z abduction: left -Z / right +Z swing NEXT TO the torso. The old +10/-10
@@ -524,8 +565,10 @@ func tick(
 	var arm_out := deg_to_rad(22.0 if _state == &"sprint" else 14.0)
 	_apply_joint("left_arm", Vector3.ZERO, Vector3(arm_l, 0.0, -arm_out))
 	_apply_joint("right_arm", Vector3.ZERO, Vector3(arm_r, 0.0, arm_out))
-	_apply_joint("left_forearm", Vector3.ZERO, Vector3(maxf(0.0, -arm_l) * 0.4, 0.0, 0.0))
-	_apply_joint("right_forearm", Vector3.ZERO, Vector3(maxf(0.0, -arm_r) * 0.4, 0.0, 0.0))
+	# Running: elbows held bent ~80°, as runners carry them.
+	var elbow := deg_to_rad(80.0) if _state == &"sprint" else 0.0
+	_apply_joint("left_forearm", Vector3.ZERO, Vector3(elbow + maxf(0.0, -arm_l) * 0.4, 0.0, 0.0))
+	_apply_joint("right_forearm", Vector3.ZERO, Vector3(elbow + maxf(0.0, -arm_r) * 0.4, 0.0, 0.0))
 
 	# Combat additives on top
 	for key in _combat_overrides:
@@ -602,6 +645,69 @@ func _carry_legs(speed: float, _bob_y: float) -> void:
 	var root_n: Node3D = joints.get("root") as Node3D
 	if root_n and _rest.has("root"):
 		root_n.position.y = (_rest["root"]["pos"] as Vector3).y - _root_drop - (HIP_TO_SOLE - hip_h)
+	for side in ["left", "right"]:
+		var t: Vector2 = tg[side]
+		var ik := _solve_leg(t.x, hip_h - t.y)
+		_apply_joint(side + "_thigh", Vector3.ZERO, Vector3(ik.x, 0.0, deg_to_rad(-2.0 if side == "left" else 2.0)))
+		_apply_joint(side + "_shin", Vector3.ZERO, Vector3(ik.y, 0.0, 0.0))
+
+
+func _planted_legs(speed: float, cycle: float, duty: float, front_frac: float, swing_lift: float,
+		heel_rise: float, knee_soft: float, flight_rise: float, backward: bool) -> void:
+	## Walk / run on planted soles: the stance ankle sweeps back at exactly `speed` (world-still),
+	## heel rises about the planted toe at push-off, the swing leg arcs forward. Hip height rides
+	## the stance legs; with duty < 0.5 (run) the gaps are flight, where the hips arc ballistically.
+	var dirs := -1.0 if backward else 1.0
+	if backward:
+		heel_rise = 0.0  # stepping back rolls off the heel, no toe pivot to model
+	# Clamp to what the leg can reach: if something moves him faster than the gait (scripted
+	# moves, a stale velocity while sunk), the feet slide rather than the hips collapsing.
+	var sweep := minf(speed * duty * cycle, PLANTED_MAX_SWEEP)
+	_carry_sweep = sweep
+	var front := sweep * front_frac
+	var u0 := fposmod(_phase / TAU, 1.0)
+	var tg := {}
+	var reach := CARRY_LEG_REACH
+	var h_top := HIP_TO_SOLE - knee_soft
+	var h_land := minf(h_top, sqrt(maxf(0.0, reach * reach - front * front)))
+	var hip_h := h_top
+	var any_stance := false
+	var flight_w := 0.0
+	for side in ["left", "right"]:
+		var u := fposmod(u0 + (0.0 if side == "left" else 0.5), 1.0)
+		var fx: float
+		var lift := 0.0
+		var contact := 0.0
+		if u < duty:
+			any_stance = true
+			var sp := u / duty
+			fx = front - sweep * sp
+			var rise := clampf((sp - 0.6) / 0.4, 0.0, 1.0)
+			lift = heel_rise * rise * rise * (3.0 - 2.0 * rise)
+			var cphi := sqrt(maxf(0.0, 1.0 - pow(lift / CARRY_TOE, 2.0)))
+			fx += CARRY_TOE * (1.0 - cphi)
+			contact = CARRY_TOE * cphi
+			hip_h = minf(hip_h, sqrt(maxf(0.0, reach * reach - fx * fx)) + lift)
+		else:
+			var w := (u - duty) / (1.0 - duty)
+			var e := w * w * (3.0 - 2.0 * w)
+			fx = (front - sweep) + sweep * e
+			# Swing: lifts clear (a run folds the heel up behind early), toe-off still rising.
+			lift = maxf(sin(w * PI) * swing_lift, heel_rise * (1.0 - w) * 2.0)
+			if duty >= 0.5:
+				var reach_w := clampf((w - 0.7) / 0.3, 0.0, 1.0)
+				if reach_w > 0.0:
+					hip_h = minf(hip_h, lerpf(HIP_TO_SOLE, h_land, reach_w * reach_w * (3.0 - 2.0 * reach_w)))
+		_carry_contact[side] = contact * dirs
+		_carry_stance[side] = u < duty
+		tg[side] = Vector2(fx * dirs, lift)
+	if not any_stance:
+		# Flight: from take-off to the next landing the hips follow a short arc above landing height.
+		_gait_flight = true
+		var ph := fposmod(u0 + 0.5, 0.5) / 0.5  # 0..1 over a half cycle (a step)
+		var f := clampf((ph - duty * 2.0) / maxf(0.01, 1.0 - duty * 2.0), 0.0, 1.0)
+		hip_h = h_land + flight_rise * sin(f * PI)
+	_apply_joint("root", Vector3(0.0, -_root_drop - (HIP_TO_SOLE - hip_h), 0.0), Vector3.ZERO)
 	for side in ["left", "right"]:
 		var t: Vector2 = tg[side]
 		var ik := _solve_leg(t.x, hip_h - t.y)

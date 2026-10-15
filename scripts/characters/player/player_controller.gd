@@ -14,8 +14,8 @@ const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
 ## Locomotion: procedural kerne joints via KerneLocomotion (walk/run/sprint/crouch/idle).
 
-const WALK_SPEED := 5.0
-const SPRINT_SPEED := 8.0
+const WALK_SPEED := 1.5 ## realistic walk (~1.3–1.5 m/s)
+const SPRINT_SPEED := 5.5 ## running pace (sustained run, not an all-out dash)
 const CROUCH_SPEED := 2.4
 const DRAG_SPEED := 1.75
 ## Carrying an object in his hands (bucket, …): slower walk and no sprint. Tools (goad,
@@ -4206,7 +4206,7 @@ func _tick_seat(delta: float) -> void:
 			_seat_t += delta
 			var to := Vector3(_seat_point.x - global_position.x, 0.0, _seat_point.z - global_position.z)
 			var dist := to.length()
-			var speed := minf(WALK_SPEED * 0.5, dist * 4.0)
+			var speed := minf(WALK_SPEED, dist * 4.0)
 			var horiz := Vector3(velocity.x, 0.0, velocity.z)
 			var want := to.normalized() * speed if dist > 0.04 else Vector3.ZERO
 			horiz = horiz.move_toward(want, ACCEL * delta)
