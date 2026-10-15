@@ -195,10 +195,10 @@ func objective_text() -> String:
 		return "The morning's work is done. Explore the farm, or rest a while."
 	if awaiting_maire():
 		var what := "she has a word for you" if _index >= CLOSER_INDEX else "she has the next job"
-		return "Go back to Máire at the house door — %s.%s" % [what, _dist_suffix(_maire_pos())]
+		return "Go back to Máire at the house door — %s." % what
 	match current_step_id():
 		&"maire":
-			return "Talk to Máire — she's waving at the house door.%s" % _dist_suffix(_maire_pos())
+			return "Talk to Máire — she's waving at the house door."
 		&"bucket":
 			var bucket := _group("opening_bucket_trough")
 			var st := String(bucket.call("bucket_state")) if bucket else "none"
@@ -207,19 +207,19 @@ func objective_text() -> String:
 			match st:
 				"empty":
 					if poured > 0:
-						return "Trough %d/%d — back to the spring scoop for another bucket.%s" % [poured, need, _dist_suffix(Vector3(-23.5, 0, 19.0))]
-					return "Fill the bucket at the spring scoop — west of the house.%s" % _dist_suffix(Vector3(-23.5, 0, 19.0))
+						return "%s — back down to the spring for another." % _trough_words(poured, need)
+					return "Fill the bucket at the spring, down the slope west of the house."
 				"full":
 					if poured > 0:
-						return "Trough %d/%d — pour this one into the trough at the byre.%s" % [poured, need, _dist_suffix(Vector3(8.2, 0, 0.4))]
-					return "Pour the water into the trough at the byre.%s" % _dist_suffix(Vector3(8.2, 0, 0.4))
-			return "Water the trough: pick up the bucket by the byre.%s" % _dist_suffix(Vector3(5.2, 0, 2.5))
+						return "%s — carry this one up to the trough at the byre." % _trough_words(poured, need)
+					return "Carry the water up to the trough at the byre."
+			return "Water the cattle: take up the bucket beside the byre."
 		&"knife":
 			return "Cut the heifer's tether — the hitch post east of the byre trough. Draw the knife (2)."
 		&"drive":
 			return _drive_text()
 		&"meal":
-			return "Stow the goad (1) and eat your meal by the house door.%s" % _dist_suffix(Vector3(-4.5, 0, 2.8))
+			return "Stow the goad (1) and eat your meal by the house door."
 	return ""
 
 
@@ -232,32 +232,48 @@ func _drive_text() -> String:
 	var home := int(d.call("home_count"))
 	match String(d.call("drive_beat")):
 		"walk_out":
-			return "Bring the herd home: walk the lane south to the pasture.  (pasture ~%d m)" % int(d.call("distance_to_herd"))
+			return "Bring the herd home: walk the lane south to the pasture."
 		"missing":
-			return "Only five at the pasture — one's missing. Hark: lowing from beyond the pasture, past the grazing herd — over the south ridge.%s" % _dist_suffix(Vector3(d.call("bogged_cow_pos")))
+			return "Only five at the pasture — one's missing. Hark: lowing from beyond the pasture, past the grazing herd — over the south ridge."
 		"free_her":
 			return "There she is, stuck fast. Goad her out of the bog — goad drawn (3), prod her (LMB / RMB)."
 		"rejoin":
-			return "Drive her back to the herd at the pasture — walk behind her, goad drawn.  (herd ~%d m)" % int(d.call("bogged_cow_to_herd"))
+			return "Drive her back to the herd at the pasture — walk behind her, goad drawn."
 		"stir":
 			return "She's back with the herd. Draw the goad (3) and prod a cow (LMB / RMB) to start all six home."
 		"latch":
-			return "All six in. Swing the pen gate shut and latch it — E at the gateway.%s" % _dist_suffix(Vector3(6.5, 0.0, 11.5))
+			return "All six in. Swing the pen gate shut and latch it — E at the gateway."
 		"ambush":
 			return "A stray dog's at the herd! Scare it off — E or a goad prod, up close."
 		"regather":
-			return "Regather the strays — %d scattered off the lane. Goad them back to the herd.  (home %d/%d)" % [
-				int(d.call("scattered_count")), home, need]
-	var s := "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre.  (home %d/%d)" % [home, need]
+			return "Regather the strays — %s scattered off the lane. Goad them back to the herd." % _head_words(int(d.call("scattered_count")))
+	var s := "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre." + ("  %s of %s in the pen." % [_num_word(home).capitalize(), _num_word(need)] if home > 0 else "")
 	if int(d.call("hud_bogged_count")) > 0:
-		s += "  %d in the bog — goad them out!" % int(d.call("hud_bogged_count"))
+		s += "  %s in the bog — goad them out!" % _head_words(int(d.call("hud_bogged_count"))).capitalize()
 	elif int(d.call("stalled_count")) > 0:
-		s += "  %d grazing — keep pushing." % int(d.call("stalled_count"))
+		s += "  %s stopped to graze — keep pushing." % _head_words(int(d.call("stalled_count"))).capitalize()
 	if home > 0 and home < need:
-		s += "  All %d must be in the pen." % need
+		s += "  All %s must be in." % _num_word(need)
 	return s
 
 
+const _NUM_WORDS := ["none", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+
+
+func _num_word(n: int) -> String:
+	return _NUM_WORDS[n] if n >= 0 and n < _NUM_WORDS.size() else str(n)
+
+
+func _head_words(n: int) -> String:
+	return "%s head" % _num_word(n) if n != 1 else "one head"
+
+
+## "One bucket in the trough of three" style count for the watering trips.
+func _trough_words(poured: int, need: int) -> String:
+	return "%s %s in the trough, of %s" % [_num_word(poured).capitalize(), "bucket" if poured == 1 else "buckets", _num_word(need)]
+
+
+## (Unused by the HUD now: hints name places, not metres.)
 func _dist_suffix(target: Vector3) -> String:
 	var p := _player_node()
 	if p == null:

@@ -132,7 +132,7 @@ func _process(_delta: float) -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	var combat := player.get_node_or_null("CombatSystem") if player else null
 	if combat and combat.has_method("weapon_name"):
-		_weapon.text = "In hand: %s   (kit: goad · knife)" % String(combat.call("weapon_name"))
+		_weapon.text = "In hand: %s   (carrying goad · knife)" % String(combat.call("weapon_name"))
 
 
 
@@ -146,7 +146,7 @@ func _chore_active(chore: Node) -> bool:
 	return chore != null and chore.has_method("is_active") and bool(chore.call("is_active"))
 
 func _on_success(home: int, total: int) -> void:
-	_banner.text = "HERD HOME  ·  %d / %d head in the pen" % [home, total]
+	_banner.text = "The herd is home — %d of %d in the pen" % [home, total]
 	_banner.visible = true
 
 

@@ -364,8 +364,8 @@ func objective_text() -> String:
 	match stage:
 		Stage.WALK_OUT:
 			if family_bark_visible():
-				return "%s calls from the door — walk the lane south and bring the cattle home.  (pasture ~%d m)" % [family_speaker(), int(distance_to_herd())]
-			return "First morning. Walk the lane south to the pasture and bring the cattle home.  (pasture ~%d m)" % int(distance_to_herd())
+				return "%s calls from the door — walk the lane south and bring the cattle home." % family_speaker()
+			return "First morning. Walk the lane south to the pasture and bring the cattle home."
 		Stage.AT_HERD:
 			return "The herd is grazing. Draw the goad (3) and prod a cow (LMB / RMB) to stir them."
 		Stage.DRIVING:
@@ -376,19 +376,19 @@ func objective_text() -> String:
 				bits += "  %d grazing — keep pushing." % stalled_count()
 			return bits
 		Stage.SUCCESS:
-			return "The herd is home (%d/%d in the pen). Soft success — finish the rest, or explore." % [home_count(), total]
+			return "The herd is home, %d of %d in the pen. Finish the morning's work, or wander the farm." % [home_count(), total]
 	return ""
 
 
 func status_text() -> String:
-	var s := "Home pen  %d / %d   (need %d)\nDrove %d  ·  grazing %d" % [
-		home_count(), _cows.size(), need_count(), driven_count(), stalled_count()
+	var s := "In the pen  %d of %d\nOn the move %d  ·  grazing %d" % [
+		home_count(), _cows.size(), driven_count(), stalled_count()
 	]
 	# The bog tally only appears once she's no secret (missing-cow beat open, or freed).
 	if bog_revealed():
 		s += "  ·  bogged %d" % hud_bogged_count()
 	if scattered_count() > 0:
-		s += "\nScattered %d — regather" % scattered_count()
+		s += "\n%d strayed — regather them" % scattered_count()
 	return s
 
 
