@@ -426,7 +426,7 @@ func _build_figure() -> void:
 	var skin := _mat(Color(0.86, 0.70, 0.58))
 	var hair := _mat(Color(0.28, 0.16, 0.08))
 	var léine := _mat(Color(0.72, 0.68, 0.55))  # undyed linen
-	var brat := _mat(Color(0.42, 0.28, 0.38))    # muted purple brat
+	var brat := _mat(Color(0.15, 0.145, 0.14))   # brat of near-black undyed wool, greyer than Cian's brown
 	var shoes := _mat(Color(0.22, 0.16, 0.10))
 
 	var body := MeshInstance3D.new()
@@ -456,6 +456,16 @@ func _build_figure() -> void:
 	cloak.material_override = brat
 	cloak.position = Vector3(0.0, 1.15, -0.12)
 	_figure.add_child(cloak)
+	# Hood thrown back on her shoulders (greybox).
+	var hood := MeshInstance3D.new()
+	var hood_mesh := BoxMesh.new()
+	hood_mesh.size = Vector3(0.36, 0.18, 0.16)
+	hood.mesh = hood_mesh
+	hood.material_override = brat
+	hood.name = "Hood"
+	hood.position = Vector3(0.0, 1.55, -0.20)
+	hood.rotation_degrees = Vector3(18.0, 0.0, 0.0)
+	_figure.add_child(hood)
 
 	var head := MeshInstance3D.new()
 	var head_mesh := SphereMesh.new()

@@ -11,7 +11,7 @@ const PALETTE_PLAYER := {
 	"pants": Color(0.26, 0.24, 0.20),
 	"shoes": Color(0.22, 0.16, 0.10),
 	"belt": Color(0.18, 0.12, 0.08),
-	"cloak": Color(0.28, 0.24, 0.36), # muted brat
+	"cloak": Color(0.24, 0.19, 0.14), # brat of undyed dark-brown wool (Gerald of Wales: dark, undyed)
 	"wood": Color(0.42, 0.28, 0.14),
 	"iron": Color(0.45, 0.48, 0.50),
 	"wrap": Color(0.55, 0.48, 0.38),
@@ -175,6 +175,18 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 	var cloak_mi := _mesh_inst(cloak_mesh, cloak, "Cloak")
 	cloak_mi.position = Vector3(0.0, 0.34, 0.18)
 	torso.add_child(cloak_mi)
+	# Hood of the same wool, thrown back and lying in folds behind the neck (greybox).
+	var hood_mesh := BoxMesh.new()
+	hood_mesh.size = Vector3(0.30, 0.15, 0.12)
+	var hood_mi := _mesh_inst(hood_mesh, cloak, "Hood")
+	hood_mi.position = Vector3(0.0, 0.55, 0.20)
+	hood_mi.rotation_degrees = Vector3(-18.0, 0.0, 0.0)
+	torso.add_child(hood_mi)
+	var peak_mesh := BoxMesh.new()
+	peak_mesh.size = Vector3(0.12, 0.10, 0.08)
+	var peak_mi := _mesh_inst(peak_mesh, cloak, "HoodPeak")
+	peak_mi.position = Vector3(0.0, 0.44, 0.25)
+	torso.add_child(peak_mi)
 
 	var neck := Node3D.new()
 	neck.name = "Neck"
