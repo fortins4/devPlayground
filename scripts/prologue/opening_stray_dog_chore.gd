@@ -19,8 +19,26 @@ const PROD_SCARE_RANGE := 5.0
 const DOG_SPAWN := Vector3(-6.0, 0.0, 88.0)
 const FLEE_TARGET := Vector3(-48.0, 0.0, 70.0)
 ## Ambush dash from the hedge to just short of the herd.
-const CHARGE_SECS := 1.3
+const CHARGE_SECS := 1.3 ## (unused by the gallop; kept for tools)
 const CHARGE_STOP_SHORT := 3.0
+## Real dog speeds: a ~58 cm herding/cur dog trots ~3–4 m/s and gallops ~9–11 m/s, reaching it
+## in about a second. Menace is a stiff stalking walk.
+const MENACE_SPEED := 1.1
+const TROT_SPEED := 3.5
+const RUN_SPEED := 10.0
+const RUN_ACCEL := 14.0 ## m/s² from a standing start
+const FLEE_DONE_SECS := 1.6 ## off as a threat (chore done) this long into the bolt; it keeps running out of sight
+## Leg rig: hip / shoulder pivots, two segments, sole on the ground; stance soles held world-still.
+const HIP_Y := 0.36
+const UPPER_LEN := 0.20
+const LOWER_LEN := 0.20
+const LEG_X := 0.12
+const LEG_Z := 0.24
+## Gaits: stride frequency (Hz), duty factor, per-leg phase offsets [LF, RF, LH, RH].
+const GAIT_WALK := {"hz": 1.6, "duty": 0.62, "off": [0.25, 0.75, 0.0, 0.5], "lift": 0.06}
+const GAIT_TROT := {"hz": 2.9, "duty": 0.38, "off": [0.0, 0.5, 0.5, 0.0], "lift": 0.09}
+const GAIT_GALLOP := {"hz": 3.3, "duty": 0.12, "off": [0.55, 0.45, 0.0, 0.1], "lift": 0.14}
+const MAX_SWEEP := 0.44
 ## The dog is not a physics body: every move rests it on the shared OpeningTerrain surface
 ## (its flee line runs up onto the near west roll).
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
@@ -51,6 +69,15 @@ var _ambush: bool = false
 var _charge_t: float = 0.0
 var _charge_from: Vector3 = Vector3.ZERO
 var _charge_to: Vector3 = Vector3.ZERO
+var _speed: float = 0.0 ## current ground speed (m/s), drives the gait
+var _gait_phase: float = 0.0
+var _gait_name: String = "stand"
+var _legs: Array = [] ## [{hip, knee, side_x, front}]
+var _flee_trot: bool = false
+var _runoff: bool = false ## DONE but still running out of sight
+var _last_pos: Vector3 = Vector3.ZERO
+var _stance: Array = [false, false, false, false]
+var _body: Node3D = null
 
 
 func _ready() -> void:
@@ -75,6 +102,9 @@ func _process(delta: float) -> void:
 			_dog.visible = open
 		if not open:
 			return
+	if _runoff:
+		_tick_runoff(delta)
+	_tick_gait(delta)
 	match _state:
 		DogState.LURKING:
 			_tick_lurk()
@@ -163,7 +193,7 @@ func trigger_ambush(target: Vector3) -> bool:
 ## The herd made it home with the dog still about: it slinks off on its own.
 func give_up() -> void:
 	if _state == DogState.MENACING or _state == DogState.CHARGING:
-		_begin_flee(false)
+		_begin_flee(false, true)
 		print("OPENING_STRAY_DOG_GAVE_UP")
 
 
@@ -248,13 +278,12 @@ func _tick_lurk() -> void:
 func _tick_charge(delta: float) -> void:
 	_charge_t += delta
 	_bark_bob_t += delta
-	var k := clampf(_charge_t / CHARGE_SECS, 0.0, 1.0)
+	var k := 1.0
 	if _dog:
-		_dog.global_position = _grounded(_charge_from.lerp(_charge_to, k))
-		var dir := _charge_to - _charge_from
-		dir.y = 0.0
-		if dir.length() > 0.1:
-			_dog.look_at(_dog.global_position + dir.normalized(), Vector3.UP)
+		# Gallop from a standing start, flat out, to the herd.
+		_speed = minf(RUN_SPEED, _speed + RUN_ACCEL * delta)
+		var arrived := _move_toward(_charge_to, _speed * delta)
+		k = 1.0 if arrived else 0.0
 	if _bark:
 		_bark.visible = true
 		_bark.position.y = 1.35 + sin(_bark_bob_t * 9.0) * 0.06
@@ -277,9 +306,10 @@ func _tick_menace(delta: float) -> void:
 		var to_p := _player.global_position - _dog.global_position
 		to_p.y = 0.0
 		if to_p.length() > 0.4:
-			var step := to_p.normalized() * 1.1 * delta
-			_dog.global_position = _grounded(_dog.global_position + step)
-			_dog.look_at(_dog.global_position + to_p.normalized(), Vector3.UP)
+			_speed = move_toward(_speed, MENACE_SPEED, RUN_ACCEL * delta)
+			_move_toward(_player.global_position, _speed * delta)
+		else:
+			_speed = 0.0
 	# Goad prod near the dog also scares it off.
 	if _player and _goad_equipped() and _near(_player.global_position, dog_pos(), PROD_SCARE_RANGE):
 		var combat := _player.get_node_or_null("CombatSystem")
@@ -289,19 +319,42 @@ func _tick_menace(delta: float) -> void:
 
 func _tick_flee(delta: float) -> void:
 	_flee_t += delta
-	var dur := 1.6
-	var k := clampf(_flee_t / dur, 0.0, 1.0)
-	var ease := k * k * (3.0 - 2.0 * k)
-	if _dog:
-		_dog.global_position = _grounded(_flee_from.lerp(FLEE_TARGET, ease))
-		var dir := (FLEE_TARGET - _flee_from)
-		dir.y = 0.0
-		if dir.length() > 0.1:
-			_dog.look_at(_dog.global_position + dir.normalized(), Vector3.UP)
+	var k := clampf(_flee_t / FLEE_DONE_SECS, 0.0, 1.0)
+	_run_off_step(delta)
 	if _bark:
 		_bark.visible = k < 0.7
 	if k >= 1.0:
 		_finish_gone(true)
+
+
+## Bolting (scared: flat-out gallop) or slinking off (gave up: a trot) toward the far hedge.
+func _run_off_step(delta: float) -> void:
+	if _dog == null:
+		return
+	var top := TROT_SPEED if _flee_trot else RUN_SPEED
+	_speed = minf(top, _speed + RUN_ACCEL * delta)
+	if _move_toward(FLEE_TARGET, _speed * delta):
+		_runoff = false
+		_speed = 0.0
+		_dog.visible = false
+
+
+func _tick_runoff(delta: float) -> void:
+	_run_off_step(delta)
+
+
+## Step the dog along the ground toward `target`, facing the way it goes. True on arrival.
+func _move_toward(target: Vector3, step: float) -> bool:
+	var to := target - _dog.global_position
+	to.y = 0.0
+	var d := to.length()
+	if d <= maxf(step, 0.01):
+		_dog.global_position = _grounded(target)
+		return true
+	var dir := to / d
+	_dog.global_position = _grounded(_dog.global_position + dir * step)
+	_dog.look_at(_dog.global_position + dir, Vector3.UP, true)  # model front is +Z (head)
+	return false
 
 
 func _enter_menacing(announce: bool) -> void:
@@ -335,10 +388,11 @@ func _try_scare_from_e() -> bool:
 	return true
 
 
-func _begin_flee(announce: bool) -> void:
+func _begin_flee(announce: bool, slink: bool = false) -> void:
 	if _state == DogState.FLEEING or _state == DogState.DONE:
 		return
 	_state = DogState.FLEEING
+	_flee_trot = slink
 	_flee_t = 0.0
 	_flee_from = dog_pos()
 	if _bark:
@@ -352,10 +406,17 @@ func _begin_flee(announce: bool) -> void:
 func _finish_gone(announce: bool) -> void:
 	if _state == DogState.DONE:
 		return
+	var was_fleeing := _state == DogState.FLEEING
 	_state = DogState.DONE
 	if _dog:
-		_dog.visible = false
-		_dog.global_position = _grounded(FLEE_TARGET)
+		if was_fleeing and _dog.visible and announce:
+			# No longer a threat; it keeps running till it is out of sight at the far hedge.
+			_runoff = true
+		else:
+			_runoff = false
+			_speed = 0.0
+			_dog.visible = false
+			_dog.global_position = _grounded(FLEE_TARGET)
 	if _bark:
 		_bark.visible = false
 	if announce:
@@ -368,6 +429,8 @@ func _set_lurking() -> void:
 	_state = DogState.LURKING
 	_menace_flashed = false
 	_flee_t = 0.0
+	_runoff = false
+	_speed = 0.0
 	if _dog:
 		_dog.visible = true
 		_dog.global_position = _grounded(DOG_SPAWN)
@@ -395,10 +458,19 @@ func _build_dog() -> void:
 	_mesh_box(_dog, Vector3(0.08, 0.70, 0.48), Vector3(0.06, 0.14, 0.08), C_HIDE_DARK)
 	_mesh_box(_dog, Vector3(-0.06, 0.60, 0.58), Vector3(0.04, 0.04, 0.04), C_EYE)
 	_mesh_box(_dog, Vector3(0.06, 0.60, 0.58), Vector3(0.04, 0.04, 0.04), C_EYE)
-	# Legs.
-	for ox in [-0.12, 0.12]:
-		for oz in [-0.22, 0.22]:
-			_mesh_box(_dog, Vector3(ox, 0.16, oz), Vector3(0.08, 0.32, 0.08), C_HIDE_DARK)
+	# Legs: shoulder / hip pivot, upper and lower segment, paw. Order LF, RF, LH, RH.
+	_legs.clear()
+	for spec in [[-LEG_X, LEG_Z, true], [LEG_X, LEG_Z, true], [-LEG_X, -LEG_Z, false], [LEG_X, -LEG_Z, false]]:
+		var hip := Node3D.new()
+		hip.position = Vector3(spec[0], HIP_Y, spec[1])
+		_dog.add_child(hip)
+		_mesh_box(hip, Vector3(0.0, -UPPER_LEN * 0.5, 0.0), Vector3(0.085, UPPER_LEN + 0.03, 0.09), C_HIDE_DARK)
+		var knee := Node3D.new()
+		knee.position = Vector3(0.0, -UPPER_LEN, 0.0)
+		hip.add_child(knee)
+		_mesh_box(knee, Vector3(0.0, -LOWER_LEN * 0.5, 0.0), Vector3(0.065, LOWER_LEN, 0.065), C_HIDE_DARK)
+		_mesh_box(knee, Vector3(0.0, -LOWER_LEN + 0.02, 0.025), Vector3(0.075, 0.04, 0.10), C_HIDE_DARK)
+		_legs.append({"hip": hip, "knee": knee, "front": spec[2]})
 	# Tail.
 	_mesh_box(_dog, Vector3(0.0, 0.55, -0.42), Vector3(0.06, 0.06, 0.28), C_HIDE)
 	_mesh_box(_dog, Vector3(0.0, 0.62, -0.55), Vector3(0.05, 0.05, 0.12), C_HIDE_DARK)
@@ -424,6 +496,103 @@ func _build_dog() -> void:
 	_bark.position = Vector3(0.0, 1.35, 0.0)
 	_bark.visible = false
 	_dog.add_child(_bark)
+
+
+# ---------------------------------------------------------------- gait
+
+## Ground speed from the actual displacement, then a four-legged gait: walk (lateral sequence),
+## trot (diagonal pairs) or rotary gallop (with suspension). Stance paws sweep back at exactly
+## the body speed, so they stay put on the ground; swing paws lift and reach forward.
+func _tick_gait(delta: float) -> void:
+	if _dog == null or not _dog.visible or _legs.is_empty():
+		if _dog:
+			_last_pos = _dog.global_position
+		return
+	var moved := _dog.global_position - _last_pos
+	moved.y = 0.0
+	_last_pos = _dog.global_position
+	var v := moved.length() / maxf(delta, 1e-4)
+	if v > 25.0:
+		v = 0.0  # a teleport (spawn / force_state), not a gait
+	var g: Dictionary
+	if v < 0.05:
+		_gait_name = "stand"
+		for i in 4:
+			_stance[i] = true
+			_pose_leg(i, 0.0, 0.0)
+		return
+	elif v < 1.8:
+		g = GAIT_WALK
+		_gait_name = "walk"
+	elif v < 6.0:
+		g = GAIT_TROT
+		_gait_name = "trot"
+	else:
+		g = GAIT_GALLOP
+		_gait_name = "gallop"
+	var hz: float = g["hz"]
+	var duty: float = g["duty"]
+	_gait_phase = fposmod(_gait_phase + hz * delta, 1.0)
+	var sweep := minf(v * duty / hz, MAX_SWEEP)
+	var off: Array = g["off"]
+	for i in 4:
+		var u := fposmod(_gait_phase + float(off[i]), 1.0)
+		var fz: float
+		var lift := 0.0
+		if u < duty:
+			fz = sweep * 0.5 - sweep * (u / duty)
+			_stance[i] = true
+		else:
+			var w := (u - duty) / (1.0 - duty)
+			var e := w * w * (3.0 - 2.0 * w)
+			fz = -sweep * 0.5 + sweep * e
+			lift = sin(w * PI) * float(g["lift"])
+			_stance[i] = false
+		_pose_leg(i, fz, lift)
+	if _body:
+		var susp := 0.0
+		if _gait_name == "gallop":
+			susp = 0.025 * sin(_gait_phase * TAU * 2.0)
+		_body.position.y = susp
+
+
+## Two-bone leg to a paw target (fz fore of the pivot, lift above the ground). Fore legs fold
+## with the joint pointing back (elbow / carpus read), hind legs with it forward (stifle).
+func _pose_leg(i: int, fz: float, lift: float) -> void:
+	var L: Dictionary = _legs[i]
+	var h := HIP_Y - lift
+	var d := clampf(sqrt(fz * fz + h * h), 0.05, UPPER_LEN + LOWER_LEN - 0.002)
+	var phi_t := atan2(fz, h)
+	var cos_a := clampf((UPPER_LEN * UPPER_LEN + d * d - LOWER_LEN * LOWER_LEN) / (2.0 * UPPER_LEN * d), -1.0, 1.0)
+	var a := acos(cos_a)
+	var phi_u := phi_t + (a if not bool(L["front"]) else -a)
+	var kz := UPPER_LEN * sin(phi_u)
+	var ky := -UPPER_LEN * cos(phi_u)
+	var phi_l := atan2(fz - kz, -(-h - ky))
+	# Rotation about +X by r swings a down-pointing bone's tip toward -Z, hence the minus.
+	(L["hip"] as Node3D).rotation.x = -phi_u
+	(L["knee"] as Node3D).rotation.x = -(phi_l - phi_u)
+
+
+func current_speed() -> float:
+	return _speed
+
+
+func gait_name() -> String:
+	return _gait_name
+
+
+func paw_in_stance(i: int) -> bool:
+	return bool(_stance[i])
+
+
+func paw_world(i: int) -> Vector3:
+	var knee := (_legs[i] as Dictionary)["knee"] as Node3D
+	return knee.global_transform * Vector3(0.0, -LOWER_LEN, 0.0)
+
+
+func is_running_off() -> bool:
+	return _runoff
 
 
 # ---------------------------------------------------------------- helpers
