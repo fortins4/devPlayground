@@ -20,10 +20,10 @@ const BUCKET_SETDOWN := Vector3(7.0, 0.0, 1.8)
 ## Period stave bucket: 0.32 m across the base (0.30 rim), 0.36 m tall, ~15 L carried (~17 kg full).
 ## Carried: bail bar (0.31 up, 0.03 thick) sits in the palms → bucket origin this far below the grip.
 const HANDLE_TO_ORIGIN := 0.325
-## Three bucket trips fill the trough (~15 L each ≈ 45 L ≈ 5 cm over the 1.7 × 0.5 m floor).
-const POURS_NEEDED := 3
+## Two bucket trips fill the trough (~15 L each ≈ 30 L ≈ 3.5 cm over the 1.7 × 0.5 m floor).
+const POURS_NEEDED := 2
 const TROUGH_FLOOR_Y := 0.41 ## top of the trough's inner floor (local)
-const TROUGH_FULL_DEPTH := 0.053
+const TROUGH_FULL_DEPTH := 0.035
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
 const C_WOOD := Color(0.42, 0.30, 0.18)
@@ -238,7 +238,7 @@ func _pour() -> void:
 		# Emptied, still in both hands: back to the spring for the next one (still a carry).
 		_state = BucketState.EMPTY
 		_ensure_carried(false)
-		_flash("Trough %d/%d — back to the spring for another bucket." % [_pours, POURS_NEEDED], 4.0)
+		_flash("%s in the trough, of %s — back down to the spring for another." % [_count_words(_pours, "bucket"), _NUM[POURS_NEEDED]], 4.0)
 		print("OPENING_BUCKET_POURED %d/%d" % [_pours, POURS_NEEDED])
 		return
 	_state = BucketState.DONE
@@ -252,6 +252,14 @@ func _pour() -> void:
 	_flash("Trough filled.", 4.0)
 	print("OPENING_BUCKET_TROUGH_SOFT_SUCCESS")
 	_report_done()
+
+
+const _NUM := ["none", "one", "two", "three", "four", "five"]
+
+
+func _count_words(n: int, noun: String) -> String:
+	var w: String = _NUM[n] if n < _NUM.size() else str(n)
+	return "%s %s%s" % [w.capitalize(), noun, "" if n == 1 else "s"]
 
 
 func _set_trough_level() -> void:

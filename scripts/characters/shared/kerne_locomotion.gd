@@ -37,7 +37,7 @@ var carry_load: bool = false
 ## support). Flat foot planted, then the heel rises about the planted toe at push-off (the toe
 ## stays put; the ankle pivots up and a little forward). The hip rides the stance legs (inverted
 ## pendulum) capped by a slight stance-knee flex, so it vaults ~6 cm instead of crouching.
-const CARRY_CYCLE := 2.0 / 1.7
+const CARRY_CYCLE := 2.0 / 1.8
 const CARRY_DUTY := 0.56
 const CARRY_FRONT := 0.43
 const CARRY_TOE := 0.15 ## ankle → toe pivot (m)
