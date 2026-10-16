@@ -20,7 +20,7 @@ const CROUCH_SPEED := 2.4
 const DRAG_SPEED := 1.75
 ## Carrying an object in his hands (bucket, …): slower walk and no sprint. Tools (goad,
 ## knife) are not carried objects. Sources register with begin_carry / end_carry.
-const CARRIED_WALK_SPEED := 1.5
+const CARRIED_WALK_SPEED := 1.45
 const ACCEL := 18.0
 const DECEL := 22.0
 const JUMP_VELOCITY := 4.5
