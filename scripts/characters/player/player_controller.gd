@@ -16,7 +16,7 @@ const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 
 const WALK_SPEED := 1.5 ## realistic walk (~1.3–1.5 m/s)
 const SPRINT_SPEED := 5.5 ## running pace (sustained run, not an all-out dash)
-const CROUCH_SPEED := 2.4
+const CROUCH_SPEED := 0.8 ## a careful creep
 const DRAG_SPEED := 1.75
 ## Carrying an object in his hands (bucket, …): slower walk and no sprint. Tools (goad,
 ## knife) are not carried objects. Sources register with begin_carry / end_carry.
@@ -37,7 +37,7 @@ const CROUCH_CAPSULE_Y := 0.48 * CIAN_SCALE
 const STAND_PIVOT_Y := 1.45 * CIAN_SCALE
 const CROUCH_PIVOT_Y := 0.72 * CIAN_SCALE
 const STAND_VISUAL_Y := 0.0
-const CROUCH_VISUAL_Y := -0.55
+const CROUCH_VISUAL_Y := 0.0 ## the crouch is in the legs (bent knees, planted feet); no sinking the body
 const CROUCH_LERP := 10.0
 
 @onready var pivot: Node3D = $CameraPivot
@@ -706,6 +706,14 @@ func _apply_shaft_block_pose() -> void:
 		_replay_guard_walk_legs()
 		return
 	var target: Dictionary = ToolStrikePoses.tool_shaft_guard_pose(face)
+	if bog and bog.is_sunk() and not bog.is_ambushing() and bog.forced_guard_face() == face:
+		# Sunk to the shoulders the bog swaps the guard under the surface: no
+		# travel arc (it would lift the shaft out through the water), just the hold.
+		_guard_face_held = face
+		_guard_blend_active = false
+		_apply_tool_pose(target)
+		_replay_guard_walk_legs()
+		return
 	var start: Dictionary = _current_tool_pose(target)
 	_guard_face_held = face
 	_begin_guard_blend(start, target)
@@ -1545,6 +1553,27 @@ func _apply_crouch_visual(delta: float) -> void:
 		visual.position.y = lerpf(STAND_VISUAL_Y, CROUCH_VISUAL_Y, _crouch_blend)
 	if weapon_visual:
 		weapon_visual.position.y = lerpf(_weapon_base_y, _weapon_base_y + CROUCH_VISUAL_Y, _crouch_blend)
+	_seat_back_goad_for_crouch()
+
+
+## Hunched in the crouch the slung goad's butt would swing down into the turf.
+## It rides the same high diagonal as the bucket carry (butt up behind the left hip).
+var _crouch_goad_seated: bool = false
+
+func _seat_back_goad_for_crouch() -> void:
+	if not _goad_seat_ready or _carry_goad_seated or _goad_stowing:
+		return
+	if combat and combat.current_weapon == CombatSystem.Weapon.GOAD:
+		_crouch_goad_seated = false
+		return
+	if _crouch_blend <= 0.0 and not _crouch_goad_seated:
+		return
+	var back := _back_goad_node()
+	if back == null:
+		return
+	var seat := Transform3D(Basis.from_euler(CARRY_GOAD_ROT_DEG * (PI / 180.0)), CARRY_GOAD_POS)
+	back.transform = _back_goad_seat.interpolate_with(seat, _crouch_blend)
+	_crouch_goad_seated = _crouch_blend > 0.0
 
 
 func _update_noise(speed: float, sprinting: bool) -> void:

@@ -69,9 +69,21 @@ const RUN_FLIGHT_RISE := 0.045 ## g·t²/8 for ~0.2 s of flight
 const RUN_ARM_AMP := 0.85
 const RUN_LEAN_DEG := 9.0
 const PLANTED_MAX_SWEEP := 1.0
+## Crouch-walk (~0.8 m/s): knees well bent (hips ~20 cm down in the rig), short careful steps
+## at 1.6 steps/s, long double support, soles planted like the walk.
+const CROUCH_CYCLE := 2.0 / 1.6
+const CROUCH_DUTY := 0.66
+const CROUCH_FRONT := 0.45
+const CROUCH_LIFT := 0.04
+const CROUCH_HEEL_RISE := 0.0
+const CROUCH_KNEE := 0.18 ## hips this far down (rig m): knees well bent, not kneeling
+const CROUCH_ARM_AMP := 0.2
+const CROUCH_LEAN_DEG := 30.0
+const CROUCH_HEAD_COUNTER := 0.85 ## share of the hunch the neck takes back out
 ## Visual scale of the rig (player sets it). World cadence scales so the local step geometry
 ## (sweep, knee clearance, slide) is the same at any stature.
 var body_scale: float = 1.0
+var _planted_this_tick: bool = false
 var _gait_flight: bool = false ## both feet off the ground this tick (run), for probes
 func in_flight() -> bool:
 	return _gait_flight
@@ -488,6 +500,11 @@ func tick(
 		stride = 0.0
 		arm_amp = WALK_ARM_AMP
 		bob = 0.0
+	elif _state == &"crouch_walk":
+		cadence = TAU / (CROUCH_CYCLE * body_scale)
+		stride = 0.0
+		arm_amp = CROUCH_ARM_AMP
+		bob = 0.0
 	elif _state == &"sprint":
 		cadence = TAU / (RUN_CYCLE * body_scale)
 		stride = 0.0
@@ -516,7 +533,9 @@ func tick(
 	if _state == &"sprint":
 		torso_breath.x += deg_to_rad(RUN_LEAN_DEG)
 	elif _state == &"crouch_walk" or _state == &"crouch_idle":
-		torso_breath.x += deg_to_rad(12.0)
+		# Hunched over the knees. Crouch only: +X pitch tips this torso BACK (the rig
+		# walks toward −Z), so the hunch is a negative pitch. Other leans untouched.
+		torso_breath.x -= deg_to_rad(CROUCH_LEAN_DEG)
 	elif _state == &"walk":
 		torso_breath.x += deg_to_rad(3.0)
 	if carry_load and (_state == &"walk" or _state == &"idle" or _state == &"turn"):
@@ -525,7 +544,9 @@ func tick(
 	torso_breath.y += s * stride * 0.06 * (0.4 if carry_load else 1.0)
 	_apply_joint("torso", Vector3.ZERO, torso_breath)
 
-	_apply_joint("head", Vector3.ZERO, Vector3(-breath * 0.5 - torso_breath.x * 0.3, -hip_sway.y * 0.5, 0.0))
+	# Crouched: the head comes most of the way back up off the hunch, eyes ahead.
+	var head_counter := CROUCH_HEAD_COUNTER if (_state == &"crouch_walk" or _state == &"crouch_idle") else 0.3
+	_apply_joint("head", Vector3.ZERO, Vector3(-breath * 0.5 - torso_breath.x * head_counter, -hip_sway.y * 0.5, 0.0))
 
 	# Legs: opposite phase
 	if _state == &"attack":
@@ -549,11 +570,16 @@ func tick(
 	_apply_joint("right_shin", Vector3.ZERO, Vector3(maxf(0.0, -thigh_b) * 0.9 + 0.05, 0.0, 0.0))
 
 	_gait_flight = false
+	_planted_this_tick = false
 	var back_step := move_dir_local.z > 0.3
 	if carry_load and (_state == &"walk" or _state == &"idle" or _state == &"turn"):
 		_carry_legs(horiz_speed if _state == &"walk" else 0.0, bob * absf(s))
 	elif _state == &"walk":
 		_planted_legs(horiz_speed, WALK_CYCLE, WALK_DUTY, WALK_FRONT, WALK_LIFT, WALK_HEEL_RISE, WALK_KNEE_SOFT, 0.0, back_step)
+	elif _state == &"crouch_idle":
+		_planted_legs(0.0, CROUCH_CYCLE, CROUCH_DUTY, CROUCH_FRONT, 0.0, 0.0, CROUCH_KNEE, 0.0, false)
+	elif _state == &"crouch_walk":
+		_planted_legs(horiz_speed, CROUCH_CYCLE, CROUCH_DUTY, CROUCH_FRONT, CROUCH_LIFT, CROUCH_HEEL_RISE, CROUCH_KNEE, 0.0, back_step)
 	elif _state == &"sprint":
 		_planted_legs(horiz_speed, RUN_CYCLE, RUN_DUTY, RUN_FRONT, RUN_LIFT, RUN_HEEL_RISE, RUN_KNEE_SOFT, RUN_FLIGHT_RISE, back_step)
 
@@ -573,11 +599,22 @@ func tick(
 	_apply_joint("left_forearm", Vector3.ZERO, Vector3(elbow + maxf(0.0, -arm_l) * 0.4, 0.0, 0.0))
 	_apply_joint("right_forearm", Vector3.ZERO, Vector3(elbow + maxf(0.0, -arm_r) * 0.4, 0.0, 0.0))
 
-	# Combat additives on top
+	# Combat additives on top (not on legs the planted gait solved this tick)
 	for key in _combat_overrides:
+		if _planted_this_tick and String(key) in LEG_JOINTS:
+			continue
 		var n: Node3D = joints.get(key) as Node3D
 		if n and _rest.has(key):
 			n.rotation = (_rest[key]["rot"] as Vector3) + _leg_or_combat(String(key), _combat_overrides[key] as Vector3)
+	# A guard held while crouched keeps the hunch: the combat torso pose rides on
+	# top of the crouch lean instead of standing him back up.
+	if (_state == &"crouch_walk" or _state == &"crouch_idle") and _combat_overrides.has("torso"):
+		var tn: Node3D = joints.get("torso") as Node3D
+		if tn:
+			tn.rotation.x -= deg_to_rad(CROUCH_LEAN_DEG)
+			var hn: Node3D = joints.get("head") as Node3D
+			if hn:
+				hn.rotation.x += deg_to_rad(CROUCH_LEAN_DEG) * CROUCH_HEAD_COUNTER
 	# Walking in a combat pose with no leg additive: the stride still shows.
 	if _state == &"attack" and _attack_walk_w > 0.001:
 		for key in LEG_JOINTS:
@@ -648,10 +685,13 @@ func _carry_legs(speed: float, _bob_y: float) -> void:
 	var root_n: Node3D = joints.get("root") as Node3D
 	if root_n and _rest.has("root"):
 		root_n.position.y = (_rest["root"]["pos"] as Vector3).y - _root_drop - (HIP_TO_SOLE - hip_h)
+	# Thighs undo any combat hip pitch (e.g. a crouched goad hold) so the soles stay planted.
+	var hips_x := (_combat_overrides.get("hips", Vector3.ZERO) as Vector3).x
+	_planted_this_tick = true
 	for side in ["left", "right"]:
 		var t: Vector2 = tg[side]
-		var ik := _solve_leg(t.x, hip_h - t.y)
-		_apply_joint(side + "_thigh", Vector3.ZERO, Vector3(ik.x, 0.0, deg_to_rad(-2.0 if side == "left" else 2.0)))
+		var ik := _solve_leg(t.x, hip_h - _root_drop - t.y)
+		_apply_joint(side + "_thigh", Vector3.ZERO, Vector3(ik.x - hips_x, 0.0, deg_to_rad(-2.0 if side == "left" else 2.0)))
 		_apply_joint(side + "_shin", Vector3.ZERO, Vector3(ik.y, 0.0, 0.0))
 
 

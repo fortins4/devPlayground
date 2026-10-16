@@ -104,7 +104,7 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 	var lf_mesh := BoxMesh.new()
 	lf_mesh.size = Vector3(0.11, 0.055, 0.22)
 	var lf_mi := _mesh_inst(lf_mesh, shoes, "Foot")
-	lf_mi.position = Vector3(0.0, -0.38, 0.05)
+	lf_mi.position = Vector3(0.0, -0.38, -0.05) # toes forward (−Z)
 	left_shin.add_child(lf_mi)
 
 	var right_thigh := Node3D.new()
@@ -131,7 +131,7 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 	var rf_mesh := BoxMesh.new()
 	rf_mesh.size = Vector3(0.11, 0.055, 0.22)
 	var rf_mi := _mesh_inst(rf_mesh, shoes, "Foot")
-	rf_mi.position = Vector3(0.0, -0.38, 0.05)
+	rf_mi.position = Vector3(0.0, -0.38, -0.05) # toes forward (−Z)
 	right_shin.add_child(rf_mi)
 
 	var torso := Node3D.new()
@@ -209,14 +209,14 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 	hair_mesh.radius = 0.15
 	hair_mesh.height = 0.20
 	var hair_mi := _mesh_inst(hair_mesh, hair, "Hair")
-	hair_mi.position = Vector3(0.0, 0.06, -0.02)
+	hair_mi.position = Vector3(0.0, 0.06, 0.02) # the rig faces −Z: hair sits back on the crown
 	head.add_child(hair_mi)
 	# Short beard hint
 	var beard_mesh := SphereMesh.new()
 	beard_mesh.radius = 0.08
 	beard_mesh.height = 0.12
 	var beard_mi := _mesh_inst(beard_mesh, hair, "Beard")
-	beard_mi.position = Vector3(0.0, -0.08, 0.06)
+	beard_mi.position = Vector3(0.0, -0.08, -0.06) # on the chin, the −Z (travel) side
 	beard_mi.scale = Vector3(1.1, 0.7, 0.9)
 	head.add_child(beard_mi)
 
