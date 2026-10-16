@@ -69,6 +69,9 @@ const RUN_FLIGHT_RISE := 0.045 ## g·t²/8 for ~0.2 s of flight
 const RUN_ARM_AMP := 0.85
 const RUN_LEAN_DEG := 9.0
 const PLANTED_MAX_SWEEP := 1.0
+## Visual scale of the rig (player sets it). World cadence scales so the local step geometry
+## (sweep, knee clearance, slide) is the same at any stature.
+var body_scale: float = 1.0
 var _gait_flight: bool = false ## both feet off the ground this tick (run), for probes
 func in_flight() -> bool:
 	return _gait_flight
@@ -476,17 +479,17 @@ func tick(
 			pass
 
 	if carry_load and _state == &"walk":
-		cadence = TAU / CARRY_CYCLE
+		cadence = TAU / (CARRY_CYCLE * body_scale)
 		stride = 0.0  # legs are solved below (planted soles)
 		arm_amp = 0.0
 		bob = 0.0  # the hip height comes from the stance legs (_carry_legs)
 	elif _state == &"walk":
-		cadence = TAU / WALK_CYCLE
+		cadence = TAU / (WALK_CYCLE * body_scale)
 		stride = 0.0
 		arm_amp = WALK_ARM_AMP
 		bob = 0.0
 	elif _state == &"sprint":
-		cadence = TAU / RUN_CYCLE
+		cadence = TAU / (RUN_CYCLE * body_scale)
 		stride = 0.0
 		arm_amp = RUN_ARM_AMP
 		bob = 0.0

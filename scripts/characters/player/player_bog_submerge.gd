@@ -24,7 +24,7 @@ extends Node
 # --- Depths (metres) ---
 const BANK_WIDTH := 1.1 ## water shelves from the outline to full wading depth over this
 const WADE_DROP := 0.78 ## standing in deep water: water at the upper thigh
-const SHOULDER_ABOVE_WATER := 0.02 ## shoulder depth: shoulder tops just break the surface (shaft stays ~8 cm under)
+const SHOULDER_ABOVE_WATER := -0.025 ## shoulder depth: water just over the shoulder tops (1.70 m Cian: the real-length shaft needs the extra few cm to stay under)
 const UNDER_HEAD_ABOVE := 0.03 ## fully under: head centre this far above the water
 const UNDER_THRESHOLD := 1.85 ## sink >= this counts as fully under (breath, HUD)
 # --- Timing ---

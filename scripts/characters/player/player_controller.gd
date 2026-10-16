@@ -26,12 +26,16 @@ const DECEL := 22.0
 const JUMP_VELOCITY := 4.5
 const MOUSE_SENSITIVITY := 0.003
 
-const STAND_CAPSULE_HEIGHT := 1.7
-const CROUCH_CAPSULE_HEIGHT := 0.95
-const STAND_CAPSULE_Y := 0.85
-const CROUCH_CAPSULE_Y := 0.48
-const STAND_PIVOT_Y := 1.45
-const CROUCH_PIVOT_Y := 0.72
+## Cian's stature: the kern rig is modelled at 1.84 m and the whole Visual is scaled to a
+## realistic 1.70 m (early-medieval Irish men averaged ~1.68–1.72 m). Held / slung tools keep
+## their real size (the goad stays 1.30 m); gait cadence rises so world steps scale with the leg.
+const CIAN_SCALE := 1.70 / 1.84
+const STAND_CAPSULE_HEIGHT := 1.7 * CIAN_SCALE
+const CROUCH_CAPSULE_HEIGHT := 0.95 * CIAN_SCALE
+const STAND_CAPSULE_Y := 0.85 * CIAN_SCALE
+const CROUCH_CAPSULE_Y := 0.48 * CIAN_SCALE
+const STAND_PIVOT_Y := 1.45 * CIAN_SCALE
+const CROUCH_PIVOT_Y := 0.72 * CIAN_SCALE
 const STAND_VISUAL_Y := 0.0
 const CROUCH_VISUAL_Y := -0.55
 const CROUCH_LERP := 10.0
@@ -82,7 +86,7 @@ enum SeatPhase { NONE, APPROACH, SIT, SEATED, RISE }
 const SEAT_SIT_SECS := 0.65
 const SEAT_RISE_SECS := 0.8
 const SEAT_APPROACH_MAX_SECS := 3.0
-const SEAT_CAM_DROP := 0.35   ## small camera ease down while seated (pivot local y)
+const SEAT_CAM_DROP := 0.35 * CIAN_SCALE   ## small camera ease down while seated (pivot local y)
 var _seat_phase: SeatPhase = SeatPhase.NONE
 var _seat_point: Vector3 = Vector3.ZERO
 var _seat_yaw: float = 0.0
@@ -279,6 +283,7 @@ var _carry_stats: Dictionary = {"frames": 0, "cleared": 0, "residual": 0, "groun
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_apply_stature()
 	if camera:
 		_camera_base_pos = camera.position
 	if combat:
@@ -305,6 +310,23 @@ func _ready() -> void:
 		locomotion.attack_walk_enabled = true
 	# Locomotion builds mesh in its _ready; resolve arm after a deferred pass.
 	call_deferred("_bind_locomotion_joints")
+
+
+func _apply_stature() -> void:
+	if visual:
+		visual.scale = Vector3.ONE * CIAN_SCALE
+		# The slung goad keeps its real 1.30 m inside the scaled body.
+		var bg := visual.find_child("BackGoad", true, false) as Node3D
+		if bg:
+			for c in bg.get_children():
+				if c is Node3D:
+					(c as Node3D).position /= CIAN_SCALE
+					(c as Node3D).scale /= CIAN_SCALE
+	if locomotion:
+		locomotion.body_scale = CIAN_SCALE
+	var pivot := get_node_or_null("CameraPivot") as Node3D
+	if pivot:
+		pivot.position.y = STAND_PIVOT_Y
 
 
 func _bind_locomotion_joints() -> void:
@@ -4340,7 +4362,7 @@ func tick_mounted_rider_pose(delta: float, horse_speed: float, galloping: bool) 
 ## a little forward, and the load hangs below the hands. Setting it down / pouring lets go and
 ## the existing draw brings the goad back. Grip in the Visual frame (−Z forward, y up, feet 0):
 ## far enough out and high enough that the hanging bucket clears the thighs on the loaded stride.
-const LOAD_GRIP := Vector3(0.0, 1.12, -0.38)
+const LOAD_GRIP := Vector3(0.0, 1.15, -0.42) ## (1.12 / -0.38 at 1.84 m; the real-size bucket is relatively bigger on a 1.70 m man)
 const LOAD_GRIP_HALF := 0.06 ## hands either side of the handle centre
 const LOAD_UPPER_LEN := 0.30 ## shoulder → elbow (kerne rig)
 const LOAD_FORE_LEN := 0.24 ## elbow → grip (palm on the bail)
