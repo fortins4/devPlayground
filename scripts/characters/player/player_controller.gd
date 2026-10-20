@@ -12,9 +12,13 @@ extends CharacterBody3D
 const ToolStrikePoses := preload("res://systems/combat/tool_strike_poses.gd")
 ## HealthCombatBridge (sibling) mirrors player CombatSystem ↔ CharacterHealth.
 ## Crouch (Ctrl / C): lower capsule + camera, slower move, quieter footprint.
-## Locomotion: procedural kerne joints via KerneLocomotion (walk/run/sprint/crouch/idle).
+## Locomotion: procedural kerne joints via KerneLocomotion (walk/jog/run/sprint/crouch/idle).
+## Default pace is a slow trot (jog); hold Alt (`walk`) to walk; Shift sprints.
 
-const WALK_SPEED := 1.5 ## realistic walk (~1.3–1.5 m/s)
+const WALK_SPEED := 1.5 ## realistic walk (~1.3–1.5 m/s): held `walk` key (Alt), stealth / close work
+## Default pace: an easy jog / slow trot (~3 m/s), a real running gait with a short flight phase
+## (KerneLocomotion jog). Carry, crouch, rope lead, hand work and attack-walk override it.
+const TROT_SPEED := 3.0
 const SPRINT_SPEED := 5.5 ## running pace (sustained run, not an all-out dash)
 const CROUCH_SPEED := 0.8 ## a careful creep
 const DRAG_SPEED := 1.75
@@ -308,6 +312,8 @@ func _ready() -> void:
 		# Walking through charge / release / swing / jab / settle keeps the
 		# stride on the legs; the combat pose keeps the arms, spine and shaft.
 		locomotion.attack_walk_enabled = true
+		# Default trot: the walk cycle blends into a jog gait above walk pace.
+		locomotion.jog_enabled = true
 	# Locomotion builds mesh in its _ready; resolve arm after a deferred pass.
 	call_deferred("_bind_locomotion_joints")
 
@@ -530,7 +536,16 @@ func _physics_process(delta: float) -> void:
 		sprinting = true
 	_sprinting = sprinting
 
-	var target_speed := WALK_SPEED
+	# Default pace is the trot. Holding `walk` (Alt) drops to the walk. Wading in the bog (the
+	# same water that refuses a sprint) keeps him to a walk as well, and so does stepping back or
+	# sideways: a jog is a forward gait (backing off / side-stepping stays at walk pace).
+	var walk_held := Input.is_action_pressed("walk")
+	var trot_ok := (
+		not walk_held
+		and not (bog and bog.blocks_sprint())
+		and input_dir.y < -0.3
+	)
+	var target_speed := TROT_SPEED if trot_ok else WALK_SPEED
 	if dragging_body != null and is_instance_valid(dragging_body):
 		target_speed = DRAG_SPEED
 		sprinting = false
@@ -1613,6 +1628,9 @@ func _update_noise(speed: float, sprinting: bool) -> void:
 		_noise_level = 0.18 + clampf(speed / CROUCH_SPEED, 0.0, 1.0) * 0.22
 	elif sprinting:
 		_noise_level = 0.85 + clampf(speed / SPRINT_SPEED, 0.0, 1.0) * 0.15
+	elif speed > WALK_SPEED + 0.05:
+		# Trot: louder footfalls than the walk (0.70 at walk pace), under the sprint (0.85+).
+		_noise_level = 0.70 + clampf((speed - WALK_SPEED) / (TROT_SPEED - WALK_SPEED), 0.0, 1.0) * 0.10
 	else:
 		_noise_level = 0.45 + clampf(speed / WALK_SPEED, 0.0, 1.0) * 0.25
 	if bog:

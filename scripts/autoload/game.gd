@@ -49,6 +49,7 @@ func _ensure_default_input() -> void:
 		&"interact": KEY_E,
 		&"band_toggle": KEY_H,
 		&"crouch": KEY_CTRL,
+		&"walk": KEY_ALT,
 	}
 	for action in key_binds:
 		_ensure_key_action(action, key_binds[action])

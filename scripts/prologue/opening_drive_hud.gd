@@ -76,7 +76,7 @@ func _ready() -> void:
 	_controls.offset_top = -36
 	_controls.offset_bottom = -10
 	_controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
+	_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	call_deferred("_bind")
 
 
@@ -127,9 +127,9 @@ func _process(_delta: float) -> void:
 		or _chore_active(_meal_chore)
 		or _chore_active(_gate_chore)
 	):
-		_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
+		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	else:
-		_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
+		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
 	var player := get_tree().get_first_node_in_group("player")
 	var combat := player.get_node_or_null("CombatSystem") if player else null
 	if combat and combat.has_method("weapon_name"):

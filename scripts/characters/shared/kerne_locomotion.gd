@@ -69,6 +69,41 @@ const RUN_FLIGHT_RISE := 0.045 ## g·t²/8 for ~0.2 s of flight
 const RUN_ARM_AMP := 0.85
 const RUN_LEAN_DEG := 9.0
 const PLANTED_MAX_SWEEP := 1.0
+## Jog / slow trot (player default, ~3.0 m/s): a real running gait at an easy pace. ~2.75 steps/s
+## world (2.54 in rig time, the cadence scales with the rig like the walk); each foot down ~35 %
+## of the cycle (~0.26 s contact), so each step has a short flight (~0.1 s) with both feet off the
+## ground. Stance soles stay planted (the sweep matches the speed). Spring-mass hips: lowest at
+## mid-stance (knee flexes ~45°), highest mid-flight. Elbows carried bent, a moderate arm swing and
+## a modest forward lean. Opt-in (jog_enabled); between walk and jog speeds the gait parameters
+## blend by speed, so a walk-key / bog-capped pace stays a true walk.
+var jog_enabled: bool = false
+const JOG_SPEED := 3.0
+const JOG_BLEND_FROM := 1.55 ## at / under this the plain walk is used unchanged
+const JOG_STEP_HZ := 2.54 ## rig-time steps/s (≈2.75 world steps/s at Cian's scale)
+const WALK_STEP_HZ := 1.9
+const JOG_DUTY := 0.35
+const JOG_FRONT := 0.32
+const JOG_LIFT := 0.18 ## swing sole lift (m) over the push-off heel rise: the heel kicks up behind, not a sprint fold
+const JOG_HEEL_RISE := 0.12 ## push-off: heel well up about the planted toe
+const JOG_KNEE_SOFT := 0.045
+const JOG_SWING_PEAK := 0.25 ## swing fraction at the highest sole lift
+const JOG_COMPRESS := 0.015 ## mid-stance hip sink below touchdown height (knee flex ~45°)
+const JOG_FLIGHT_RISE := 0.022 ## hip apex over take-off height in the ~0.11 s flight
+const JOG_ARM_AMP := 0.5
+const JOG_ELBOW_DEG := 72.0
+const JOG_ARM_OUT_DEG := 16.0
+const JOG_LEAN_DEG := 6.0 ## forward (this torso tips FORWARD on −X; +X tips it back)
+var _jog_w: float = 0.0 ## 0 = walk, 1 = full jog (this tick), for probes / callers
+## Jog ankle: the shoe box is otherwise rigid on the shin. In the jog it turns about the ankle so
+## the sole lies flat through stance, rolls onto the toe at push-off, and comes back to a flat
+## (slightly toe-up) landing over the swing. Weighted by the jog blend: the walk keeps rest feet.
+const JOG_ANKLE_PIVOT := Vector3(0.0, -0.368, 0.0) ## shin space, just above the sole on the shin line
+const JOG_LAND_TOE_UP := 0.08 ## rad: shoe pitch at touchdown (flat-ish, heel a touch first)
+var _feet: Dictionary = {} ## "left"/"right" -> Foot MeshInstance3D
+var _feet_rest: Dictionary = {} ## side -> rest Transform3D (shin space)
+var _feet_posed: bool = false
+func jog_weight() -> float:
+	return _jog_w
 ## Crouch-walk (~0.8 m/s): knees well bent (hips ~20 cm down in the rig), short careful steps
 ## at 1.6 steps/s, long double support, soles planted like the walk.
 const CROUCH_CYCLE := 2.0 / 1.6
@@ -128,6 +163,15 @@ func rebuild() -> void:
 				"pos": n.position,
 				"rot": n.rotation,
 			}
+	_feet.clear()
+	_feet_rest.clear()
+	_feet_posed = false
+	for side in ["left", "right"]:
+		var sh: Node3D = joints.get(side + "_shin") as Node3D
+		var ft := sh.get_node_or_null("Foot") as Node3D if sh else null
+		if ft:
+			_feet[side] = ft
+			_feet_rest[side] = ft.transform
 	# Compatibility aliases for old capture tools / controller paths
 	_ensure_compat_aliases(visual)
 
@@ -245,6 +289,7 @@ func reset_to_rest() -> void:
 	_attack_walk_w = 0.0
 	_walk_legs.clear()
 	_state = &"idle"
+	_reset_feet()
 	for key in joints:
 		var n: Node3D = joints[key] as Node3D
 		if n == null or not _rest.has(key):
@@ -490,15 +535,19 @@ func tick(
 		_:
 			pass
 
+	_jog_w = 0.0
+	if jog_enabled and _state == &"walk" and not carry_load:
+		_jog_w = clampf((horiz_speed - JOG_BLEND_FROM) / (JOG_SPEED - JOG_BLEND_FROM), 0.0, 1.0)
+	var walk_cycle := 2.0 / lerpf(WALK_STEP_HZ, JOG_STEP_HZ, _jog_w)
 	if carry_load and _state == &"walk":
 		cadence = TAU / (CARRY_CYCLE * body_scale)
 		stride = 0.0  # legs are solved below (planted soles)
 		arm_amp = 0.0
 		bob = 0.0  # the hip height comes from the stance legs (_carry_legs)
 	elif _state == &"walk":
-		cadence = TAU / (WALK_CYCLE * body_scale)
+		cadence = TAU / (walk_cycle * body_scale)
 		stride = 0.0
-		arm_amp = WALK_ARM_AMP
+		arm_amp = lerpf(WALK_ARM_AMP, JOG_ARM_AMP, _jog_w)
 		bob = 0.0
 	elif _state == &"crouch_walk":
 		cadence = TAU / (CROUCH_CYCLE * body_scale)
@@ -537,7 +586,8 @@ func tick(
 		# walks toward −Z), so the hunch is a negative pitch. Other leans untouched.
 		torso_breath.x -= deg_to_rad(CROUCH_LEAN_DEG)
 	elif _state == &"walk":
-		torso_breath.x += deg_to_rad(3.0)
+		# Walk keeps its authored +3°. The jog leans forward from the ankles over the hips.
+		torso_breath.x += deg_to_rad(lerpf(3.0, -JOG_LEAN_DEG, _jog_w))
 	if carry_load and (_state == &"walk" or _state == &"idle" or _state == &"turn"):
 		# Braced against the load in front: a touch more forward over the hips.
 		torso_breath.x += deg_to_rad(CARRY_LEAN_DEG - (3.0 if _state == &"walk" else 0.0))
@@ -571,11 +621,16 @@ func tick(
 
 	_gait_flight = false
 	_planted_this_tick = false
+	if _jog_w <= 0.0:
+		_reset_feet()
 	var back_step := move_dir_local.z > 0.3
 	if carry_load and (_state == &"walk" or _state == &"idle" or _state == &"turn"):
 		_carry_legs(horiz_speed if _state == &"walk" else 0.0, bob * absf(s))
 	elif _state == &"walk":
-		_planted_legs(horiz_speed, WALK_CYCLE, WALK_DUTY, WALK_FRONT, WALK_LIFT, WALK_HEEL_RISE, WALK_KNEE_SOFT, 0.0, back_step)
+		var j := _jog_w
+		_planted_legs(horiz_speed, walk_cycle, lerpf(WALK_DUTY, JOG_DUTY, j), lerpf(WALK_FRONT, JOG_FRONT, j),
+			lerpf(WALK_LIFT, JOG_LIFT, j), lerpf(WALK_HEEL_RISE, JOG_HEEL_RISE, j),
+			lerpf(WALK_KNEE_SOFT, JOG_KNEE_SOFT, j), JOG_FLIGHT_RISE * j, back_step, j, true)
 	elif _state == &"crouch_idle":
 		_planted_legs(0.0, CROUCH_CYCLE, CROUCH_DUTY, CROUCH_FRONT, 0.0, 0.0, CROUCH_KNEE, 0.0, false)
 	elif _state == &"crouch_walk":
@@ -591,11 +646,11 @@ func tick(
 	if _state == &"idle" or _state == &"crouch_idle":
 		arm_l = breath * 0.8
 		arm_r = -breath * 0.8
-	var arm_out := deg_to_rad(22.0 if _state == &"sprint" else 14.0)
+	var arm_out := deg_to_rad(22.0 if _state == &"sprint" else lerpf(14.0, JOG_ARM_OUT_DEG, _jog_w))
 	_apply_joint("left_arm", Vector3.ZERO, Vector3(arm_l, 0.0, -arm_out))
 	_apply_joint("right_arm", Vector3.ZERO, Vector3(arm_r, 0.0, arm_out))
 	# Running: elbows held bent ~80°, as runners carry them.
-	var elbow := deg_to_rad(80.0) if _state == &"sprint" else 0.0
+	var elbow := deg_to_rad(80.0) if _state == &"sprint" else deg_to_rad(JOG_ELBOW_DEG) * _jog_w
 	_apply_joint("left_forearm", Vector3.ZERO, Vector3(elbow + maxf(0.0, -arm_l) * 0.4, 0.0, 0.0))
 	_apply_joint("right_forearm", Vector3.ZERO, Vector3(elbow + maxf(0.0, -arm_r) * 0.4, 0.0, 0.0))
 
@@ -696,7 +751,8 @@ func _carry_legs(speed: float, _bob_y: float) -> void:
 
 
 func _planted_legs(speed: float, cycle: float, duty: float, front_frac: float, swing_lift: float,
-		heel_rise: float, knee_soft: float, flight_rise: float, backward: bool) -> void:
+		heel_rise: float, knee_soft: float, flight_rise: float, backward: bool, jog_w: float = 0.0,
+		undo_hips: bool = false) -> void:
 	## Walk / run on planted soles: the stance ankle sweeps back at exactly `speed` (world-still),
 	## heel rises about the planted toe at push-off, the swing leg arcs forward. Hip height rides
 	## the stance legs; with duty < 0.5 (run) the gaps are flight, where the hips arc ballistically.
@@ -715,7 +771,16 @@ func _planted_legs(speed: float, cycle: float, duty: float, front_frac: float, s
 	var h_land := minf(h_top, sqrt(maxf(0.0, reach * reach - front * front)))
 	var hip_h := h_top
 	var any_stance := false
-	var flight_w := 0.0
+	# Jog (spring-mass): one "air" hip height shared by touchdown and toe-off (the lower of the two
+	# reach-limited heights, so neither sole is pulled off the ground), sinking JOG_COMPRESS at
+	# mid-stance and rising on a ballistic arc in flight.
+	var h_air := h_land
+	if jog_w > 0.0:
+		var cphi_off := sqrt(maxf(0.0, 1.0 - pow(heel_rise / CARRY_TOE, 2.0)))
+		var fx_off := front - sweep + CARRY_TOE * (1.0 - cphi_off)
+		h_air = minf(h_land, sqrt(maxf(0.0, reach * reach - fx_off * fx_off)) + heel_rise)
+	var spring_h := h_air + 10.0
+	var ankle := {} ## side -> [in_stance, phase 0..1 within stance or swing, heel-rise lift]
 	for side in ["left", "right"]:
 		var u := fposmod(u0 + (0.0 if side == "left" else 0.5), 1.0)
 		var fx: float
@@ -731,12 +796,32 @@ func _planted_legs(speed: float, cycle: float, duty: float, front_frac: float, s
 			fx += CARRY_TOE * (1.0 - cphi)
 			contact = CARRY_TOE * cphi
 			hip_h = minf(hip_h, sqrt(maxf(0.0, reach * reach - fx * fx)) + lift)
+			spring_h = minf(spring_h, h_air - JOG_COMPRESS * sin(sp * PI))
+			ankle[side] = [true, sp, lift]
 		else:
 			var w := (u - duty) / (1.0 - duty)
 			var e := w * w * (3.0 - 2.0 * w)
 			fx = (front - sweep) + sweep * e
 			# Swing: lifts clear (a run folds the heel up behind early), toe-off still rising.
 			lift = maxf(sin(w * PI) * swing_lift, heel_rise * (1.0 - w) * 2.0)
+			if jog_w > 0.0:
+				# Jog: leave the ground from where the push-off left the sole (heel up, ankle
+				# pivoted over the toe), not a frame-one pop of the ankle up and back.
+				var cphi_s := sqrt(maxf(0.0, 1.0 - pow(heel_rise / CARRY_TOE, 2.0)))
+				var off_w := 1.0 - clampf(w / 0.25, 0.0, 1.0)
+				off_w = off_w * off_w * (3.0 - 2.0 * off_w)
+				# The heel folds up behind straight after toe-off (peak sole lift early in the swing,
+				# while the foot is still behind the hip), the foot carries through at height, then
+				# comes down late onto the next contact — so in the short flight both feet are up.
+				var arc: float
+				if w < JOG_SWING_PEAK:
+					arc = sin(0.5 * PI * w / JOG_SWING_PEAK)
+				else:
+					arc = cos(0.5 * PI * pow((w - JOG_SWING_PEAK) / (1.0 - JOG_SWING_PEAK), 1.6))
+				var lift_j := heel_rise * (1.0 - w) + arc * swing_lift
+				lift = lerpf(lift, lift_j, jog_w)
+				fx += CARRY_TOE * (1.0 - cphi_s) * off_w * jog_w
+			ankle[side] = [false, w, 0.0]
 			if duty >= 0.5:
 				var reach_w := clampf((w - 0.7) / 0.3, 0.0, 1.0)
 				if reach_w > 0.0:
@@ -749,13 +834,56 @@ func _planted_legs(speed: float, cycle: float, duty: float, front_frac: float, s
 		_gait_flight = true
 		var ph := fposmod(u0 + 0.5, 0.5) / 0.5  # 0..1 over a half cycle (a step)
 		var f := clampf((ph - duty * 2.0) / maxf(0.01, 1.0 - duty * 2.0), 0.0, 1.0)
-		hip_h = h_land + flight_rise * sin(f * PI)
+		hip_h = lerpf(h_land, h_air, jog_w) + flight_rise * sin(f * PI)
+	elif jog_w > 0.0:
+		hip_h = lerpf(hip_h, minf(hip_h, spring_h), jog_w)
 	_apply_joint("root", Vector3(0.0, -_root_drop - (HIP_TO_SOLE - hip_h), 0.0), Vector3.ZERO)
+	# Walk / jog under a combat hip pose (the goad guard turns the hips ~8°): the thighs undo the
+	# hip yaw and pitch so the stride runs along the travel line and the stance sole stays planted
+	# instead of skating sideways across the stance.
+	var hips_off := (_combat_overrides.get("hips", Vector3.ZERO) as Vector3) if undo_hips else Vector3.ZERO
 	for side in ["left", "right"]:
 		var t: Vector2 = tg[side]
 		var ik := _solve_leg(t.x, hip_h - t.y)
-		_apply_joint(side + "_thigh", Vector3.ZERO, Vector3(ik.x, 0.0, deg_to_rad(-2.0 if side == "left" else 2.0)))
+		_apply_joint(side + "_thigh", Vector3.ZERO, Vector3(ik.x - hips_off.x, -hips_off.y, deg_to_rad(-2.0 if side == "left" else 2.0)))
 		_apply_joint(side + "_shin", Vector3.ZERO, Vector3(ik.y, 0.0, 0.0))
+		if jog_w > 0.0 and not backward:
+			# Shoe pitch in the hip frame (the thighs undo the hip pitch): flat = 0, toe-down < 0.
+			var a: Array = ankle[side]
+			var leg_pitch := ik.x + ik.y
+			var rel: float
+			if bool(a[0]):
+				rel = -leg_pitch - asin(clampf(float(a[2]) / CARRY_TOE, 0.0, 1.0))
+			else:
+				# Swing: from the push-off angle (relative to the shin) to a flat landing, eased.
+				var ik_off := _solve_leg(front - sweep + CARRY_TOE * (1.0 - sqrt(maxf(0.0, 1.0 - pow(heel_rise / CARRY_TOE, 2.0)))), h_air - heel_rise)
+				var rel_off := -(ik_off.x + ik_off.y) - asin(clampf(heel_rise / CARRY_TOE, 0.0, 1.0))
+				var ik_on := _solve_leg(front, h_air)
+				var rel_on := JOG_LAND_TOE_UP - (ik_on.x + ik_on.y)
+				var sw := float(a[1])
+				rel = lerpf(rel_off, rel_on, sw * sw * (3.0 - 2.0 * sw))
+			_pose_foot(side, rel * jog_w)
+
+
+func _pose_foot(side: String, pitch: float) -> void:
+	## Turn the shoe box about the ankle (shin space) by `pitch` from its rest.
+	var ft: Node3D = _feet.get(side) as Node3D
+	if ft == null:
+		return
+	var rest: Transform3D = _feet_rest[side]
+	var rot := Basis(Vector3.RIGHT, pitch)
+	ft.transform = Transform3D(rot * rest.basis, JOG_ANKLE_PIVOT + rot * (rest.origin - JOG_ANKLE_PIVOT))
+	_feet_posed = true
+
+
+func _reset_feet() -> void:
+	if not _feet_posed:
+		return
+	for side in _feet:
+		var ft: Node3D = _feet[side] as Node3D
+		if ft and is_instance_valid(ft):
+			ft.transform = _feet_rest[side]
+	_feet_posed = false
 
 
 func _solve_leg(fx: float, h: float) -> Vector2:
