@@ -9,7 +9,6 @@ var _status: Label
 var _banner: Label
 var _flash: Label
 var _controls: Label
-var _weapon: Label
 var _chore: Node = null
 var _tie_chore: Node = null
 var _maire_chore: Node = null
@@ -45,12 +44,6 @@ func _ready() -> void:
 	_status.offset_top = 104
 	_status.offset_bottom = 166
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_weapon = _make_label(root, 18, Color(0.92, 0.86, 0.66), 4)
-	_weapon.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_weapon.offset_left = 18
-	_weapon.offset_top = 104
-	_weapon.offset_right = 420
-	_weapon.offset_bottom = 136
 	_flash = _make_label(root, 23, Color(1.0, 0.9, 0.5), 3)
 	_flash.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
 	_flash.add_theme_constant_override("shadow_offset_x", 2)
@@ -130,10 +123,6 @@ func _process(_delta: float) -> void:
 		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	else:
 		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
-	var player := get_tree().get_first_node_in_group("player")
-	var combat := player.get_node_or_null("CombatSystem") if player else null
-	if combat and combat.has_method("weapon_name"):
-		_weapon.text = "In hand: %s   (carrying goad)" % String(combat.call("weapon_name"))
 
 
 
