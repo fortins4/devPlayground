@@ -362,7 +362,6 @@ func objective_text() -> String:
 	var seq := _seq()
 	if seq:
 		return String(seq.call("objective_text"))
-	var total := _cows.size()
 	match stage:
 		Stage.WALK_OUT:
 			if family_bark_visible():
@@ -373,25 +372,19 @@ func objective_text() -> String:
 		Stage.DRIVING:
 			var bits := "Walk BEHIND the herd, goad drawn, facing them — push them up the lane to the home pen."
 			if hud_bogged_count() > 0:
-				bits += "  %d in the bog — goad them out!" % hud_bogged_count()
+				bits += "  There's a cow in the bog — goad her out!"
 			elif stalled_count() > 0:
-				bits += "  %d grazing — keep pushing." % stalled_count()
+				bits += "  Some are grazing — keep pushing."
 			return bits
 		Stage.SUCCESS:
-			return "The herd is home, %d of %d in the pen. Finish the morning's work, or wander the farm." % [home_count(), total]
+			return "The herd is home in the pen. Finish the morning's work, or wander the farm."
 	return ""
 
 
+## The opening HUD has no herd counter (no pen count, no "n of 6", no tallies of any kind):
+## the counts stay internal (home_count / need_count / driven / stalled / bogged / scattered).
 func status_text() -> String:
-	var s := "In the pen  %d of %d\nOn the move %d  ·  grazing %d" % [
-		home_count(), _cows.size(), driven_count(), stalled_count()
-	]
-	# The bog tally only appears once she's no secret (missing-cow beat open, or freed).
-	if bog_revealed():
-		s += "  ·  bogged %d" % hud_bogged_count()
-	if scattered_count() > 0:
-		s += "\n%d strayed — regather them" % scattered_count()
-	return s
+	return ""
 
 
 ## The missing-cow beat has opened (player reached the herd on the drive step).
@@ -619,11 +612,7 @@ func _deliver(body: Node3D) -> void:
 	var n := home_count()
 	cow_home.emit(n, _cows.size())
 	print("OPENING_DRIVE_COW_HOME %d/%d" % [n, _cows.size()])
-	if not _check_success() and not succeeded:
-		if n < need_count() and _seq() != null:
-			_flash("%d / %d home — all %d must be in the pen." % [n, need_count(), need_count()], 2.5)
-		else:
-			_flash("%d / %d home." % [n, need_count()], 2.5)
+	_check_success()  # no per-head arrival flash: no cow count on the HUD
 
 
 ## Success: need_count() head in the pen (all six in the set-sequence flow; the drive must be
@@ -637,9 +626,9 @@ func _check_success() -> bool:
 	succeeded = true
 	_set_stage(Stage.SUCCESS)
 	if _seq() != null:
-		_flash("All six home! The herd's in the pen beside the byre.", 4.0)
+		_flash("The herd's home in the pen beside the byre.", 4.0)
 	else:
-		_flash("Herd home! %d of %d head in the pen beside the byre." % [n, _cows.size()], 8.0)
+		_flash("Herd home in the pen beside the byre.", 8.0)
 	print("OPENING_DRIVE_SOFT_SUCCESS home=%d/%d need=%d" % [n, _cows.size(), need_count()])
 	soft_success.emit(n, _cows.size())
 	if _dog and _dog.has_method("give_up"):
@@ -715,7 +704,7 @@ func ambush_scatter(src: Vector3) -> int:
 		elif d <= BALK_RADIUS and cow.has_method("balk"):
 			cow.call("balk")
 	if n > 0:
-		_flash("The herd balks — %d bolt off the lane! See off the dog, then regather them." % n, 4.5)
+		_flash("The herd balks — some bolt off the lane! See off the dog, then regather them.", 4.5)
 	print("OPENING_DRIVE_SCATTER n=%d src=%s" % [n, src.snapped(Vector3.ONE * 0.1)])
 	return n
 

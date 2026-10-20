@@ -100,6 +100,7 @@ func _process(_delta: float) -> void:
 		return
 	_objective.text = String(_director.call("objective_text"))
 	_status.text = String(_director.call("status_text"))
+	_status.visible = _status.text != ""   # empty in the opening: no herd counter
 	var f := String(_director.call("flash_text"))
 	if f == "":
 		f = _chore_prompt(_chore)
@@ -145,8 +146,8 @@ func _chore_prompt(chore: Node) -> String:
 func _chore_active(chore: Node) -> bool:
 	return chore != null and chore.has_method("is_active") and bool(chore.call("is_active"))
 
-func _on_success(home: int, total: int) -> void:
-	_banner.text = "The herd is home — %d of %d in the pen" % [home, total]
+func _on_success(_home: int, _total: int) -> void:
+	_banner.text = "The herd is home in the pen"   # no count (home/total stay internal)
 	_banner.visible = true
 
 

@@ -230,32 +230,30 @@ func _drive_text() -> String:
 	var d := _group("opening_drive")
 	if d == null:
 		return "Bring the herd home from the south pasture."
-	var need := int(d.call("need_count"))
-	var home := int(d.call("home_count"))
+	# No cow counts on the HUD in the opening (no pen counter, no "n of six"): the internal
+	# count (need_count / home_count, 6/6 gate rule) lives in the director only.
 	match String(d.call("drive_beat")):
 		"walk_out":
 			return "Bring the herd home: walk the lane south to the pasture."
 		"missing":
-			return "Only five at the pasture — one's missing. Hark: lowing from beyond the pasture, past the grazing herd — over the south ridge."
+			return "A cow's missing from the herd. Hark: lowing from beyond the pasture, past the grazing herd — over the south ridge."
 		"free_her":
 			return "There she is, stuck fast. Goad her out of the bog — goad drawn (3), prod her (LMB / RMB)."
 		"rejoin":
 			return "Drive her back to the herd at the pasture — walk behind her, goad drawn."
 		"stir":
-			return "She's back with the herd. Draw the goad (3) and prod a cow (LMB / RMB) to start all six home."
+			return "She's back with the herd. Draw the goad (3) and prod a cow (LMB / RMB) to start the herd home."
 		"latch":
-			return "All six in. Swing the pen gate shut and latch it — E at the gateway."
+			return "The herd's in. Swing the pen gate shut and latch it — E at the gateway."
 		"ambush":
 			return "A stray dog's at the herd! Scare it off — E or a goad prod, up close."
 		"regather":
-			return "Regather the strays — %s scattered off the lane. Goad them back to the herd." % _head_words(int(d.call("scattered_count")))
-	var s := "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre." + ("  %s of %s in the pen." % [_num_word(home).capitalize(), _num_word(need)] if home > 0 else "")
+			return "Regather the strays scattered off the lane. Goad them back to the herd."
+	var s := "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre."
 	if int(d.call("hud_bogged_count")) > 0:
-		s += "  %s in the bog — goad them out!" % _head_words(int(d.call("hud_bogged_count"))).capitalize()
+		s += "  There's a cow in the bog — goad her out!"
 	elif int(d.call("stalled_count")) > 0:
-		s += "  %s stopped to graze — keep pushing." % _head_words(int(d.call("stalled_count"))).capitalize()
-	if home > 0 and home < need:
-		s += "  All %s must be in." % _num_word(need)
+		s += "  Some have stopped to graze — keep pushing."
 	return s
 
 
@@ -264,10 +262,6 @@ const _NUM_WORDS := ["none", "one", "two", "three", "four", "five", "six", "seve
 
 func _num_word(n: int) -> String:
 	return _NUM_WORDS[n] if n >= 0 and n < _NUM_WORDS.size() else str(n)
-
-
-func _head_words(n: int) -> String:
-	return "%s head" % _num_word(n) if n != 1 else "one head"
 
 
 ## "One bucket in the trough of three" style count for the watering trips.
