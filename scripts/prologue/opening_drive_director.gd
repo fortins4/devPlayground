@@ -125,7 +125,9 @@ func _bind() -> void:
 		_player_start = _player.global_transform
 		var combat := _player.get_node_or_null("CombatSystem")
 		if combat and combat.has_method("set_weapon"):
-			combat.call("set_weapon", 2)  # CombatSystem.Weapon.GOAD — opening kit: goad + knife.
+			combat.call("set_weapon", 2)  # CombatSystem.Weapon.GOAD — opening kit: the goad only.
+		if combat and "knife_in_kit" in combat:
+			combat.set("knife_in_kit", false)  # no knife in the opening (it first appears in the raid)
 	var home := _home_center()
 	for cow in _cows:
 		cow.call("set_player", _player)

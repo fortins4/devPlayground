@@ -8,7 +8,7 @@ class_name OpeningStowMealChore
 enum MealPhase { WAITING, SEATING, EATING, DONE }
 
 const INTERACT_RANGE := 2.5
-## Near Máire (−5.2,0.1,3.2) / house door — clear of bucket & hitch.
+## Near Máire (−5.2,0.1,3.2) / house door — clear of the bucket and the milk-cow tie post.
 const MEAL_POS := Vector3(-4.5, 0.0, 2.8)
 ## Where Cian sits: on the ground just east of the stool, facing it (west, toward the house).
 const SEAT_POS := Vector3(-3.8, 0.0, 2.8)

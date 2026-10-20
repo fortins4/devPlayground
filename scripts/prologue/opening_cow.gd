@@ -134,7 +134,7 @@ func _restyle_native() -> void:
 	_coat = COAT_RED if (k == 1 or k == 4) else COAT_BLACK
 	_coat = _coat.lightened(float(absi(cow_id * 5) % 3) * 0.025)
 	var horned := (k % 2) == 0  # short horns on some, polled on the rest
-	# Body, head, ears, horns, brisket, tail: shared cattle look (also the knife-hitch heifer).
+	# Body, head, ears, horns, brisket, tail: shared cattle look (also the milk cow).
 	_coat_parts = CattleLook.dress(get_node_or_null("MeshInstance3D") as MeshInstance3D,
 		get_node_or_null("Head") as MeshInstance3D, _coat, horned, _coat_mat)
 	for nm in _LEG_NODES:

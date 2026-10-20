@@ -3,13 +3,14 @@ extends Node
 ##
 ##   1 maire  — talk to Máire at the door (her talk ends by giving the bucket job)
 ##   2 bucket — pick up the bucket, fill it at the spring scoop, pour it at the trough
-##   3 knife  — cut the knife hitch
-##   4 drive  — bring the herd home. ONE step, no Máire trips inside it; in-drive beats run off
+##   3 drive  — bring the herd home. ONE step, no Máire trips inside it; in-drive beats run off
 ##              the objective HUD line + chore flashes (OpeningDriveDirector.drive_beat()):
 ##                walk_out → missing (one of the six is stuck in the bog; her lowing leads there)
 ##                → free_her → rejoin (drive her back to the herd at the pasture) → stir
 ##                → driving, with the stray-dog ambush on the lane (ambush / regather)
-##                → all 6 in the pen
+##                → all 6 in the pen, gate latched
+##   4 milk   — take the milk cow out of the pen on a rope and tie her to the post by the house by
+##              hand (for the morning milking). No knife anywhere in the opening.
 ##   5 meal   — stow the goad and eat the meal, then Máire's closing line
 ##
 ## After each step (2..5) completes, the next step stays LOCKED until Cian walks back to Máire:
@@ -25,15 +26,15 @@ signal step_changed(step_id: StringName, briefed: bool)
 signal line_spoken(key: String, text: String)
 signal sequence_complete
 
-const STEP_IDS: Array[StringName] = [&"maire", &"bucket", &"knife", &"drive", &"meal"]
+const STEP_IDS: Array[StringName] = [&"maire", &"bucket", &"drive", &"milk", &"meal"]
 const CLOSER_INDEX := 5
 
 ## Máire's handoff line for each step that she hands out on Cian's return (step 2's job is given
 ## at the end of her door talk — see OpeningFamilyCaller.talk_lines).
 const HANDOFF_LINES := {
-	&"knife": "Good lad. Now the heifer's still tied at the post by the byre — cut her loose with your knife.",
-	&"drive": "Now bring the herd home from the south pasture. All six, mind — count them into the pen.",
-	&"meal": "All six home, thank God. Put that goad away and come eat — your meal's by the door.",
+	&"drive": "Good lad. Now bring the herd home from the south pasture. All six, mind — count them into the pen.",
+	&"milk": "All six home, thank God. Now bring the red milk cow out of the pen on the rope and tie her to the post by the house. I'll want her handy for the milking in the morning.",
+	&"meal": "That's her tied, good lad. Put that goad away and come eat — your meal's by the door.",
 }
 const CLOSER_LINE := "That's the morning's work done, and done well. Sit and rest a while, a stór."
 const IDLE_LINE := "Go on now — the work won't do itself."
@@ -41,8 +42,8 @@ const IDLE_LINE := "Go on now — the work won't do itself."
 const STEP_SHORT := {
 	&"maire": "talk to Máire",
 	&"bucket": "water the trough",
-	&"knife": "cut the heifer's tether",
 	&"drive": "bring the herd home",
+	&"milk": "tie the milk cow at the post",
 	&"meal": "eat your meal",
 }
 
@@ -214,10 +215,11 @@ func objective_text() -> String:
 						return "%s — carry this one up to the trough at the byre." % _trough_words(poured, need)
 					return "Carry the water up to the trough at the byre."
 			return "Water the cattle: take up the bucket beside the byre."
-		&"knife":
-			return "Cut the heifer's tether — the hitch post east of the byre trough. Draw the knife (2)."
 		&"drive":
 			return _drive_text()
+		&"milk":
+			var tie := _group("opening_rope_tie")
+			return String(tie.call("objective_text")) if tie else "Tie the milk cow to the post by the house."
 		&"meal":
 			return "Stow the goad (1) and eat your meal by the house door."
 	return ""

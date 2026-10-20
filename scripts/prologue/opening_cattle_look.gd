@@ -1,6 +1,6 @@
 extends RefCounted
 ## Shared look for the opening's small native cattle (Kerry / Dexter-like): used by the herd
-## cows (opening_cow.gd, on the raid-cow body/head nodes) and the knife-hitch heifer prop.
+## cows (opening_cow.gd, on the raid-cow body/head nodes) (the milk cow tied at the post is one of the six).
 ## Visual only. Everything is placed in the animal's local frame (head toward −Z, ground y 0,
 ## legs at x ±LEG_X, z ±LEG_Z, hips LEG_LEN up); parts parented under the non-uniformly scaled
 ## body / head meshes are counter-transformed so they keep their own shape.

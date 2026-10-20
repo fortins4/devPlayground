@@ -8,7 +8,7 @@
 [ext_resource type="Script" path="res://scripts/prologue/opening_drive_launcher.gd" id="6_launch"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_family_caller.gd" id="7_family"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_bucket_trough_chore.gd" id="8_bucket"]
-[ext_resource type="Script" path="res://scripts/prologue/opening_knife_hitch_chore.gd" id="9_knife"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_rope_tie_chore.gd" id="9_tie"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_bogged_cow_chore.gd" id="10_bog"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_stray_dog_chore.gd" id="11_dog"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_stow_meal_chore.gd" id="12_meal"]
@@ -157,8 +157,8 @@ callout_line = "Cian! Bring them home before the sun's high — and mind the bog
 [node name="OpeningBucketTroughChore" type="Node3D" parent="."]
 script = ExtResource("8_bucket")
 
-[node name="OpeningKnifeHitchChore" type="Node3D" parent="."]
-script = ExtResource("9_knife")
+[node name="OpeningRopeTieChore" type="Node3D" parent="."]
+script = ExtResource("9_tie")
 
 [node name="OpeningBoggedCowChore" type="Node3D" parent="."]
 script = ExtResource("10_bog")

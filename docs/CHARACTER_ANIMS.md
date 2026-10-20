@@ -10,8 +10,9 @@ early-medieval **Irish kerne** silhouette plus procedural locomotion / combat bo
 `SphereMesh` only). No third-party FBX/GLTF in this slice.
 
 - Palette reads as soft léine (tunic) + brat (cloak fold) + soft shoes + belt kit.
-- Visible kit: **hatchet** in hand (`WeaponVisual`), **knife** sheathed on left hip,
-  **cattle goad** stowed on the back when not selected. No starting sword/shield.
+- Visible kit: **hatchet** in hand (`WeaponVisual`) and the
+  **cattle goad** stowed on the back when not selected. No belt knife on the body (the held
+  knife in `WeaponVisual` stays for the raid / combat). No starting sword/shield.
 - Hostile dummy uses the same builder with a red-brown `PALETTE_HOSTILE`.
 
 Follow-up: replace with authored skeletal kerne (CC0 / commissioned) when art pipeline exists.

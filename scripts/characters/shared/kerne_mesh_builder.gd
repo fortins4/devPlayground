@@ -1,7 +1,7 @@
 class_name KerneMeshBuilder
 extends RefCounted
 ## Builds a readable early-medieval Irish kerne silhouette from primitive meshes.
-## Original greybox art for Ríocht (no third-party mesh import). Kit: hatchet + knife + goad.
+## Original greybox art for Ríocht (no third-party mesh import). Kit worn on the body: the goad on his back (no belt knife).
 
 const PALETTE_PLAYER := {
 	"skin": Color(0.86, 0.70, 0.58),
@@ -265,22 +265,6 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 	right_fore.add_child(ra_f)
 
 	if include_kit_props:
-		# Sheathed knife on left hip — always visible kit silhouette
-		var belt_knife := Node3D.new()
-		belt_knife.name = "BeltKnife"
-		# Left hip, just outside the tunic. Hangs on him when the knife is not drawn.
-		belt_knife.position = Vector3(-0.34, 0.14, 0.04)
-		belt_knife.rotation_degrees = Vector3(18.0, -40.0, 16.0)
-		torso.add_child(belt_knife)
-		var bk_handle := BoxMesh.new()
-		bk_handle.size = Vector3(0.045, 0.11, 0.04)
-		belt_knife.add_child(_mesh_inst(bk_handle, wood, "Handle"))
-		var bk_blade := BoxMesh.new()
-		bk_blade.size = Vector3(0.04, 0.20, 0.018)
-		var bk_b := _mesh_inst(bk_blade, iron, "Blade")
-		bk_b.position = Vector3(0.0, -0.12, 0.0)
-		belt_knife.add_child(bk_b)
-
 		# Same goad as the hands: 1.30 shaft, same 0.045 thickness, same gray head.
 		# Head beside the right shoulder. Butt just off the grass, against the back.
 		var back_goad := Node3D.new()

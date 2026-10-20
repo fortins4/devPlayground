@@ -15,7 +15,8 @@ Read this file before doing any Ríocht task. These are the locked rules. Each n
 - Standing: no push, PR, merge or release without the user's explicit yes.
 
 ## Opening sequence
-- 2026-10-08: The opening is a set sequence: Máire, then bucket to spring to trough, then knife hitch, then bringing the herd home, then stow and meal.
+- 2026-10-20: Cian has no knife anywhere in the opening. The knife first appears in the later raid.
+- 2026-10-08: The opening is a set sequence: Máire, then bucket to spring to trough, then bringing the herd home, then (2026-10-20, replacing the pre-drive knife hitch) roping the milk cow out of the pen and tying her by hand to the post by the house, then stow and meal.
 - 2026-10-08: In the herd step the bogged cow is one of the 6 at the pasture. Free her, drive her back to rejoin the herd, then drive all 6 home. The stray dog ambushes and scatters them on the lane. Penning needs 6/6, and the walk out is quiet.
 - 2026-10-08: Máire is the hub. After each task Cian returns to her, and she gives the next task, which unlocks only after that talk. She has no lines when he's away.
 - 2026-10-08: Máire waves when she has something to say and says it automatically when Cian comes near (no button). Each pending line plays once, then the next step unlocks.

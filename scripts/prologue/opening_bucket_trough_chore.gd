@@ -15,7 +15,7 @@ const FILL_CLEAR_MAX := 1.85
 const BUCKET_SPAWN := Vector3(5.2, 0.0, 2.5)
 const TROUGH_POS := Vector3(8.2, 0.0, 0.4)
 ## Where the emptied bucket is left after the pour: on the yard side of the trough rail, at the
-## trough's west end (reachable ground, clear of the hitch post and the pour spot).
+## trough's west end (reachable ground, clear of the pour spot).
 const BUCKET_SETDOWN := Vector3(7.0, 0.0, 1.8)
 ## Period stave bucket: 0.32 m across the base (0.30 rim), 0.36 m tall, ~15 L carried (~17 kg full).
 ## Carried: bail bar (0.31 up, 0.03 thick) sits in the palms → bucket origin this far below the grip.

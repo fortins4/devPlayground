@@ -38,6 +38,11 @@ var _blocker_shape: CollisionShape3D = null
 var _swing_t: float = 0.0              ## 0 = open, 1 = shut
 var _latch_t: float = 0.0              ## 0 = up, 1 = engaged
 var _mats: Dictionary = {}
+## Milk-cow lead-out (OpeningRopeTieChore, after the drive): the latched gate's latch lifted and the
+## west leaf swung back open by hand, then shut and latched again. Only while the gate is latched.
+var _lead_mode: bool = false
+var _lead_latch_up: float = 0.0        ## 0 = engaged, 1 = lifted
+var _lead_open: float = 0.0            ## west leaf: 0 = shut, 1 = swung right back
 
 
 func _ready() -> void:
@@ -149,6 +154,33 @@ func leaf_tip_positions() -> Array[Vector3]:
 
 
 ## Smoke / capture: force a pose without walking. "mid" = half-swung, "latching" = shut, latch half down.
+## Lead-out pose (latched gate only): `latch_up` 0..1 lifts the latch, `west_open` 0..1 swings the
+## west leaf back. Both 0 again = shut and latched as before. Returns false if not latched.
+func set_lead_pose(latch_up: float, west_open: float) -> bool:
+	if _state != GateState.LATCHED:
+		return false
+	_lead_latch_up = clampf(latch_up, 0.0, 1.0)
+	_lead_open = clampf(west_open, 0.0, 1.0)
+	_lead_mode = _lead_latch_up > 0.0 or _lead_open > 0.0
+	_set_blocker(_lead_open < 0.02)
+	_apply_pose()
+	return true
+
+
+func lead_open_fraction() -> float:
+	return _lead_open
+
+
+## World point of the latch bar (hands lift it there).
+func latch_point() -> Vector3:
+	return _latch_pivot.global_position if _latch_pivot else _center + Vector3(0.0, 1.0, 0.0)
+
+
+## World point of the west leaf's free end (hands start the swing there).
+func west_tip_point() -> Vector3:
+	return (_west_pivot.get_node("Tip") as Node3D).global_position if _west_pivot else _center
+
+
 func force_state(state_name: String) -> void:
 	match state_name:
 		"open":
@@ -269,12 +301,17 @@ func _set_blocker(on: bool) -> void:
 func _apply_pose() -> void:
 	var a := (1.0 - _swing_t)
 	a = a * a * (3.0 - 2.0 * a)   # smoothstep: eases off the stop and into the posts
+	var wa := a
+	var lt := _latch_t
+	if _lead_mode:
+		wa = _lead_open * _lead_open * (3.0 - 2.0 * _lead_open)
+		lt = 1.0 - _lead_latch_up
 	if _west_pivot:
-		_west_pivot.rotation.y = -OPEN_ANGLE * a
+		_west_pivot.rotation.y = -OPEN_ANGLE * wa
 	if _east_pivot:
 		_east_pivot.rotation.y = OPEN_ANGLE * a
 	if _latch_pivot:
-		_latch_pivot.rotation.z = LATCH_UP * (1.0 - _latch_t)
+		_latch_pivot.rotation.z = LATCH_UP * (1.0 - lt)
 
 
 func _build_props() -> void:

@@ -70,6 +70,9 @@ var is_dead: bool = false
 var is_blocking: bool = false
 ## Goad only: held shaft guard. Not enable_block (shield) and not a timed parry.
 var is_shaft_blocking: bool = false
+## False where the knife is not part of Cian's kit (the opening: it first appears in the raid).
+## Key 2 and Q then never draw it. set_weapon() itself is unchanged (scripted / smoke use).
+var knife_in_kit: bool = true
 ## Which way the held goad faces. chest | left | right | high | low.
 ## chest keeps the old frontal catch. The other four stop only that side.
 ## Independent of sparring guard_face / BlockPostureTable.
@@ -274,6 +277,8 @@ func set_weapon(weapon: Weapon) -> void:
 func cycle_weapon(direction: int = 1) -> void:
 	# Live kit is goad → knife → unarmed. Hatchet combat remains, but Q does not equip it.
 	var values: Array = [Weapon.GOAD, Weapon.KNIFE, Weapon.UNARMED]
+	if not knife_in_kit:
+		values.erase(Weapon.KNIFE)
 	var idx := values.find(current_weapon)
 	idx = (idx + direction) % values.size()
 	if idx < 0:

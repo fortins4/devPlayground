@@ -349,6 +349,13 @@ func _bind_locomotion_joints() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if is_hand_working():
+		# Both hands at work on a fixed spot (tying a rope): he stands to it. No look-turn,
+		# move, jump, strikes or kit changes until the source lets him go.
+		_discard_attack_buffer(&"hand_work")
+		if event.is_action_pressed("ui_cancel"):
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
+		return
 	if _seat_phase != SeatPhase.NONE:
 		# Sitting to eat: no look, move, jump, strikes or kit changes until he is back up.
 		if event.is_action_pressed("ui_cancel"):
@@ -389,6 +396,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if is_carrying():
 		_discard_attack_buffer(&"carry")
 		return
+	# Leading a beast by the rope: goad on his back, rope in the right hand — no strikes, no draw.
+	if is_leading():
+		_discard_attack_buffer(&"lead")
+		return
 
 	# No melee while mounted — dismount to fight (slice rule).
 	if is_mounted:
@@ -424,7 +435,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Key 1 stows. The hatchet is not in this kit.
 		combat.set_weapon(CombatSystem.Weapon.UNARMED)
 	elif event.is_action_pressed("weapon_knife"):
-		combat.set_weapon(CombatSystem.Weapon.KNIFE)
+		# Not in every kit: the opening has no knife (it first appears in the raid).
+		if combat.knife_in_kit:
+			combat.set_weapon(CombatSystem.Weapon.KNIFE)
 	elif event.is_action_pressed("weapon_goad"):
 		combat.set_weapon(CombatSystem.Weapon.GOAD)
 
@@ -484,12 +497,16 @@ func _physics_process(delta: float) -> void:
 		bog.tick(delta, is_crouching, Vector3(velocity.x, 0.0, velocity.z).length())
 
 	var dragging := dragging_body != null and is_instance_valid(dragging_body)
-	if not locked and not is_crouching and not dragging and (_jump_buffered or Input.is_action_just_pressed("jump")) and is_on_floor():
+	if not locked and not is_crouching and not dragging and not is_hand_working() and (_jump_buffered or Input.is_action_just_pressed("jump")) and is_on_floor():
 		velocity.y = JUMP_VELOCITY
 	_jump_buffered = false
 
 	var input_dir := _move_vector()
 	var direction := (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
+	var hand_work := is_hand_working()
+	if hand_work:
+		# Walks himself to the work spot, then stands to it facing the job.
+		direction = _hand_work_steer(delta)
 
 	var want_sprint := (
 		Input.is_action_pressed("sprint")
@@ -499,6 +516,8 @@ func _physics_process(delta: float) -> void:
 		and not dragging
 		and not (bog and bog.blocks_sprint())
 		and not is_carrying()
+		and not hand_work
+		and not is_leading()
 	)
 	var sprinting := false
 	if want_sprint and combat:
@@ -520,6 +539,10 @@ func _physics_process(delta: float) -> void:
 		target_speed = CROUCH_SPEED
 	elif is_carrying():
 		target_speed = CARRIED_WALK_SPEED
+	elif hand_work:
+		target_speed = HAND_WORK_APPROACH_SPEED
+	elif is_leading():
+		target_speed = LEAD_WALK_SPEED
 	elif sprinting:
 		target_speed = SPRINT_SPEED
 	if bog:
@@ -557,6 +580,8 @@ func _physics_process(delta: float) -> void:
 		_tick_sprint_carry(delta)
 		_sync_weapon_to_hand()
 		_tick_load_carry(delta)
+		_tick_hand_work(delta)
+		_tick_lead(delta)
 
 
 func _process(_delta: float) -> void:
@@ -589,7 +614,9 @@ func _tick_locomotion(delta: float, horiz_speed: float, sprinting: bool, locked:
 	)
 	var local_dir := Vector3.ZERO
 	var input_dir := _move_vector()
-	if not locked:
+	if is_hand_working():
+		local_dir = Vector3(0.0, 0.0, -1.0) if horiz_speed > 0.05 else Vector3.ZERO
+	elif not locked:
 		local_dir = Vector3(input_dir.x, 0.0, input_dir.y)
 	locomotion.tick(delta, horiz_speed, sprinting, is_crouching, attacking, local_dir)
 	# Idle ready-hold when standing (not charging / swinging).
@@ -2059,16 +2086,6 @@ func _on_weapon_changed(weapon: StringName) -> void:
 	_sync_back_goad_visibility()
 	if locomotion:
 		_apply_weapon_idle_pose()
-	# Hide belt knife mesh when knife is drawn as active weapon.
-	if locomotion == null:
-		return
-	var visual_node := get_node_or_null("Visual") as Node3D
-	if visual_node == null:
-		return
-	var belt_knife := visual_node.find_child("BeltKnife", true, false) as Node3D
-	if belt_knife:
-		# On the hip whenever the knife is not in the hand.
-		belt_knife.visible = weapon != &"knife"
 
 
 func _sync_back_goad_visibility() -> void:
@@ -4493,15 +4510,24 @@ func _seat_back_goad_for_carry(w: float) -> void:
 ## Two-bone IK for both arms onto the handle, blended over whatever the arms hold by `w`.
 func _pose_load_arms(w: float) -> void:
 	var visual := locomotion.get_node_or_null(locomotion.visual_path) as Node3D
-	var torso := locomotion.get_joint("torso")
-	if visual == null or torso == null:
+	if visual == null:
 		return
-	for side in [-1.0, 1.0]:
+	_pose_arms_to(w,
+		visual.global_transform * (LOAD_GRIP + Vector3(-LOAD_GRIP_HALF, 0.0, 0.0)),
+		visual.global_transform * (LOAD_GRIP + Vector3(LOAD_GRIP_HALF, 0.0, 0.0)))
+
+
+## Two-bone IK: left hand onto `left_w`, right hand onto `right_w` (world), blended by `w`.
+func _pose_arms_to(w: float, left_w: Vector3, right_w: Vector3, sides: Array = [-1.0, 1.0]) -> void:
+	var torso := locomotion.get_joint("torso")
+	if torso == null:
+		return
+	for side in sides:
 		var arm := locomotion.get_joint("left_arm" if side < 0.0 else "right_arm")
 		var fore := locomotion.get_joint("left_forearm" if side < 0.0 else "right_forearm")
 		if arm == null or fore == null:
 			continue
-		var tgt_w := visual.global_transform * (LOAD_GRIP + Vector3(side * LOAD_GRIP_HALF, 0.0, 0.0))
+		var tgt_w := left_w if side < 0.0 else right_w
 		var t := torso.global_transform.affine_inverse() * tgt_w  # torso space
 		var sh := arm.position
 		var v := t - sh
@@ -4525,3 +4551,171 @@ func _pose_load_arms(w: float) -> void:
 		var fore_b := Basis(Vector3.RIGHT, flex)
 		arm.basis = arm.basis.orthonormalized().slerp(arm_b, w) if w < 1.0 else arm_b
 		fore.basis = fore.basis.orthonormalized().slerp(fore_b, w) if w < 1.0 else fore_b
+
+
+# ---------------------------------------------------------------- hand work (milk-cow gate lead-out + rope tie)
+## Both hands at a fixed spot, e.g. tying a beast's rope to a post. `source` calls
+## begin_hand_work(self, stand_point, face_yaw): the goad is stowed with the existing stow, he
+## walks himself to `stand_point` (world, feet), turns to `face_yaw` and stands still; once
+## hand_work_ready() the source poses the hands every frame through hand_work_grips() →
+## [left_world, right_world]. end_hand_work(source) lets go and the existing draw brings the
+## goad back. Look-turn, moving, jumping, strikes and kit changes are refused meanwhile.
+const HAND_WORK_APPROACH_SPEED := 1.0
+const HAND_WORK_ARRIVE := 0.06
+const HAND_WORK_TURN_RATE := 9.0
+const HAND_WORK_HOLD_RATE := 1.0 / 0.35
+var _hand_work_src: Object = null
+var _hand_work_stand: Vector3 = Vector3.ZERO
+var _hand_work_yaw: float = 0.0
+var _hand_work_arrived: bool = false
+var _hand_work_w: float = 0.0
+var _hand_work_prev_weapon: int = -1
+var _hand_work_redraw: bool = false
+
+
+func begin_hand_work(source: Object, stand_point: Vector3, face_yaw: float) -> void:
+	if source == null:
+		return
+	_hand_work_src = source
+	_hand_work_stand = stand_point
+	_hand_work_yaw = face_yaw
+	_hand_work_arrived = false
+	_hand_work_redraw = false
+	if _lead_redraw:
+		# Straight on from leading (rope in hand → knot): keep the goad on his back.
+		_lead_redraw = false
+		_hand_work_prev_weapon = _lead_prev_weapon
+	elif combat:
+		_hand_work_prev_weapon = int(combat.current_weapon)
+	if combat:
+		if combat.is_charging:
+			combat.cancel_charge()
+		combat.is_shaft_blocking = false
+		if combat.current_weapon != CombatSystem.Weapon.UNARMED:
+			combat.set_weapon(CombatSystem.Weapon.UNARMED)  # the existing stow
+
+
+func end_hand_work(source: Object) -> void:
+	if source == null or source != _hand_work_src:
+		return
+	_hand_work_src = null
+	_hand_work_arrived = false
+	_hand_work_redraw = _hand_work_prev_weapon >= 0 and _hand_work_prev_weapon != int(CombatSystem.Weapon.UNARMED)
+
+
+func is_hand_working() -> bool:
+	if _hand_work_src != null and not is_instance_valid(_hand_work_src):
+		_hand_work_src = null
+	return _hand_work_src != null
+
+
+## True once he stands at the spot, faces the job, the goad is on his back and both hands are on it.
+func hand_work_ready() -> bool:
+	return is_hand_working() and _hand_work_arrived and _hand_work_w >= 0.999
+
+
+func _hand_work_steer(delta: float) -> Vector3:
+	var to := _hand_work_stand - global_position
+	to.y = 0.0
+	if not _hand_work_arrived and to.length() > HAND_WORK_ARRIVE:
+		# Turn toward the spot, then step to it (short walk, real stride).
+		var want := atan2(-to.x, -to.z)
+		rotation.y = lerp_angle(rotation.y, want, clampf(HAND_WORK_TURN_RATE * delta, 0.0, 1.0))
+		var facing := absf(angle_difference(rotation.y, want)) < 0.6
+		if to.length() < 0.25:
+			return to.normalized() * clampf(to.length() / 0.25, 0.3, 1.0)
+		return -transform.basis.z if facing else Vector3.ZERO
+	_hand_work_arrived = true
+	rotation.y = lerp_angle(rotation.y, _hand_work_yaw, clampf(HAND_WORK_TURN_RATE * delta, 0.0, 1.0))
+	return Vector3.ZERO
+
+
+func _tick_hand_work(delta: float) -> void:
+	if locomotion == null:
+		return
+	var working := is_hand_working()
+	var stowed := combat == null or (combat.current_weapon == CombatSystem.Weapon.UNARMED and not _goad_stowing)
+	var facing := absf(angle_difference(rotation.y, _hand_work_yaw)) < 0.12
+	var target := 1.0 if (working and stowed and _hand_work_arrived and facing) else 0.0
+	_hand_work_w = move_toward(_hand_work_w, target, HAND_WORK_HOLD_RATE * delta)
+	if _hand_work_w > 0.0 and _hand_work_src != null and _hand_work_src.has_method("hand_work_grips"):
+		var g: Array = _hand_work_src.call("hand_work_grips")
+		if g.size() >= 2:
+			_last_hand_work_grips = g
+	if _hand_work_w > 0.0 and _last_hand_work_grips.size() >= 2:
+		_pose_arms_to(_hand_work_w, _last_hand_work_grips[0], _last_hand_work_grips[1])
+	elif _hand_work_redraw and not working:
+		_hand_work_redraw = false
+		if combat and combat.current_weapon == CombatSystem.Weapon.UNARMED:
+			combat.set_weapon(_hand_work_prev_weapon)  # the existing draw
+
+
+var _last_hand_work_grips: Array = []
+
+
+# ---------------------------------------------------------------- leading a beast by the rope
+## begin_lead(source): the goad goes on his back (the existing stow) and his right hand holds
+## the lead low beside the hip; he walks at LEAD_WALK_SPEED (a beast on a rope sets the pace),
+## no sprint, no strikes, no kit changes. end_lead(source) lets go; the existing draw brings the
+## goad back unless hand work (tying the rope) follows straight on.
+const LEAD_WALK_SPEED := 1.15
+const LEAD_HAND := Vector3(0.24, 0.9, 0.08) ## Visual frame: right hand by the hip, a touch behind
+const LEAD_HOLD_RATE := 1.0 / 0.3
+var _lead_src: Object = null
+var _lead_w: float = 0.0
+var _lead_prev_weapon: int = -1
+var _lead_redraw: bool = false
+
+
+func begin_lead(source: Object) -> void:
+	if source == null:
+		return
+	_lead_src = source
+	_lead_redraw = false
+	if _hand_work_redraw:
+		# Straight on from hand work (roping her at the gate): keep the goad on his back.
+		_hand_work_redraw = false
+		_lead_prev_weapon = _hand_work_prev_weapon
+	elif combat:
+		_lead_prev_weapon = int(combat.current_weapon)
+	if combat:
+		if combat.is_charging:
+			combat.cancel_charge()
+		combat.is_shaft_blocking = false
+		if combat.current_weapon != CombatSystem.Weapon.UNARMED:
+			combat.set_weapon(CombatSystem.Weapon.UNARMED)  # the existing stow
+
+
+func end_lead(source: Object) -> void:
+	if source == null or source != _lead_src:
+		return
+	_lead_src = null
+	_lead_redraw = _lead_prev_weapon >= 0 and _lead_prev_weapon != int(CombatSystem.Weapon.UNARMED)
+
+
+func is_leading() -> bool:
+	if _lead_src != null and not is_instance_valid(_lead_src):
+		_lead_src = null
+	return _lead_src != null
+
+
+## World point of the hand that holds the lead (rope end), for the source's rope.
+func lead_hand_point() -> Vector3:
+	return _hand_tip(&"right_forearm")
+
+
+func _tick_lead(delta: float) -> void:
+	if locomotion == null:
+		return
+	var leading := is_leading()
+	var stowed := combat == null or (combat.current_weapon == CombatSystem.Weapon.UNARMED and not _goad_stowing)
+	_lead_w = move_toward(_lead_w, 1.0 if (leading and stowed and not is_hand_working()) else 0.0, LEAD_HOLD_RATE * delta)
+	if _lead_w > 0.0:
+		var visual := locomotion.get_node_or_null(locomotion.visual_path) as Node3D
+		if visual:
+			var r := visual.global_transform * LEAD_HAND
+			_pose_arms_to(_lead_w, r, r, [1.0])
+	elif _lead_redraw and not leading and not is_hand_working():
+		_lead_redraw = false
+		if combat and combat.current_weapon == CombatSystem.Weapon.UNARMED:
+			combat.set_weapon(_lead_prev_weapon)  # the existing draw

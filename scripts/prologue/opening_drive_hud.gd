@@ -11,7 +11,7 @@ var _flash: Label
 var _controls: Label
 var _weapon: Label
 var _chore: Node = null
-var _knife_chore: Node = null
+var _tie_chore: Node = null
 var _maire_chore: Node = null
 var _bog_chore: Node = null
 var _dog_chore: Node = null
@@ -76,7 +76,7 @@ func _ready() -> void:
 	_controls.offset_top = -36
 	_controls.offset_bottom = -10
 	_controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 2 knife · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
+	_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	call_deferred("_bind")
 
 
@@ -87,7 +87,7 @@ func _bind() -> void:
 	if _director and _director.has_signal("stage_changed"):
 		_director.connect("stage_changed", _on_stage)
 	_chore = get_tree().get_first_node_in_group("opening_bucket_trough")
-	_knife_chore = get_tree().get_first_node_in_group("opening_knife_hitch")
+	_tie_chore = get_tree().get_first_node_in_group("opening_rope_tie")
 	_maire_chore = get_tree().get_first_node_in_group("opening_maire_door_talk")
 	_bog_chore = get_tree().get_first_node_in_group("opening_bogged_cow")
 	_dog_chore = get_tree().get_first_node_in_group("opening_stray_dog")
@@ -104,7 +104,7 @@ func _process(_delta: float) -> void:
 	if f == "":
 		f = _chore_prompt(_chore)
 	if f == "":
-		f = _chore_prompt(_knife_chore)
+		f = _chore_prompt(_tie_chore)
 	if f == "":
 		f = _chore_prompt(_maire_chore)
 	if f == "":
@@ -119,20 +119,20 @@ func _process(_delta: float) -> void:
 	_flash.visible = f != ""
 	if (
 		_chore_active(_chore)
-		or _chore_active(_knife_chore)
+		or _chore_active(_tie_chore)
 		or _chore_active(_maire_chore)
 		or _chore_active(_bog_chore)
 		or _chore_active(_dog_chore)
 		or _chore_active(_meal_chore)
 		or _chore_active(_gate_chore)
 	):
-		_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 2 knife · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
+		_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	else:
-		_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 2 knife · 3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
+		_controls.text = "WASD move · Shift sprint · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
 	var player := get_tree().get_first_node_in_group("player")
 	var combat := player.get_node_or_null("CombatSystem") if player else null
 	if combat and combat.has_method("weapon_name"):
-		_weapon.text = "In hand: %s   (carrying goad · knife)" % String(combat.call("weapon_name"))
+		_weapon.text = "In hand: %s   (carrying goad)" % String(combat.call("weapon_name"))
 
 
 
