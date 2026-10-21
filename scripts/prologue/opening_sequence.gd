@@ -240,30 +240,41 @@ func _drive_text() -> String:
 		"free_her":
 			return "There she is, stuck fast. Goad her out of the bog — goad drawn (3), prod her (LMB / RMB)."
 		"rejoin":
-			return "Drive her back to the herd at the pasture — walk behind her, goad drawn." + _draw_hint(d)
+			if _goad_slung(d):
+				return "Drive her back to the herd at the pasture — walk behind her. " + DRAW_HINT
+			return "Drive her back to the herd at the pasture — walk behind her, goad drawn."
 		"stir":
 			return "She's back with the herd. Draw the goad (3) and prod a cow (LMB / RMB) to start the herd home."
 		"latch":
 			return "The herd's in. Swing the pen gate shut and latch it — E at the gateway."
 		"ambush":
-			return "A stray dog's at the herd! Scare it off — E or a goad prod, up close." + _draw_hint(d)
+			if _goad_slung(d):
+				return "A stray dog's at the herd! " + DRAW_HINT.trim_suffix(".") + ", then scare it off — E or a goad prod, up close."
+			return "A stray dog's at the herd! Scare it off — E or a goad prod, up close."
 		"regather":
-			return "Regather the strays scattered off the lane. Goad them back to the herd." + _draw_hint(d)
-	var s := "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre."
+			if _goad_slung(d):
+				return "Regather the strays scattered off the lane. " + DRAW_HINT.trim_suffix(".") + ", then goad them back to the herd."
+			return "Regather the strays scattered off the lane. Goad them back to the herd."
+	var slung := _goad_slung(d)
+	var s := "Bring the herd home: walk behind them up the lane to the pen by the byre." if slung \
+		else "Bring the herd home: walk behind them, goad drawn, up the lane to the pen by the byre."
 	if int(d.call("hud_bogged_count")) > 0:
 		s += "  There's a cow in the bog — goad her out!"
 	elif int(d.call("stalled_count")) > 0:
 		s += "  Some have stopped to graze — keep pushing."
-	return s + _draw_hint(d)
+	if slung:
+		s += "  " + DRAW_HINT
+	return s
 
 
-## He starts with the goad slung on his back; where a drive beat needs it in hand and it isn't,
-## the line says how to draw it (rejoin, driving, regather, ambush; free_her / stir already name
-## the key).
-func _draw_hint(d: Node) -> String:
-	if d.has_method("goad_in_hand") and not bool(d.call("goad_in_hand")):
-		return "  Press 3 to draw the goad."
-	return ""
+## He starts with the goad slung on his back. Where a drive beat needs it in hand (rejoin,
+## driving, regather, ambush) and it isn't, the line drops "goad drawn" and says how to draw it
+## once; with it drawn the line reads as before. (free_her / stir already name the key.)
+const DRAW_HINT := "Press 3 to draw the goad."
+
+
+func _goad_slung(d: Node) -> bool:
+	return d.has_method("goad_in_hand") and not bool(d.call("goad_in_hand"))
 
 
 const _NUM_WORDS := ["none", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
