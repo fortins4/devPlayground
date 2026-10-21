@@ -66,6 +66,9 @@ var _arm_deg: float = ARM_DOWN_DEG
 ## Player inside TALK_RADIUS last frame (idle line needs a fresh approach).
 var _player_near: bool = false
 var _idle_said: bool = false
+## Opening intro (OpeningDaydreamIntro): she is about her own work at the door and does not wave
+## until she calls Cian over (call_out). False everywhere else.
+var intro_hold: bool = false
 
 
 func _ready() -> void:
@@ -161,7 +164,16 @@ func has_pending_line() -> bool:
 
 
 func is_waving() -> bool:
-	return has_pending_line()
+	return has_pending_line() and not intro_hold
+
+
+## Opening intro: she calls Cian over from the door, shown like her other lines (bark over her
+## plus the HUD line). Not a sequence line: her door talk (step 1) still plays when he comes.
+func call_out(line: String, secs: float = 4.5) -> void:
+	intro_hold = false
+	_show_bark(line, secs)
+	_flash("%s: %s" % [speaker_name, line], secs)
+	print("OPENING_INTRO_MAIRE_CALL line=%s" % line)
 
 
 func _tick_arm(delta: float) -> void:

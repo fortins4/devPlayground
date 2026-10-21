@@ -1,4 +1,4 @@
-[gd_scene load_steps=25 format=3 uid="uid://cq8riochtopendrv01"]
+[gd_scene load_steps=26 format=3 uid="uid://cq8riochtopendrv01"]
 
 [ext_resource type="Script" path="res://scripts/prologue/opening_farm_greybox.gd" id="1_greybox"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_drive_director.gd" id="2_director"]
@@ -14,6 +14,7 @@
 [ext_resource type="Script" path="res://scripts/prologue/opening_stow_meal_chore.gd" id="12_meal"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_sequence.gd" id="13_seq"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_pen_gate_chore.gd" id="14_gate"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_daydream_intro.gd" id="15_intro"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_morning_mat"]
 sky_top_color = Color(0.5, 0.62, 0.74, 1)
@@ -184,3 +185,6 @@ script = ExtResource("3_hud")
 
 [node name="OpeningDriveLauncher" type="Node" parent="."]
 script = ExtResource("6_launch")
+
+[node name="OpeningDaydreamIntro" type="Node" parent="."]
+script = ExtResource("15_intro")

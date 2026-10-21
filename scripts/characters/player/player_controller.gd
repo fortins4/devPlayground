@@ -101,6 +101,11 @@ var _seat_eat: float = 0.0
 var _seat_pivot_rest: Vector3 = Vector3.ZERO
 var _seat_rise_queued: bool = false
 var mounted_horse: Node3D = null
+## Opening intro (OpeningDaydreamIntro): a set shot with no player control. Move, look, combat,
+## kit keys and interaction are off; the body stands in its normal start state (goad and guard
+## as they are) and the intro lays small head / torso / hip offsets on top (set_cinematic_pose).
+var _cine_lock: bool = false
+var _cine_pose: Dictionary = {}
 
 ## Directional hatchet: hold LMB to charge; mouse aim (look) picks top|left|right.
 var _charge_aim_delta: Vector2 = Vector2.ZERO ## mouse aim offset while holding (not WASD/flick)
@@ -362,6 +367,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.is_action_pressed("ui_cancel"):
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
 		return
+	if _cine_lock:
+		# Opening intro shot: no look, move, jump, strikes, kit changes or interaction.
+		if event.is_action_pressed("ui_cancel"):
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
+		return
 	if _seat_phase != SeatPhase.NONE:
 		# Sitting to eat: no look, move, jump, strikes or kit changes until he is back up.
 		if event.is_action_pressed("ui_cancel"):
@@ -467,6 +477,10 @@ func _physics_process(delta: float) -> void:
 		# Rider body uses seated bind pose (KerneLocomotion.tick_mounted) driven by horse.
 		velocity = Vector3.ZERO
 		_noise_level = 0.35  # mounted presence — audible but not sprint-loud
+		return
+
+	if _cine_lock:
+		_tick_cinematic(delta)
 		return
 
 	if _seat_phase != SeatPhase.NONE:
@@ -4250,7 +4264,76 @@ func is_seated() -> bool:
 
 
 func is_input_locked() -> bool:
-	return _seat_phase != SeatPhase.NONE
+	return _seat_phase != SeatPhase.NONE or _cine_lock
+
+
+## --- Opening intro shot (OpeningDaydreamIntro) ---
+
+## Take control away for a set shot. The goad keeps the state the opening gives it; a draw still
+## running from the scene start lands at once so the shot opens on the normal ready hold.
+func begin_cinematic() -> void:
+	_cine_lock = true
+	_cine_pose = {}
+	_discard_attack_buffer(&"cinematic")
+	_jump_buffered = false
+	_sprinting = false
+	is_crouching = false
+	velocity = Vector3(0.0, velocity.y, 0.0)
+	if _goad_draw_tween and _goad_draw_tween.is_valid() and not _goad_stowing:
+		_goad_draw_tween.kill()
+		_set_goad_draw_u(1.0)
+	print("PLAYER_CINEMATIC_BEGIN")
+
+
+## Hand control back. The next physics tick is plain foot loco again (nothing stale kept).
+func end_cinematic() -> void:
+	if not _cine_lock:
+		return
+	_cine_lock = false
+	_cine_pose = {}
+	velocity = Vector3(0.0, velocity.y, 0.0)
+	print("PLAYER_CINEMATIC_END")
+
+
+func is_cinematic() -> bool:
+	return _cine_lock
+
+
+## Small offsets laid over the standing pose while in the set shot: joint name → euler (rad)
+## added to the joint's rotation; "root_pos" → metres added to the skeleton root position.
+func set_cinematic_pose(offsets: Dictionary) -> void:
+	_cine_pose = offsets
+
+
+func _tick_cinematic(delta: float) -> void:
+	if not is_on_floor():
+		velocity.y -= _gravity * delta
+	velocity.x = 0.0
+	velocity.z = 0.0
+	move_and_slide()
+	_update_noise(0.0, false)
+	_expire_hurt_react_if_tween_died()
+	# Same standing pipeline as a still player (idle / turn-on-the-spot loco, guard hold).
+	_tick_locomotion(delta, 0.0, false, true)
+	_tick_shaft_block()
+	if locomotion == null:
+		return
+	if locomotion.current_state() == &"turn" and combat and combat.is_shaft_blocking:
+		# Turning on the spot: the planted guard legs would skate round. Let the loco turn
+		# shuffle have the legs (arms, spine and shaft stay in the guard hold).
+		_forget_guard_legs()
+		locomotion.tick(0.0, 0.0, false, false, false, Vector3.ZERO)
+	for key in _cine_pose:
+		var off: Vector3 = _cine_pose[key]
+		if String(key) == "root_pos":
+			var r := locomotion.get_joint("root")
+			if r:
+				r.position += off
+			continue
+		var n := locomotion.get_joint(String(key))
+		if n:
+			n.rotation += off
+	_sync_weapon_to_hand()
 
 
 func seat_state() -> String:

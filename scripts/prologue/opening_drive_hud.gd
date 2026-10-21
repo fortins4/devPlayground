@@ -16,6 +16,7 @@ var _bog_chore: Node = null
 var _dog_chore: Node = null
 var _meal_chore: Node = null
 var _gate_chore: Node = null
+var _intro: Node = null
 
 
 func _ready() -> void:
@@ -91,6 +92,12 @@ func _bind() -> void:
 func _process(_delta: float) -> void:
 	if _director == null:
 		return
+	# Opening intro shot: no objective or controls until Cian has control (her call still shows).
+	if _intro == null or not is_instance_valid(_intro):
+		_intro = get_tree().get_first_node_in_group("opening_intro")
+	var intro_on := _intro != null and bool(_intro.call("is_playing"))
+	_objective.visible = not intro_on
+	_controls.visible = not intro_on
 	_objective.text = String(_director.call("objective_text"))
 	_status.text = String(_director.call("status_text"))
 	_status.visible = _status.text != ""   # empty in the opening: no herd counter
