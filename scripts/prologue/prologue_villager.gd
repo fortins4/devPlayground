@@ -61,6 +61,16 @@ var _follow: Node3D = null
 var _follow_off: Vector3 = Vector3.ZERO
 var _follow_max: float = 3.0
 var _kit_mats: Dictionary = {}
+## Raid day, steps 7–8: crouched (as Cian crouches, or frozen in the ditch), struck down (lies
+## still), a spear levelled at a point, a bow drawn.
+var crouching: bool = false
+var _down_on: bool = false
+var _down_w: float = 0.0
+var _thrust_point: Vector3 = Vector3.ZERO
+var _thrust_w: float = 0.0
+var _thrust_target_w: float = 0.0
+var _draw_w: float = 0.0
+var _drawing: bool = false
 
 
 func _ready() -> void:
@@ -96,6 +106,7 @@ func _ready() -> void:
 			beard.visible = false
 	_build_kit()
 	_label = Label3D.new()
+	_label.name = "NameTag"
 	_label.text = display_name
 	_label.font_size = 36
 	_label.pixel_size = 0.01
@@ -236,6 +247,50 @@ func has_kit(k: StringName) -> bool:
 	return kit.has(k)
 
 
+func right_hand_point() -> Vector3:
+	return _right_hand.global_position if _right_hand else global_position + Vector3(0, 1.0, 0)
+
+
+func set_crouch(on: bool) -> void:
+	crouching = on
+
+
+## Struck down: he goes over backwards and lies still (no blood, no close-up).
+func set_down(on: bool) -> void:
+	_down_on = on
+	if on:
+		_path.clear()
+		_follow = null
+
+
+func is_down() -> bool:
+	return _down_on and _down_w > 0.95
+
+
+## Level the spear at `world_point` (w 0..1, eased here): a serjeant's guard / thrust.
+func level_spear(world_point: Vector3, w: float) -> void:
+	_thrust_point = world_point
+	_thrust_target_w = clampf(w, 0.0, 1.0)
+
+
+## An archer drawing: the nocked arrow pulled back to the cheek (w eased here).
+func set_drawing(on: bool) -> void:
+	_drawing = on
+	if on:
+		_nocked = true
+
+
+func is_drawn() -> bool:
+	return _drawing and _draw_w > 0.9
+
+
+## The arrow leaves the string: drawn → empty-handed, the next one nocked a moment later.
+func loose() -> void:
+	_drawing = false
+	_draw_w = 0.0
+	_nock_w = 0.0
+
+
 # ---------------------------------------------------------------- tick
 
 func _physics_process(delta: float) -> void:
@@ -274,11 +329,12 @@ func _physics_process(delta: float) -> void:
 	_speed_now = lerpf(_speed_now, speed, clampf(delta * 8.0, 0.0, 1.0))
 	snap_to_ground()
 	if _loco:
-		_loco.tick(delta, 0.0 if riding else _speed_now, false, false, false, Vector3(0, 0, -1) if (_speed_now > 0.05 and not riding) else Vector3.ZERO)
+		_loco.tick(delta, 0.0 if (riding or _down_on) else _speed_now, false, crouching and not _down_on, false, Vector3(0, 0, -1) if (_speed_now > 0.05 and not riding) else Vector3.ZERO)
 		_pose_right_arm(delta)
 		_pose_left_arm(delta)
 		if riding:
 			_pose_riding()
+		_pose_down(delta)
 		_place_kit(delta)
 	if _bark_t > 0.0:
 		_bark_t -= delta
@@ -286,10 +342,43 @@ func _physics_process(delta: float) -> void:
 			_bark.visible = false
 
 
+func _pose_down(delta: float) -> void:
+	_down_w = move_toward(_down_w, 1.0 if _down_on else 0.0, delta * 1.6)
+	if _down_w <= 0.0:
+		return
+	var root := _loco.get_joint("root")
+	if root == null:
+		return
+	# Over backwards (rig faces −Z: +X rotation tips the head to +Z) and down onto the ground.
+	var e := _down_w * _down_w * (3.0 - 2.0 * _down_w)
+	root.rotation.x += PI * 0.5 * e
+	root.position.y -= 0.8 * e
+	root.position.z += 0.1 * e
+	for j in ["left_thigh", "right_thigh"]:
+		var t := _loco.get_joint(j)
+		if t:
+			t.rotation.x += 0.25 * e
+	for j in ["left_arm", "right_arm"]:
+		var a := _loco.get_joint(j)
+		if a:
+			a.rotation.z += (0.9 if j == "left_arm" else -0.9) * e
+
+
 func _pose_right_arm(delta: float) -> void:
 	var arm := _loco.get_joint("right_arm")
 	var fore := _loco.get_joint("right_forearm")
 	if arm == null or fore == null:
+		return
+	_thrust_w = move_toward(_thrust_w, _thrust_target_w, delta * 7.0)
+	if _thrust_w > 0.0:
+		var sh0 := arm.global_position
+		var aim := (_thrust_point - sh0)
+		aim.y = clampf(aim.y, -0.6, 0.2)
+		if aim.length() > 0.05:
+			var local0 := (arm.get_parent() as Node3D).global_transform.basis.orthonormalized().inverse() * aim.normalized()
+			var b0 := Basis.looking_at(local0, Vector3.UP) * Basis(Vector3.RIGHT, PI * 0.5)
+			arm.basis = arm.basis.orthonormalized().slerp(b0.orthonormalized(), _thrust_w * 0.85)
+			fore.rotation = fore.rotation.lerp(Vector3(deg_to_rad(25.0), 0.0, 0.0), _thrust_w)
 		return
 	_hold_w = move_toward(_hold_w, 1.0 if _hold_on else 0.0, delta * 3.0)
 	if _hold_w > 0.0:
@@ -314,11 +403,12 @@ func _pose_left_arm(delta: float) -> void:
 	if arm == null or fore == null:
 		return
 	_nock_w = move_toward(_nock_w, 1.0 if _nocked else 0.0, delta * 2.5)
+	_draw_w = move_toward(_draw_w, 1.0 if (_drawing and _nock_w > 0.9) else 0.0, delta * 2.2)
 	var w := _reach_l_w
 	var pt := _reach_l_point
 	if _nock_w > 0.0 and _bow:
-		# Bow hand out before him at chest height, a little to his left.
-		pt = global_transform * Vector3(-0.12 * (stature_m / RIG_STATURE), 1.25 * (stature_m / RIG_STATURE), -0.6)
+		# Bow hand out before him at chest height, a little to his left; drawn, at full stretch.
+		pt = global_transform * Vector3(-0.12 * (stature_m / RIG_STATURE), (1.25 + 0.12 * _draw_w) * (stature_m / RIG_STATURE), -0.6 - 0.15 * _draw_w)
 		w = maxf(w, _nock_w)
 	if w <= 0.0:
 		return
@@ -450,11 +540,25 @@ func _place_kit(_delta: float) -> void:
 	var s := stature_m / RIG_STATURE
 	var yaw := Basis(Vector3.UP, global_rotation.y)
 	if _spear and _right_hand:
-		# Upright in the right hand, butt by the foot.
-		_spear.global_transform = Transform3D(yaw * Basis(Vector3.RIGHT, -0.06), _right_hand.global_position)
+		# Upright in the right hand, butt by the foot; levelled (blade at the target) on guard.
+		var up_b := yaw * Basis(Vector3.RIGHT, -0.06)
+		if _thrust_w > 0.0:
+			var dirv := (_thrust_point - _right_hand.global_position)
+			if dirv.length() > 0.1:
+				dirv = dirv.normalized()
+				var xa := dirv.cross(Vector3.UP)
+				if xa.length() < 0.01:
+					xa = Vector3.RIGHT
+				xa = xa.normalized()
+				var lvl := Basis(xa, dirv, xa.cross(dirv).normalized())
+				up_b = Basis(up_b.get_rotation_quaternion().slerp(lvl.get_rotation_quaternion(), _thrust_w))
+		# Levelled, the hand holds it nearer the butt (a third of the way up).
+		var off := up_b * Vector3(0.0, 0.45 * _thrust_w, 0.0)
+		_spear.global_transform = Transform3D(up_b, _right_hand.global_position + off)
 	if _bow and _left_hand:
 		var tilt := Basis(Vector3.RIGHT, lerpf(0.12, 0.0, _nock_w)) * Basis(Vector3.FORWARD, lerpf(0.0, 0.25, _nock_w))
 		_bow.global_transform = Transform3D(yaw * tilt, _left_hand.global_position)
 		_bow.scale = Vector3.ONE * maxf(s, 0.9)
 		if _arrow:
 			_arrow.visible = _nock_w > 0.6
+			_arrow.position = Vector3(0.0, 0.0, -0.05 + 0.32 * _draw_w)

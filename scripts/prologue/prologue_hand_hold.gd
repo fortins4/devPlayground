@@ -6,7 +6,9 @@ class_name PrologueHandHold
 ## (both hands can't be on the shaft with one holding hers), no strikes or kit changes, and no
 ## sprint (he can't run flat out towing a ten-year-old); he walks or jogs (lead_walk_speed: the
 ## jog, or the walk with Alt), and crouches as ever. E again beside her lets go; she then stays at
-## his heel. (Following on her own, crouching with him and Máire coming too belong to step 7.)
+## his heel. Step 7: she crouches when he does (RaidSequence), and if the run goes wrong she freezes
+## in the ditch (freeze(): his hand is let go, she crouches and will not move) until Máire has her
+## again (resume(): back at his heel).
 
 const SEQ_STEP := &"knife"
 const INTERACT_RANGE := 1.6
@@ -16,7 +18,7 @@ const HEEL := Vector3(0.35, 0.0, 0.95)
 const JOG := 2.6    ## a child's jog, hand in hand
 const WALK := 1.5
 
-enum State { WAITING, IN_HAND, AT_HEEL }
+enum State { WAITING, IN_HAND, AT_HEEL, FROZEN }
 
 var _state: State = State.WAITING
 var _player: Node3D = null
@@ -40,7 +42,7 @@ func set_girl(g: Node3D) -> void:
 
 
 func hold_state() -> String:
-	return ["waiting", "in_hand", "at_heel"][int(_state)]
+	return ["waiting", "in_hand", "at_heel", "frozen"][int(_state)]
 
 
 func is_in_hand() -> bool:
@@ -66,6 +68,8 @@ func interact_prompt() -> String:
 		State.IN_HAND:
 			return "E — let go of her hand"
 		State.AT_HEEL:
+			if bool(_player.call("is_carrying")):
+				return ""
 			return "E — take her hand again"
 	return ""
 
@@ -124,6 +128,35 @@ func _let_go() -> void:
 	_girl.call("follow", _player, HEEL, 3.2)
 	_girl.call("reach_left", Vector3.ZERO, 0.0)
 	print("PROLOGUE_GIRL_HAND_RELEASED")
+
+
+## Let go without a key (the sack is picked up): she stays at his heel.
+func let_go() -> void:
+	if _state == State.IN_HAND:
+		_let_go()
+
+
+## Step 7 fail: she freezes where she is (in the ditch), crouched, and won't be led.
+func freeze() -> void:
+	if _state == State.IN_HAND:
+		_player.call("end_lead", self)
+	_state = State.FROZEN
+	_girl.call("follow", null, Vector3.ZERO, 0.0)
+	_girl.call("reach_left", Vector3.ZERO, 0.0)
+	_girl.call("set_crouch", true)
+	print("PROLOGUE_GIRL_FROZE")
+
+
+func is_frozen() -> bool:
+	return _state == State.FROZEN
+
+
+## Máire has her again: she comes on at his heel.
+func resume() -> void:
+	if _state != State.FROZEN:
+		return
+	_state = State.AT_HEEL
+	_girl.call("follow", _player, HEEL, 3.2)
 
 
 ## Smoke / capture.

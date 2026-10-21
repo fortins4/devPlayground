@@ -223,7 +223,65 @@ func is_walking() -> bool:
 	return _walk_target != Vector3.INF or _walk_yaw_pending
 
 
+## Raid day, step 7: she follows a node (Cian) on foot, keeping `gap` m behind, up to
+## `max_speed` (running when she falls back); crouches when told. `null` stops.
+var _follow: Node3D = null
+var _follow_gap: float = 1.6
+var _follow_max: float = 2.8
+var _crouch_on: bool = false
+var _crouch_w: float = 0.0
+var _hurt_arm: bool = false
+var _speed_now: float = 0.0
+
+
+func follow(target: Node3D, gap: float = 1.6, max_speed: float = 2.8) -> void:
+	_follow = target
+	_follow_gap = gap
+	_follow_max = max_speed
+	if target:
+		_walk_target = Vector3.INF
+		_walk_queue.clear()
+
+
+func following() -> Node3D:
+	return _follow if _follow and is_instance_valid(_follow) else null
+
+
+## Run straight to `p` at `speed` (step 7 fail: back for the girl). Clears any follow.
+func run_to(p: Vector3, speed: float) -> void:
+	_follow = null
+	_follow_max = speed
+	_walk_queue.clear()
+	_walk_target = p
+	_run_speed = speed
+
+
+var _run_speed: float = 0.0
+
+
+func set_crouch(on: bool) -> void:
+	_crouch_on = on
+
+
+func is_crouched() -> bool:
+	return _crouch_w > 0.5
+
+
+## Cut on the forearm (step 7 fail): she holds the arm in to her body. No blood shown.
+func set_forearm_cut(on: bool) -> void:
+	_hurt_arm = on
+
+
+func has_forearm_cut() -> bool:
+	return _hurt_arm
+
+
+func speed_now() -> float:
+	return _speed_now
+
+
 func place_at(p: Vector3, yaw: float) -> void:
+	_follow = null
 	_walk_target = Vector3.INF
 	_walk_queue.clear()
 	_walk_yaw_pending = false
@@ -231,8 +289,48 @@ func place_at(p: Vector3, yaw: float) -> void:
 	rotation.y = yaw
 
 
+func _tick_crouch(delta: float) -> void:
+	_crouch_w = move_toward(_crouch_w, 1.0 if _crouch_on else 0.0, delta * 3.0)
+	if _figure and not _milking and _milk_w <= 0.0:
+		var sc := STATURE_M / BUILT_STATURE_M
+		var e := _crouch_w * _crouch_w * (3.0 - 2.0 * _crouch_w)
+		_figure.scale = Vector3(sc, sc * (1.0 - 0.3 * e), sc)
+		_figure.rotation.x = 0.38 * e
+
+
+func _tick_follow(delta: float) -> bool:
+	var t := following()
+	if t == null:
+		return false
+	var me := global_position
+	var to := Vector3(t.global_position.x - me.x, 0.0, t.global_position.z - me.z)
+	var d := to.length()
+	var spd := 0.0
+	if d > _follow_gap + 0.15:
+		# Catch up: walk at his pace, run when she has fallen well back.
+		spd = clampf((d - _follow_gap) * 1.6, 0.6, _follow_max)
+		if _crouch_on:
+			spd = minf(spd, 1.0)
+	_speed_now = spd
+	if d > 0.05:
+		var want := atan2(to.x, to.z)
+		rotation.y = rotate_toward(rotation.y, want, 6.0 * delta)
+	if spd > 0.0:
+		global_position += to / d * minf(spd * delta, d - _follow_gap)
+		_walk_t += delta * (spd / WALK_SPEED)
+	global_position.y = OpeningTerrain.surface_y(global_position.x, global_position.z)
+	if _figure:
+		_figure.position.y = (absf(sin(_walk_t * PI * 1.8)) * 0.025) if spd > 0.0 else move_toward(_figure.position.y, 0.0, delta)
+	return true
+
+
 func _tick_walk(delta: float) -> void:
+	_tick_crouch(delta)
+	if _tick_follow(delta):
+		return
+	_speed_now = 0.0
 	if _walk_target == Vector3.INF:
+		_run_speed = 0.0
 		if _figure and not _milking and _milk_w <= 0.0:
 			_figure.position.y = move_toward(_figure.position.y, 0.0, delta)
 		if _walk_yaw_pending:
@@ -252,9 +350,11 @@ func _tick_walk(delta: float) -> void:
 	var want := atan2(to.x, to.z)
 	rotation.y = rotate_toward(rotation.y, want, 4.0 * delta)
 	if absf(angle_difference(rotation.y, want)) < 0.6:
-		var step := minf(d, WALK_SPEED * delta)
+		var spd := _run_speed if _run_speed > 0.0 else WALK_SPEED
+		_speed_now = spd
+		var step := minf(d, spd * delta)
 		global_position += to / d * step
-		_walk_t += delta
+		_walk_t += delta * (spd / WALK_SPEED)
 	global_position.y = OpeningTerrain.surface_y(global_position.x, global_position.z)
 	if _figure:
 		_figure.position.y = absf(sin(_walk_t * PI * 1.8)) * 0.025
@@ -407,6 +507,8 @@ func _tick_arm(delta: float) -> void:
 	if waving:
 		_wave_t += delta
 		target = WAVE_CENTER_DEG + sin(_wave_t * TAU * WAVE_HZ) * WAVE_SWING_DEG
+	elif _hurt_arm:
+		target = -118.0
 	elif _bark_timer > 0.0:
 		target = ARM_TALK_DEG + sin(Time.get_ticks_msec() * 0.008) * 8.0
 	var k := 1.0 if waving and absf(_arm_deg - target) < 40.0 else clampf(delta * 9.0, 0.0, 1.0)
