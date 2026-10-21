@@ -103,7 +103,9 @@ func _process(delta: float) -> void:
 		if _talk_hold <= 0.0:
 			_advance_talk(false)
 	_tick_hub()
+	_tick_walk(delta)
 	_tick_arm(delta)
+	_tick_milking(delta)
 
 
 ## Auto-talk: a waiting line plays once when Cian walks within TALK_RADIUS.
@@ -137,6 +139,8 @@ func _on_player_arrived() -> void:
 		return
 	if _talk_state == TalkState.TALKING:
 		return
+	if seq and String(seq.call("idle_line")) == "":
+		return  # (prologue twilight: no idle chatter)
 	if not _idle_said and _bark_timer <= 0.0:
 		_idle_said = true
 		_show_bark(String(seq.call("idle_line")) if seq else "Go on now — the work won't do itself.", 2.5)
@@ -176,8 +180,227 @@ func call_out(line: String, secs: float = 4.5) -> void:
 	print("OPENING_INTRO_MAIRE_CALL line=%s" % line)
 
 
+## Prologue: a hub line she calls from where she is working (at the milking she can't come to
+## the door). Same bark + HUD line as her other lines; logged through the live sequence.
+func say_line(key: String, line: String, secs: float = 5.5) -> void:
+	_show_bark(line, secs)
+	_flash("%s: %s" % [speaker_name, line], secs - 0.5)
+	var seq := _seq()
+	if seq:
+		seq.call("note_line", key, line)
+
+
+# ---------------------------------------------------------------- prologue: walking + milking
+## She walks (a plain greybox glide with a step bob, ~1.1 m/s) to a spot and turns to a yaw.
+const WALK_SPEED := 1.1
+var _walk_target: Vector3 = Vector3.INF
+var _walk_queue: Array[Vector3] = []
+var _walk_yaw: float = 0.0
+var _walk_yaw_pending: bool = false
+var _walk_t: float = 0.0
+var _milking: bool = false
+var _milk_w: float = 0.0
+var _milk_t: float = 0.0
+var _milk_pause: float = 0.0
+var _milk_rig: Node3D = null
+var _carry_pail: Node3D = null
+
+
+func walk_to(p: Vector3, yaw: float) -> void:
+	walk_route([p], yaw)
+
+
+## Walk through the points in turn (round the cow, not through her), then turn to `yaw`.
+func walk_route(points: Array, yaw: float) -> void:
+	_walk_queue.clear()
+	for q in points:
+		_walk_queue.append(Vector3(q.x, 0.0, q.z))
+	_walk_target = _walk_queue.pop_front() if not _walk_queue.is_empty() else Vector3.INF
+	_walk_yaw = yaw
+
+
+func is_walking() -> bool:
+	return _walk_target != Vector3.INF or _walk_yaw_pending
+
+
+func place_at(p: Vector3, yaw: float) -> void:
+	_walk_target = Vector3.INF
+	_walk_queue.clear()
+	_walk_yaw_pending = false
+	global_position = Vector3(p.x, OpeningTerrain.surface_y(p.x, p.z), p.z)
+	rotation.y = yaw
+
+
+func _tick_walk(delta: float) -> void:
+	if _walk_target == Vector3.INF:
+		if _figure and not _milking and _milk_w <= 0.0:
+			_figure.position.y = move_toward(_figure.position.y, 0.0, delta)
+		if _walk_yaw_pending:
+			rotation.y = rotate_toward(rotation.y, _walk_yaw, 4.0 * delta)
+			_walk_yaw_pending = absf(angle_difference(rotation.y, _walk_yaw)) > 0.01
+		return
+	_walk_yaw_pending = true
+	var to := Vector3(_walk_target.x - global_position.x, 0.0, _walk_target.z - global_position.z)
+	var d := to.length()
+	if d < 0.05:
+		if not _walk_queue.is_empty():
+			_walk_target = _walk_queue.pop_front()
+			return
+		_walk_target = Vector3.INF
+		return
+	# Her figure faces local +Z.
+	var want := atan2(to.x, to.z)
+	rotation.y = rotate_toward(rotation.y, want, 4.0 * delta)
+	if absf(angle_difference(rotation.y, want)) < 0.6:
+		var step := minf(d, WALK_SPEED * delta)
+		global_position += to / d * step
+		_walk_t += delta
+	global_position.y = OpeningTerrain.surface_y(global_position.x, global_position.z)
+	if _figure:
+		_figure.position.y = absf(sin(_walk_t * PI * 1.8)) * 0.025
+
+
+## Settles on a low stool at the cow's right flank (call after she arrives) or gets up again.
+## Pose: sat low with her skirts over her knees, leaning in to the flank, both hands at the udder
+## working in turn; a pail under the udder.
+func set_milking(on: bool) -> void:
+	_milking = on
+	if on and _milk_rig == null:
+		_build_milk_rig()
+	print("PROLOGUE_MAIRE_MILKING on=%s" % on)
+
+
+func is_milking() -> bool:
+	return _milking
+
+
+## A moment's pause in the milking (the boy's news): her hands stop, then go on.
+func pause_milking(secs: float) -> void:
+	_milk_pause = secs
+
+
+func milk_pause_left() -> float:
+	return _milk_pause
+
+
+## Carrying the full pail by its handle (walking to the door after the milking).
+func carry_pail(on: bool) -> void:
+	if _milk_rig == null:
+		_build_milk_rig()
+	var pail := (_milk_rig.get_node_or_null("Pail") as Node3D) if _carry_pail == null else _carry_pail
+	if on and pail:
+		pail.reparent(_arm, false)
+		pail.position = Vector3(0.0, 0.88, 0.0)
+		pail.rotation = Vector3(0.0, 0.0, PI)
+		_carry_pail = pail
+	elif _carry_pail:
+		_carry_pail.visible = false
+
+
+func _tick_milking(delta: float) -> void:
+	_milk_w = move_toward(_milk_w, 1.0 if _milking else 0.0, delta * 1.6)
+	if _milk_rig:
+		var lap := _milk_rig.get_child(0) as Node3D
+		if lap:
+			lap.visible = _milk_w > 0.5
+		var pl := _milk_rig.get_node_or_null("Pail") as Node3D
+		if pl:
+			pl.visible = _milk_w > 0.5 or _milking
+		_milk_rig.visible = true
+	if _figure == null:
+		return
+	var skirt := _figure.get_node_or_null("Skirt") as Node3D
+	var shoes: Array = [_figure.get_node_or_null("ShoeL"), _figure.get_node_or_null("ShoeR")]
+	var la := _figure.get_node_or_null("LeftArmRest") as Node3D
+	var seated := _milk_w > 0.5
+	if skirt:
+		skirt.visible = not seated
+	for sh in shoes:
+		if sh:
+			(sh as Node3D).visible = not seated
+	if la:
+		la.visible = not seated
+	if _milk_w <= 0.0:
+		_figure.rotation.x = 0.0
+		return
+	# Sat on a ~0.25 m stool: hips down ~0.5 m, leaning in to the flank.
+	_figure.position.y = -0.5 * _milk_w
+	_figure.rotation.x = deg_to_rad(16.0) * _milk_w
+	if _milk_pause > 0.0:
+		_milk_pause -= delta
+	else:
+		_milk_t += delta
+	# Hand milking: both hands forward and down at the teats, squeezing in turn (~1.3 /s each).
+	var ph := _milk_t * TAU * 1.3
+	var squeeze := 0.0 if _milk_pause > 0.0 else 1.0
+	if _arm:
+		_arm.rotation_degrees = Vector3(10.0, 0.0, ARM_DOWN_DEG).lerp(Vector3(122.0 + 5.0 * sin(ph) * squeeze, 0.0, -6.0), _milk_w)
+	var lm := _figure.get_node_or_null("LeftArmMilk") as Node3D
+	if lm:
+		lm.visible = seated
+		lm.rotation_degrees = Vector3(122.0 + 5.0 * sin(ph + PI) * squeeze, 0.0, 6.0)
+
+
+func _build_milk_rig() -> void:
+	# Lap + pail sit in her own (unscaled, upright) frame; the milking left arm rides the figure.
+	_milk_rig = Node3D.new()
+	_milk_rig.name = "MilkRig"
+	add_child(_milk_rig)
+	var skin := _mat(Color(0.86, 0.70, 0.58))
+	var skirt_c := _mat(Color(0.62, 0.58, 0.48))
+	var wood := _mat(Color(0.45, 0.33, 0.2))
+	var lj := Node3D.new()
+	lj.name = "LeftArmMilk"
+	lj.position = Vector3(-0.32, 1.35, 0.05)
+	_figure.add_child(lj)
+	var lam := MeshInstance3D.new()
+	var lcap := CapsuleMesh.new()
+	lcap.radius = 0.055
+	lcap.height = 0.58
+	lam.mesh = lcap
+	lam.material_override = skin
+	lam.position = Vector3(0.0, 0.28, 0.0)
+	lj.add_child(lam)
+	lj.visible = false
+	# Skirts spread over her knees on the low stool.
+	var lap := MeshInstance3D.new()
+	var lap_m := CylinderMesh.new()
+	lap_m.top_radius = 0.24
+	lap_m.bottom_radius = 0.36
+	lap_m.height = 0.36
+	lap.mesh = lap_m
+	lap.material_override = skirt_c
+	lap.position = Vector3(0.0, 0.18, 0.16)
+	lap.scale = Vector3(1.0, 1.0, 1.3)
+	_milk_rig.add_child(lap)
+	# Wooden (stave-built) pail on the ground under the udder, ahead of her knees.
+	var pail := Node3D.new()
+	pail.name = "Pail"
+	_milk_rig.add_child(pail)
+	pail.position = Vector3(0.0, 0.0, 0.66)
+	var pm := MeshInstance3D.new()
+	var pc := CylinderMesh.new()
+	pc.top_radius = 0.15
+	pc.bottom_radius = 0.125
+	pc.height = 0.26
+	pm.mesh = pc
+	pm.material_override = wood
+	pm.position = Vector3(0.0, 0.13, 0.0)
+	pail.add_child(pm)
+	var milk := MeshInstance3D.new()
+	var mc := CylinderMesh.new()
+	mc.top_radius = 0.14
+	mc.bottom_radius = 0.14
+	mc.height = 0.01
+	milk.mesh = mc
+	milk.material_override = _mat(Color(0.93, 0.92, 0.86))
+	milk.position = Vector3(0.0, 0.22, 0.0)
+	pail.add_child(milk)
+	_milk_rig.visible = false
+
+
 func _tick_arm(delta: float) -> void:
-	if _arm == null:
+	if _arm == null or _milking:
 		return
 	var waving := is_waving()
 	var target := ARM_DOWN_DEG
@@ -196,6 +419,12 @@ func _tick_arm(delta: float) -> void:
 func _seq() -> Node:
 	if _sequence == null or not is_instance_valid(_sequence):
 		_sequence = get_tree().get_first_node_in_group("opening_sequence") if is_inside_tree() else null
+	# Prologue (after the meal): once the opening's closer is said and the raid sequence has
+	# started, Máire's hub lines come from it (same awaiting / take_pending_line contract).
+	if _sequence and bool(_sequence.call("is_finished")) and is_inside_tree():
+		var raid := get_tree().get_first_node_in_group("raid_sequence")
+		if raid and bool(raid.call("is_running")):
+			return raid
 	return _sequence
 
 
@@ -459,6 +688,7 @@ func _build_figure() -> void:
 	skirt.material_override = léine.duplicate()
 	(skirt.material_override as StandardMaterial3D).albedo_color = Color(0.62, 0.58, 0.48)
 	skirt.position = Vector3(0.0, 0.42, 0.0)
+	skirt.name = "Skirt"
 	_figure.add_child(skirt)
 
 	var cloak := MeshInstance3D.new()
@@ -507,6 +737,7 @@ func _build_figure() -> void:
 	left_arm.material_override = skin
 	left_arm.position = Vector3(-0.38, 1.15, 0.05)
 	left_arm.rotation_degrees = Vector3(12.0, 0.0, 18.0)
+	left_arm.name = "LeftArmRest"
 	_figure.add_child(left_arm)
 
 	# Raised right arm (calling / waving) — joint so we can animate a little.
@@ -549,9 +780,11 @@ func _build_figure() -> void:
 	shoe_l.mesh = shoe_mesh
 	shoe_l.material_override = shoes
 	shoe_l.position = Vector3(-0.12, 0.06, 0.04)
+	shoe_l.name = "ShoeL"
 	_figure.add_child(shoe_l)
 	var shoe_r := shoe_l.duplicate() as MeshInstance3D
 	shoe_r.position = Vector3(0.12, 0.06, 0.04)
+	shoe_r.name = "ShoeR"
 	_figure.add_child(shoe_r)
 
 	_name_label = Label3D.new()
