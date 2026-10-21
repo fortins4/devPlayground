@@ -160,7 +160,7 @@ const HH_TO_PEN: Array[Vector3] = [Vector3(1.2, 0.0, 2.0), Vector3(1.4, 0.0, 9.0
 const ADVANCE_DELAY_UNSEEN := 11.0  ## they wait at the hold before coming on (unseen: a careful walk)
 const ADVANCE_DELAY_SEEN := 4.0     ## seen on the bank: hurrying, and soon
 const CLEAR_R := 16.2               ## past the inner lip of the outer ditch = out of the gate
-const CLEAR_X := 2.6                ## …and west of the causeway
+const CLEAR_X := -6.0               ## …and on west along the ditch, past the stretch the causeway overlooks
 const WOOD_X := -32.5               ## the west wood's inner edge is x = −32.5 all the way along
 ## Down in the trees just inside the wood, by the gap at the north end of the west field bank (the
 ## bank at x −25.2 runs z 0 → 140 with no way over; the way to the wood is round its north end).
@@ -1534,10 +1534,8 @@ func _on_raiders_struck(target: Node3D, amount: float, kind: StringName, from: N
 	if hp - amount <= DOWN_AT_HP:
 		_go_down()
 		return
-	var dir := (_player.global_position - from.global_position) if from else Vector3.FORWARD
-	dir.y = 0.0
 	if c:
-		c.call("apply_damage", amount, from, true, dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD)
+		c.call("apply_damage", amount, from, true)
 	var ch := get_node_or_null("/root/CharacterHealth")
 	if ch:
 		ch.call("apply_wound_tag", &"cut")

@@ -63,6 +63,7 @@ const CLOSE_SPEED := 3.2    ## serjeants running in with spears levelled
 const SPEAR_REACH := 2.1
 const THRUST_EVERY := 1.3
 const THRUST_DMG := 24.0
+const THRUST_HIT := 0.65
 const ARROW_DMG := 18.0
 const LOOSE_EVERY := 2.6
 const BOW_RANGE := 60.0
@@ -316,7 +317,9 @@ func start_combat(target: Node3D) -> void:
 	_seen = true
 	var k := 0
 	for m in men:
-		_cd[m] = 0.4 + 0.35 * k
+		# Spearmen need a moment to close and level; the bowmen to nock and draw.
+		var archer := StringName(m.get_meta("role", &"")) == &"archer"
+		_cd[m] = (1.2 + 0.3 * k) if archer else (1.0 + 0.6 * k)
 		k += 1
 		m.call("set_crouch", false)
 		if StringName(m.get_meta("role", &"")) == &"archer":
@@ -356,7 +359,9 @@ func _tick_combat(delta: float) -> void:
 					if float(_cd[m]) <= 0.0:
 						_cd[m] = THRUST_EVERY
 						thrusts += 1
-						struck.emit(t, THRUST_DMG, &"cut", m)
+						# He twists away from some of them; most go home.
+						if randf() < THRUST_HIT:
+							struck.emit(t, THRUST_DMG, &"cut", m)
 			&"archer":
 				m.call("face_point", tp)
 				if d < BOW_MIN:
