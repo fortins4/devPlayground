@@ -55,6 +55,7 @@ func _ready() -> void:
 	_flash.offset_top = 172
 	_flash.offset_bottom = 214
 	_flash.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_flash.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # long lines (Máire's call) wrap, not clip
 	_banner = _make_label(root, 34, Color(0.8, 0.97, 0.6))
 	_banner.set_anchors_preset(Control.PRESET_CENTER)
 	_banner.offset_left = -520
