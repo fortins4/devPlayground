@@ -1,9 +1,9 @@
 extends Node
 class_name OpeningDaydreamIntro
-## Opening shot before control (opening cattle drive scene, first load). Cian stands on the grass
-## behind the house, inside the ráth, looking out over the palisade at the north woodland and
-## daydreaming: a slow, calm over-the-shoulder push while he looks along the tree line, takes a
-## slow breath with a small weight shift and tilts his head up to the canopy. Máire calls him from
+## Opening shot before control (opening cattle drive scene, first load). Cian stands in the
+## ráth gateway with the goad slung on his back, looking out over the open fields to the trees
+## and daydreaming: a slow, calm over-the-shoulder push while he looks along the tree line, takes
+## a slow breath with a small weight shift and tilts his head up to the crowns. Máire calls him from
 ## the house door (bark over her + the HUD line, as her other lines); he startles out of it, looks
 ## round and turns to her, the camera eases back to the normal follow cam and control starts on
 ## the existing step 1 (talk to Máire). No new props, lights, sounds or NPCs.
@@ -28,11 +28,11 @@ const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 @export var mode: Mode = Mode.AUTO
 @export var family_caller_path: NodePath = ^"../FamilyCaller"
 
-## Daydream spot: on the grass behind (north-east of) the house, ~6 m off its wall and ~3 m in
-## from the foot of the ráth bank, facing north over the palisade at the woodland beyond the
-## north field bank (oak / ash crowns stand well clear of the stakes from here).
-const SPOT := Vector3(0.3, 0.0, -7.3)
-const SPOT_YAW_DEG := 6.0
+## Daydream spot: on the causeway in the ráth gateway (between the palisade ends, ~18 m from
+## the house door), facing just west of south out over the lane, the fields and the tree clumps
+## to the south-east / south. Máire stands in plain view across the yard when he turns.
+const SPOT := Vector3(6.2, 0.0, 17.2)
+const SPOT_YAW_DEG := 185.0
 const CALL_LINE := "Cian! There you are, with your head in the trees again. The herd's to be home and penned before dark."
 
 ## Timeline (s from the first frame of the shot).
@@ -48,13 +48,13 @@ const MAIRE_TURN_SECS := 0.6      ## she turns to face him as she calls
 const SHOT_FOV := 50.0
 ## Daydream gaze keys: [t, head yaw deg (+ = his left), head pitch deg (+ = up)].
 const GAZE := [
-	[0.0, 7.0, 4.0],
-	[1.3, 7.0, 4.5],
-	[3.3, -19.0, 6.0],   # slow look right along the tree line
-	[4.5, -19.0, 6.5],
-	[6.2, -5.0, 22.0],   # head tilts up toward the canopy
-	[7.9, -3.0, 24.0],
-	[8.6, -3.0, 22.5],
+	[0.0, -4.0, 3.0],
+	[1.3, -4.0, 3.5],
+	[3.3, 24.0, 5.0],    # slow look left along the tree line
+	[4.5, 24.0, 5.5],
+	[6.2, 14.0, 18.0],   # head tilts up toward the crowns / sky
+	[7.9, 12.0, 20.0],
+	[8.6, 12.0, 18.5],
 ]
 
 var _playing: bool = false
@@ -133,6 +133,7 @@ func _begin() -> void:
 	var pivot := _player.get_node_or_null("CameraPivot") as Node3D
 	if pivot:
 		pivot.rotation.x = 0.0
+	_player.call("snap_goad_stowed")  # the goad rides on his back; hands hang free
 	_player.call("begin_cinematic")
 	if _maire:
 		_maire.set("intro_hold", true)
