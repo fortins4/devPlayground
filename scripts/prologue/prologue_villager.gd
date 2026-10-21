@@ -349,10 +349,12 @@ func _pose_down(delta: float) -> void:
 	var root := _loco.get_joint("root")
 	if root == null:
 		return
-	# Over backwards (rig faces −Z: +X rotation tips the head to +Z) and down onto the ground.
+	# Over backwards (rig faces −Z: +X rotation tips the head to +Z) onto the ground. The root is
+	# at the feet, so the tipped body lies along the ground through the pivot: lift it by half its
+	# depth so it lies on the turf, not in it.
 	var e := _down_w * _down_w * (3.0 - 2.0 * _down_w)
 	root.rotation.x += PI * 0.5 * e
-	root.position.y -= 0.8 * e
+	root.position.y += 0.14 * e
 	root.position.z += 0.1 * e
 	for j in ["left_thigh", "right_thigh"]:
 		var t := _loco.get_joint(j)
