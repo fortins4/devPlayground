@@ -319,7 +319,7 @@ func _build_farmstead() -> void:
 	# Byre / calf shed — small and low inside the ráth, door opening onto the night pen.
 	var byre := Vector3(7.0, 0.0, -2.2)
 	_solid_box(_gen, byre + Vector3(0, 1.0, 0), Vector3(7.5, 2.0, 4.0), C_BYRE)
-	_roof(_gen, byre + Vector3(0, 2.0, 0), Vector3(8.1, 1.5, 4.6), C_THATCH.darkened(0.08))
+	_roof(_gen, byre + Vector3(0, 2.0, 0), Vector3(8.1, 1.5, 4.6), C_THATCH.darkened(0.08)).name = "ByreThatch"
 	_mesh_box(_gen, byre + Vector3(0, 0.85, 2.02), Vector3(2.2, 1.7, 0.08), C_DOOR)
 	# Hay rick + woodpile (tucked inside the bank); quern by the meal spot (H6).
 	_mesh_cyl(_gen, Vector3(-9.5, 1.0, 8.5), 1.4, 1.4, 2.0, C_THATCH)
@@ -369,6 +369,7 @@ func _build_roundhouse() -> void:
 	var cone_h := 3.3
 	var cone := _mesh_cyl(_gen, c + Vector3(0, wall_h + cone_h * 0.5 - 0.15, 0), 0.32, HOUSE_R + 0.7, cone_h, C_THATCH)
 	(cone.mesh as CylinderMesh).radial_segments = 36
+	cone.name = "HouseThatch"  # raid day step 8: PrologueThatchFire chars it
 	_mesh_cyl(_gen, c + Vector3(0, wall_h - 0.12, 0), HOUSE_R + 0.7, HOUSE_R + 0.72, 0.1, C_THATCH.darkened(0.12))  # eave lip
 	_mesh_cyl(_gen, c + Vector3(0, wall_h + cone_h - 0.12, 0), 0.26, 0.26, 0.06, Color(0.08, 0.07, 0.06))  # smoke hole
 	# Hearth smoke drifting from the hole (a few soft puffs).
@@ -419,6 +420,7 @@ func _build_quern() -> void:
 	# Sack of oats and a wooden dish of meal beside it (no collision).
 	var sack := _mesh_sphere(_gen, _on_ground(QUERN_POS + Vector3(-0.55, 0.0, 0.25), 0.22), 0.24, C_SACK)
 	sack.scale = Vector3(0.9, 1.15, 0.85)
+	sack.name = "QuernSack"  # raid day step 7: PrologueSackChore takes its place
 	_mesh_cyl(_gen, _on_ground(QUERN_POS + Vector3(0.1, 0.0, 0.5), 0.04), 0.17, 0.12, 0.08, C_TRUNK.lightened(0.1))
 	_mesh_cyl(_gen, _on_ground(QUERN_POS + Vector3(0.1, 0.0, 0.5), 0.085), 0.14, 0.14, 0.01, Color(0.66, 0.6, 0.45))
 
@@ -1605,7 +1607,7 @@ func _solid_box(parent: Node, pos: Vector3, size: Vector3, color: Color, rot_y: 
 	return body
 
 
-func _roof(parent: Node, base: Vector3, size: Vector3, color: Color) -> void:
+func _roof(parent: Node, base: Vector3, size: Vector3, color: Color) -> MeshInstance3D:
 	# PrismMesh ridge runs along local Z; rotate so the ridge follows the long (X) axis.
 	var mi := MeshInstance3D.new()
 	var pm := PrismMesh.new()
@@ -1615,6 +1617,7 @@ func _roof(parent: Node, base: Vector3, size: Vector3, color: Color) -> void:
 	mi.position = base + Vector3(0, size.y * 0.5, 0)
 	mi.rotation.y = PI * 0.5
 	parent.add_child(mi)
+	return mi
 
 
 func _rail(a: Vector3, b: Vector3, wattle: bool = false) -> void:

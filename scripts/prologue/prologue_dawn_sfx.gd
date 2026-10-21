@@ -9,6 +9,9 @@ extends RefCounted
 ##   jingle   harness / bit rings and iron, faint
 ##   voices   low men's voices, far, the words not made out (not Irish — the caption says so)
 ##   cattle   the herd shifting and blowing in the pen (one lows: OpeningBoggedCowChore's moo)
+## Steps 7–8 (same placeholders):
+##   loose    a bowstring's flat thump and the arrow's short hiss
+##   crackle  dry thatch catching: a few seconds of pops and a soft roar (looped by the fire)
 
 const MIX_RATE := 22050
 const MooScript := preload("res://scripts/prologue/opening_bogged_cow_chore.gd")
@@ -33,6 +36,10 @@ static func stream(kind: StringName) -> AudioStream:
 			wav = _build_voices()
 		&"low":
 			wav = MooScript._moo_wav()
+		&"loose":
+			wav = _build_loose()
+		&"crackle":
+			wav = _build_crackle()
 		_:
 			wav = _build_blow()
 	_cache[kind] = wav
@@ -169,3 +176,44 @@ static func _build_voices() -> AudioStreamWAV:
 			out[k] += buzz * env * 0.35
 		t += syl + rng.randf_range(0.03, 0.35)
 	return _pack(out)
+
+
+static func _build_loose() -> AudioStreamWAV:
+	var n := int(0.5 * MIX_RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 731
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / MIX_RATE
+		# String thump (a low damped twang) then a short airy hiss.
+		ph += TAU * (110.0 - 40.0 * minf(t / 0.08, 1.0)) / MIX_RATE
+		var thump := sin(ph) * exp(-t * 38.0) * 0.8
+		var hiss := rng.randf_range(-1.0, 1.0) * smoothstep(0.02, 0.06, t) * exp(-maxf(0.0, t - 0.06) * 9.0) * 0.22
+		out[i] = thump + hiss
+	return _pack(out)
+
+
+static func _build_crackle() -> AudioStreamWAV:
+	var len_s := 3.0
+	var n := int(len_s * MIX_RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 977
+	var lp := 0.0
+	for i in n:
+		# Soft roar: low-passed noise.
+		lp = lerpf(lp, rng.randf_range(-1.0, 1.0), 0.05)
+		out[i] = lp * 0.5
+	# Pops: short bright clicks scattered through it.
+	for k in 70:
+		var at := rng.randi_range(0, n - 400)
+		var amp := rng.randf_range(0.2, 0.7)
+		for j in 300:
+			out[at + j] += rng.randf_range(-1.0, 1.0) * amp * exp(-float(j) / 40.0)
+	var wav := _pack(out)
+	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	wav.loop_end = n
+	return wav
