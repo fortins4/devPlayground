@@ -8,7 +8,7 @@ class_name PrologueHaze
 ## off on them (they are already "distance").
 
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
-const ORIGIN := Vector3(1.7, 0.0, 17.9)  ## the bank by the gate, where it is seen from
+const ORIGIN := Vector3(2.4, 0.0, 17.45)  ## the bank by the gate, where it is seen from
 const DIR_DEG := 195.0                    ## compass bearing (S = 180): a little west of south
 const DIST := 330.0
 
@@ -52,9 +52,9 @@ func _ready() -> void:
 	print("PROLOGUE_HAZE bearing=%.0f dist=%.0f base_y=%.1f" % [DIR_DEG, DIST, base_y])
 	# [offset along the horizon (m), base y, width, height, density, tint, seed]
 	var layers := [
-		[0.0, 0.0, 300.0, 18.0, 0.34, Color(0.56, 0.50, 0.50), 1.0],   # the wide thin haze
-		[-30.0, 1.0, 120.0, 13.0, 0.4, Color(0.45, 0.41, 0.42), 2.0],  # thicker core of it
-		[-38.0, 2.0, 42.0, 10.0, 0.5, Color(0.33, 0.31, 0.33), 3.0],   # the low smudge of smoke
+		[0.0, 0.0, 300.0, 18.0, 0.42, Color(0.56, 0.50, 0.50), 1.0],   # the wide thin haze
+		[-30.0, 1.0, 120.0, 13.0, 0.5, Color(0.45, 0.41, 0.42), 2.0],  # thicker core of it
+		[-38.0, 2.0, 42.0, 10.0, 0.62, Color(0.33, 0.31, 0.33), 3.0],   # the low smudge of smoke
 	]
 	for i in layers.size():
 		var L: Array = layers[i]

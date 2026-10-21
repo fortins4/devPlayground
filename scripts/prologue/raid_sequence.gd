@@ -58,7 +58,10 @@ const MAIRE_DOOR := Vector3(-5.2, 0.0, 3.2)
 const MAIRE_ROUTE: Array[Vector3] = [Vector3(-5.6, 0.0, 4.4), Vector3(-5.0, 0.0, 6.2), Vector3(-2.4, 0.0, 8.3), Vector3(0.7, 0.0, 8.9)]
 const MAIRE_DOOR_YAW := 0.36
 ## The herd-hand: on the bank beside the palisade's west end at the gate, looking out south.
-const HH_BANK := Vector3(1.75, 0.0, 17.55)
+## On the tail of the bank at the gateway, just inside its west gatepost (~(1.96, 17.78)) and
+## clear of it: the one place on the bank with an open view SSW down the lane (the crest further
+## west carries the palisade, taller than a man).
+const HH_BANK := Vector3(2.4, 0.0, 17.45)
 const HH_BANK_YAW := PI - 0.26  ## kerne rig faces −Z: PI − 0.26 turns him SSW, out over the lane
 const HH_DOWN: Array[Vector3] = [Vector3(1.6, 0.0, 15.2), Vector3(0.9, 0.0, 11.4), Vector3(0.9, 0.0, 0.4), Vector3(1.9, 0.0, -3.4)]
 const NIGHT_RADIUS := 3.0
