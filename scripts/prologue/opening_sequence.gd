@@ -36,7 +36,7 @@ const HANDOFF_LINES := {
 	&"milk": "All six home, thank God. Now bring the red milk cow out of the pen on the rope and tie her to the post by the house. I'll want her handy for the milking in the morning.",
 	&"meal": "That's her tied, good lad. Put that goad away and come eat — your meal's by the door.",
 }
-const CLOSER_LINE := "That's the morning's work done, and done well. Sit and rest a while, a stór."
+const CLOSER_LINE := "That's the day's work done, and done well. Sit and rest a while, a stór."
 const IDLE_LINE := "Go on now — the work won't do itself."
 
 const STEP_SHORT := {
