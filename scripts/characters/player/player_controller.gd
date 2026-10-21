@@ -571,7 +571,7 @@ func _physics_process(delta: float) -> void:
 	elif hand_work:
 		target_speed = HAND_WORK_APPROACH_SPEED
 	elif is_leading():
-		target_speed = LEAD_WALK_SPEED
+		target_speed = _lead_walk_speed()
 	elif sprinting:
 		target_speed = SPRINT_SPEED
 	if bog:
@@ -4628,9 +4628,21 @@ func _pose_load_arms(w: float) -> void:
 	var visual := locomotion.get_node_or_null(locomotion.visual_path) as Node3D
 	if visual == null:
 		return
+	var grip := LOAD_GRIP
+	var half := LOAD_GRIP_HALF
+	# A load may hold differently from the bucket's bail (an armful of wood: forearms under it,
+	# hands wider apart): its source answers carry_grip() → [Visual-frame centre, half spread].
+	for id in _carry_sources.keys():
+		var src: Object = _carry_sources[id]
+		if is_instance_valid(src) and src.has_method("carry_grip"):
+			var g: Array = src.call("carry_grip")
+			if g.size() >= 2:
+				grip = g[0]
+				half = float(g[1])
+			break
 	_pose_arms_to(w,
-		visual.global_transform * (LOAD_GRIP + Vector3(-LOAD_GRIP_HALF, 0.0, 0.0)),
-		visual.global_transform * (LOAD_GRIP + Vector3(LOAD_GRIP_HALF, 0.0, 0.0)))
+		visual.global_transform * (grip + Vector3(-half, 0.0, 0.0)),
+		visual.global_transform * (grip + Vector3(half, 0.0, 0.0)))
 
 
 ## Two-bone IK: left hand onto `left_w`, right hand onto `right_w` (world), blended by `w`.
@@ -4807,6 +4819,14 @@ func end_lead(source: Object) -> void:
 		return
 	_lead_src = null
 	_lead_redraw = _lead_prev_weapon >= 0 and _lead_prev_weapon != int(CombatSystem.Weapon.UNARMED)
+
+
+## Pace while leading / holding: a beast on a rope sets LEAD_WALK_SPEED; a source may set its
+## own (a small one-hand carry walks at the carried pace) through lead_walk_speed().
+func _lead_walk_speed() -> float:
+	if _lead_src != null and is_instance_valid(_lead_src) and _lead_src.has_method("lead_walk_speed"):
+		return float(_lead_src.call("lead_walk_speed"))
+	return LEAD_WALK_SPEED
 
 
 func is_leading() -> bool:

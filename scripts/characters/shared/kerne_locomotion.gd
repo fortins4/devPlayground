@@ -9,6 +9,9 @@ signal pose_updated(state: StringName)
 @export var build_on_ready: bool = true
 @export var hostile_palette: bool = false
 @export var include_kit_props: bool = true
+## Optional palette for NPCs built on the kerne rig (prologue household / neighbours). Empty =
+## PALETTE_PLAYER / PALETTE_HOSTILE as before.
+var palette_override: Dictionary = {}
 
 var joints: Dictionary = {}
 var _rest: Dictionary = {}
@@ -154,6 +157,8 @@ func rebuild() -> void:
 	if visual == null:
 		return
 	var palette := KerneMeshBuilder.PALETTE_HOSTILE if hostile_palette else KerneMeshBuilder.PALETTE_PLAYER
+	if not palette_override.is_empty():
+		palette = palette_override
 	joints = KerneMeshBuilder.build(visual, palette, include_kit_props)
 	_rest.clear()
 	for key in joints:
