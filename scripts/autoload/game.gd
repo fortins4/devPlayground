@@ -9,6 +9,9 @@ enum GamePhase { BOOT, PROLOGUE, OPEN_WORLD }
 
 var phase: GamePhase = GamePhase.BOOT
 var current_region: StringName = &"leinster"
+## Prologue ("The foragers from the strand") outcome flags as the beat sets them (raid spec 2.17;
+## no save system yet). Keys appear as they are decided, e.g. `seen` at the look from the bank.
+var prologue_outcome: Dictionary = {}
 
 
 func _ready() -> void:

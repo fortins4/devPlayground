@@ -18,18 +18,46 @@ class_name RaidSequence
 ##   then the day's work is done; going back in to Máire at the door ends chunk 1 (`night_reached`).
 ## Nothing here gives Cian a knife or a hatchet (combat.knife_in_kit stays false; the hatchet is
 ## set dressing only), and there is no cow counter.
+##
+## Chunk 2 (spec steps 4–6), the night and first light of day 1:
+##   night (end of 3) on `night_reached`: the screen goes down to black; under it the day turns
+##              (WorldClock.advance_day → day 1), Cian is asleep on a rush pallet across the doorway
+##              under the eave (the greybox house is a closed drum: doorway framing, conflict 6.15),
+##              the light is set to first light (OpeningTimeOfDay stage 4, grey with ground mist),
+##              and the screen comes up again.
+##   4 wake    (C) off-screen, in order: the dog barking at the gate; a yelp, then nothing; the cattle
+##              shifting in the pen and one lowing; far down the lane a horse blowing, harness, men's
+##              low voices not in Irish; then Máire from inside (locked line). Captions carry the
+##              sounds. He gets up (any move key / E / Space) once the barking has started.
+##   5 look    (P) crouched up the inside of the bank by the gate and look down the lane: the party
+##              (PrologueRaiders) coming up through the mist. Seen by the guide or the rider (ALERT)
+##              before he is back down in the yard → Game.prologue_outcome.seen = true,
+##              HeatTracker.note_pre_raid_alert, they hurry to a nearer hold and the archers nock;
+##              unseen → seen = false and they come on at a walk to the far hold.
+##   6 knife   (P) Máire is up at the door with Cian's sister holding her léine; her locked shout. The
+##              knife off its peg on the door jamb (PrologueKnifePeg: the first knife in the game —
+##              combat.knife_in_kit, alias knife_carried, turns true only there) and his sister by the
+##              hand (PrologueHandHold). Both done → step `out`, the end of chunk 2 (step 7, the flight,
+##              is not built: the party waits at its hold point below the ráth).
 
 signal step_changed(step_id: StringName, briefed: bool)
 signal line_spoken(key: String, text: String)
 signal night_reached
+signal dawn_reached
+signal household_ready
 
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 const VillagerScript := preload("res://scripts/prologue/prologue_villager.gd")
 const SupperScript := preload("res://scripts/prologue/prologue_supper_chore.gd")
 const WoodScript := preload("res://scripts/prologue/prologue_wood_chore.gd")
 const HazeScript := preload("res://scripts/prologue/prologue_haze.gd")
+const RaidersScript := preload("res://scripts/prologue/prologue_raiders.gd")
+const PegScript := preload("res://scripts/prologue/prologue_knife_peg.gd")
+const HandHoldScript := preload("res://scripts/prologue/prologue_hand_hold.gd")
+const DawnSfx := preload("res://scripts/prologue/prologue_dawn_sfx.gd")
+const HeatTrackerScript := preload("res://systems/stealth/heat_tracker.gd")
 
-const STEP_IDS: Array[StringName] = [&"news", &"supper", &"penning", &"night"]
+const STEP_IDS: Array[StringName] = [&"news", &"supper", &"penning", &"night", &"wake", &"look", &"knife", &"out"]
 
 ## Delay after the closer before the boy is in at the gate ("a short beat later").
 const START_DELAY := 2.5
@@ -66,6 +94,38 @@ const HH_BANK_YAW := PI - 0.26  ## kerne rig faces −Z: PI − 0.26 turns him S
 const HH_DOWN: Array[Vector3] = [Vector3(1.6, 0.0, 15.2), Vector3(0.9, 0.0, 11.4), Vector3(0.9, 0.0, 0.4), Vector3(1.9, 0.0, -3.4)]
 const NIGHT_RADIUS := 3.0
 
+# ---- chunk 2: night and first light
+const MAIRE_WAKE_LINE := "Cian? What's at the dog?"
+const MAIRE_KNIFE_LINE := "The knife, Cian, off the peg! Take your sister and go, the wood, go to the wood!"
+const FADE_OUT_SECS := 2.0
+const NIGHT_HOLD_SECS := 2.4
+const FADE_IN_SECS := 2.6
+## Asleep on a rush pallet across the doorway, under the eave, his back to the yard (camera side),
+## head to the west. Rig faces −Z: yaw 0 = facing north, into the doorway.
+const SLEEP_POS := Vector3(-7.2, 0.0, 2.55)
+const SLEEP_YAW := 0.0
+const RISE_SECS := 1.6
+## Off-screen sound cues (seconds after the screen is up): bark, yelp → silence, the cattle, the
+## lane, then Máire. About 8 s in all.
+const CUE_BARK := 0.8
+const CUE_YELP := 3.4
+const CUE_CATTLE := 4.6
+const CUE_LANE := 6.1
+const CUE_MAIRE := 8.2
+const RISE_ALLOWED_AT := 0.8
+const DOG_POS := Vector3(6.6, 0.0, 22.0)
+const PEN_POS := Vector3(7.0, 0.0, 6.5)
+## Step 5: the look-out place on the bank's tail inside the west gatepost (the herd-hand's spot).
+const LOOK_SPOT := HH_BANK
+const LOOK_RADIUS := 2.3
+const LOOK_SECS := 1.5
+const RATH_CENTRE := Vector3(0.5, 0.0, 3.0)
+const YARD_RADIUS := 13.2   ## down off the bank, inside the ráth
+const YARD_CLEAR_OF_SPOT := 4.0
+## Step 6: Máire at the door with the girl; the herd-hand out by the byre's yard door.
+const GIRL_AT_DOOR := Vector3(-4.75, 0.0, 3.55)
+const HH_BYRE := Vector3(2.7, 0.0, -1.6)
+
 var _running: bool = false
 var _finished_chunk: bool = false
 var _start_left: float = -1.0
@@ -90,6 +150,28 @@ var _hatchet_stowed: bool = false
 var _sat_for_news: bool = false
 var _night: bool = false
 var _hh_down_started: bool = false
+# chunk 2
+var _dawn: bool = false
+var _fade_layer: CanvasLayer = null
+var _fade_rect: ColorRect = null
+var _fade_label: Label = null
+var _raiders: Node3D = null
+var _girl: Node3D = null
+var _peg: Node3D = null
+var _hand: Node3D = null
+var _heat: Node = null
+var _pallet: Node3D = null
+var _cues_done: int = 0
+var _bark_player: Node = null
+var _lying: bool = false
+var _rising: bool = false
+var _rise_t: float = 0.0
+var _looked: bool = false
+var _look_t: float = 0.0
+var _seen: bool = false
+var _knife_taken: bool = false
+var _girl_in_hand: bool = false
+var _knife_shouted: bool = false
 
 
 func _ready() -> void:
@@ -150,7 +232,7 @@ func awaiting_maire() -> bool:
 
 
 func is_finished() -> bool:
-	return false  # chunk 1 hands on to the night (chunk 2)
+	return false  # chunk 2 hands on to the flight (step 7, not built)
 
 
 func is_night_reached() -> bool:
@@ -262,6 +344,8 @@ func haze() -> Node3D:
 func time_progress() -> float:
 	if not _running:
 		return 2.0
+	if _dawn:
+		return 4.0  # first light (stage 4) from the night cut on
 	match current_step_id():
 		&"news":
 			return 2.2
@@ -446,6 +530,8 @@ func _process(delta: float) -> void:
 					_beat = "night"
 					print("RAID_CHUNK1_NIGHT_REACHED")
 					night_reached.emit()
+		"night", "fade_out", "night_black", "fade_in", "wake", "look", "knife", "out":
+			_tick_chunk2(delta)
 
 
 var _paused_once: bool = false
@@ -519,6 +605,25 @@ func objective_text() -> String:
 			if _night:
 				return "The day is done. Night comes on."
 			return "That's the last of the day's work. Go in to Máire at the house door."
+		&"wake":
+			if _rising or _beat_t < RISE_ALLOWED_AT:
+				return ""
+			return "Get up."
+		&"look":
+			if _seen and not _looked:
+				return "They've seen you. Get down off the bank, back into the yard."
+			if not _looked:
+				return "See what's at the dog: crouch (Ctrl) up the inside of the bank by the gate and look down the lane."
+			return "Get back down into the yard before they see you." if not _seen else "They've seen you. Get down off the bank, back into the yard."
+		&"knife":
+			var bits: Array[String] = []
+			if not _knife_taken:
+				bits.append(String(_peg.call("objective_text")) if _peg else "")
+			if not _girl_in_hand:
+				bits.append(String(_hand.call("objective_text")) if _hand else "")
+			return "  ".join(bits)
+		&"out":
+			return "Get Máire and your sister out by the gate."
 	return ""
 
 
@@ -572,3 +677,470 @@ func _place_sieve() -> void:
 	if _sieve:
 		_sieve.global_transform = Transform3D(Basis(Vector3.UP, 0.5), Terrain.surface_point(SIEVE_POS, 0.04))
 		print("RAID_NEWS_SIEVE_RETURNED")
+
+
+# ================================================================ chunk 2: night and first light
+
+func raiders() -> Node3D:
+	return _raiders
+
+
+func girl() -> Node3D:
+	return _girl
+
+
+func knife_peg() -> Node3D:
+	return _peg
+
+
+func hand_hold() -> Node3D:
+	return _hand
+
+
+func heat_tracker() -> Node:
+	return _heat
+
+
+func is_dawn() -> bool:
+	return _dawn
+
+
+func is_lying() -> bool:
+	return _lying
+
+
+func has_looked() -> bool:
+	return _looked
+
+
+func was_seen() -> bool:
+	return _seen
+
+
+func fade_alpha() -> float:
+	return _fade_rect.color.a if _fade_rect else 0.0
+
+
+## Smoke / capture: chunk 1 done the quick way. Running, the cast out, the day's work counted done
+## (cow penned, wood in, hatchet in the byre), Máire at the door: the next time Cian is by her,
+## `night_reached` fires as in play.
+func debug_jump_to_night_pending() -> void:
+	if not _running:
+		start_now()
+	if _boy and is_instance_valid(_boy):
+		_boy.queue_free()
+		_boy = null
+	if _player and bool(_player.call("is_seated")):
+		_player.call("end_seat")
+	_index = STEP_IDS.find(&"night")
+	_briefed = true
+	_cow_penned = true
+	_wood_in = true
+	_hatchet_stowed = true
+	if _supper:
+		_supper.call("hide_prop")
+	if _herd_hand:
+		_herd_hand.call("place", HH_BYRE, PI * 0.5)
+	if _maire:
+		_maire.call("set_milking", false)
+		_maire.call("place_at", MAIRE_DOOR, _maire_door_yaw)
+	_maire_to_door = false
+	_next_beat("night_pending")
+	step_changed.emit(current_step_id(), true)
+
+
+func report_knife_taken() -> void:
+	_knife_taken = true
+	_check_household()
+
+
+func report_girl_in_hand() -> void:
+	_girl_in_hand = true
+	_check_household()
+
+
+func _check_household() -> void:
+	if _knife_taken and _girl_in_hand and is_step_active(&"knife"):
+		complete_step(&"knife")
+		_next_beat("out")
+		print("RAID_CHUNK2_HOUSEHOLD_READY seen=%s" % _seen)
+		household_ready.emit()
+
+
+func _tick_chunk2(delta: float) -> void:
+	match _beat:
+		"night":
+			# Straight on from `night_reached`: the screen goes down.
+			_ensure_fade()
+			if _player:
+				_player.call("begin_cinematic")
+			_next_beat("fade_out")
+		"fade_out":
+			_fade_rect.color.a = clampf(_beat_t / FADE_OUT_SECS, 0.0, 1.0)
+			if _beat_t >= FADE_OUT_SECS:
+				_night_cut()
+				_next_beat("night_black")
+		"night_black":
+			_fade_rect.color.a = 1.0
+			_fade_label.modulate.a = clampf(minf(_beat_t / 0.6, (NIGHT_HOLD_SECS - _beat_t) / 0.6), 0.0, 1.0)
+			_hold_sleep_pose()
+			if _beat_t >= NIGHT_HOLD_SECS:
+				_fade_label.modulate.a = 0.0
+				complete_step(&"night")
+				_raiders.call("start")
+				print("RAID_DAWN_REACHED day=%d" % _world_day())
+				dawn_reached.emit()
+				_next_beat("fade_in")
+		"fade_in":
+			_fade_rect.color.a = 1.0 - clampf(_beat_t / FADE_IN_SECS, 0.0, 1.0)
+			_hold_sleep_pose()
+			if _beat_t >= FADE_IN_SECS:
+				_fade_rect.color.a = 0.0
+				_fade_layer.visible = false
+				_next_beat("wake")
+		"wake":
+			_tick_wake_cues(delta)
+			_tick_rise(delta)
+		"look":
+			_tick_wake_cues(delta)
+			_tick_look(delta)
+			_tick_seen()
+		"knife":
+			_tick_seen()
+			if not _knife_shouted and _maire and _beat_t > 0.4:
+				_knife_shouted = true
+				_maire.call("say_line", "maire_knife", MAIRE_KNIFE_LINE, 7.0)
+		"out":
+			_tick_seen()
+
+
+func _world_day() -> int:
+	var wc := get_node_or_null("/root/WorldClock")
+	return int(wc.get("day")) if wc else -1
+
+
+# ---------------------------------------------------------------- the night cut
+
+func _ensure_fade() -> void:
+	if _fade_layer:
+		_fade_layer.visible = true
+		return
+	_fade_layer = CanvasLayer.new()
+	_fade_layer.name = "NightFadeLayer"
+	_fade_layer.layer = 60
+	add_child(_fade_layer)
+	_fade_rect = ColorRect.new()
+	_fade_rect.color = Color(0.0, 0.0, 0.0, 0.0)
+	_fade_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_fade_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fade_layer.add_child(_fade_rect)
+	_fade_label = Label.new()
+	_fade_label.text = "The short night."
+	_fade_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_fade_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_fade_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_fade_label.add_theme_font_size_override("font_size", 30)
+	_fade_label.add_theme_color_override("font_color", Color(0.78, 0.76, 0.7))
+	_fade_label.modulate.a = 0.0
+	_fade_layer.add_child(_fade_label)
+
+
+## Under the black: the day turns, the light is first light, Cian is asleep across the doorway and
+## the party is on the lane. Máire is inside asleep (not shown); the herd-hand is in the byre.
+func _night_cut() -> void:
+	_dawn = true
+	var wc := get_node_or_null("/root/WorldClock")
+	if wc and wc.has_method("advance_day"):
+		wc.call("advance_day", 1)
+	var tod := get_tree().get_first_node_in_group("opening_time_of_day")
+	if tod and tod.has_method("debug_set_progress"):
+		tod.call("debug_set_progress", 4.0)
+	if _maire:
+		_maire.call("place_at", MAIRE_DOOR + Vector3(0.0, 0.0, -0.6), _maire_door_yaw)
+		_maire.visible = false
+	if _herd_hand:
+		_herd_hand.call("place", HH_BYRE, PI * 0.5)
+		_herd_hand.visible = false
+	if _supper:
+		_supper.call("hide_prop")
+	# The evening's haze to the SSW was the day before; by first light it is gone in the mist.
+	if _haze:
+		_haze.visible = false
+	_spawn_dawn_cast()
+	_lay_down()
+	print("RAID_NIGHT_CUT day=%d stage=first_light" % _world_day())
+
+
+func _spawn_dawn_cast() -> void:
+	var root := get_parent()
+	_heat = HeatTrackerScript.new()
+	_heat.name = "HeatTracker"
+	add_child(_heat)
+	# The heat readout is a debug/raid HUD; nothing of it shows in the prologue.
+	var hud := _heat.get_node_or_null("HeatHUDLayer") as CanvasLayer
+	if hud:
+		hud.visible = false
+	var wl := get_node_or_null("HeatWorldLabel") as Node3D
+	if wl:
+		wl.visible = false
+	_raiders = RaidersScript.new()
+	_raiders.name = "PrologueRaiders"
+	root.add_child(_raiders)
+	_raiders.connect("spotted", _on_raiders_spotted)
+	_girl = VillagerScript.new()
+	_girl.name = "Sister"
+	_girl.set("display_name", "")   # unnamed in the spec: no name tag over her
+	_girl.set("stature_m", 1.34)   # ~9–10 years old
+	_girl.set("walk_speed", 1.1)
+	_girl.set("beardless", true)
+	_girl.set("palette", {
+		"skin": Color(0.87, 0.72, 0.62), "hair": Color(0.5, 0.3, 0.14),
+		"tunic": Color(0.72, 0.66, 0.52), "skirt": Color(0.7, 0.64, 0.5),   # undyed léine, ankle-long
+		"pants": Color(0.7, 0.64, 0.5), "shoes": Color(0.8, 0.64, 0.54),    # bare feet
+		"belt": Color(0.4, 0.3, 0.2), "cloak": Color(0.36, 0.32, 0.4),      # a small brat
+		"wood": Color(0.42, 0.28, 0.14), "iron": Color(0.45, 0.48, 0.5), "wrap": Color(0.7, 0.64, 0.5),
+	})
+	root.add_child(_girl)
+	_girl.call("place", GIRL_AT_DOOR + Vector3(0.0, 0.0, -0.7), MAIRE_DOOR_YAW)
+	_girl.visible = false
+	_peg = PegScript.new()
+	_peg.name = "PrologueKnifePeg"
+	add_child(_peg)
+	_hand = HandHoldScript.new()
+	_hand.name = "PrologueHandHold"
+	add_child(_hand)
+	_hand.call("set_girl", _girl)
+	# A rush pallet on the ground across the doorway.
+	_pallet = MeshInstance3D.new()
+	_pallet.name = "RushPallet"
+	var bm := BoxMesh.new()
+	bm.size = Vector3(2.0, 0.06, 0.8)
+	(_pallet as MeshInstance3D).mesh = bm
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.55, 0.5, 0.3)
+	m.roughness = 1.0
+	(_pallet as MeshInstance3D).material_override = m
+	root.add_child(_pallet)
+	_pallet.global_position = Terrain.surface_point(SLEEP_POS, 0.03)
+
+
+func _sleep_pose(w: float) -> Dictionary:
+	# Lying on his left side, knees drawn up: the whole rig rolled 90° about its forward axis so
+	# the head goes west (rig −X), lifted and shifted so he lies along the pallet.
+	return {
+		"root": Vector3(0.0, 0.0, PI * 0.5 * w),
+		"root_pos": Vector3(0.92 * w, 0.17 * w, 0.0),
+		"left_thigh": Vector3(0.75 * w, 0.0, 0.0), "right_thigh": Vector3(0.6 * w, 0.0, 0.0),
+		"left_shin": Vector3(-1.0 * w, 0.0, 0.0), "right_shin": Vector3(-0.9 * w, 0.0, 0.0),
+		"left_arm": Vector3(0.9 * w, 0.0, 0.0), "right_arm": Vector3(0.5 * w, 0.0, 0.0),
+		"left_forearm": Vector3(0.6 * w, 0.0, 0.0), "right_forearm": Vector3(0.7 * w, 0.0, 0.0),
+		"head": Vector3(0.15 * w, 0.0, 0.0),
+	}
+
+
+func _lay_down() -> void:
+	if _player == null:
+		return
+	if bool(_player.call("is_seated")):
+		_player.call("end_seat")
+	var combat := _player.get_node_or_null("CombatSystem")
+	if combat and combat.has_method("set_weapon"):
+		combat.call("set_weapon", 3)  # the goad laid by (on his back on the rig)
+	var body := _player as CharacterBody3D
+	_player.global_position = Terrain.surface_point(SLEEP_POS, 0.05)
+	_player.rotation.y = SLEEP_YAW
+	if body:
+		body.velocity = Vector3.ZERO
+	var pivot := _player.get_node_or_null("CameraPivot") as Node3D
+	if pivot:
+		pivot.rotation.x = deg_to_rad(-14.0)
+	_lying = true
+	_rising = false
+	_player.call("set_cinematic_pose", _sleep_pose(1.0))
+
+
+func _hold_sleep_pose() -> void:
+	if _lying and not _rising and _player:
+		_player.call("set_cinematic_pose", _sleep_pose(1.0))
+
+
+# ---------------------------------------------------------------- step 4: wake
+
+func _tick_wake_cues(delta: float) -> void:
+	_wake_clock += delta
+	var cues := [CUE_BARK, CUE_YELP, CUE_CATTLE, CUE_LANE, CUE_MAIRE]
+	while _cues_done < cues.size() and _wake_clock >= float(cues[_cues_done]):
+		_play_cue(_cues_done)
+		_cues_done += 1
+
+
+var _wake_clock: float = 0.0
+
+
+func _play_cue(i: int) -> void:
+	match i:
+		0:
+			_bark_player = DawnSfx.play(self, &"bark", DOG_POS, 2.0, 10.0)
+			_caption("[Out by the gate, the dog is barking hard.]", 2.6)
+			print("RAID_WAKE_CUE bark")
+		1:
+			if _bark_player and is_instance_valid(_bark_player):
+				_bark_player.call("stop")
+			DawnSfx.play(self, &"yelp", DOG_POS, 2.0, 10.0)
+			_caption("[A yelp, and the barking stops. Nothing.]", 1.4)
+			print("RAID_WAKE_CUE yelp")
+		2:
+			DawnSfx.play(self, &"low", PEN_POS, -2.0, 8.0)
+			_caption("[In the pen the cattle shift and blow. One lows.]", 1.5)
+			print("RAID_WAKE_CUE cattle")
+		3:
+			var lane: Vector3 = (_raiders.call("lane_point", float(_raiders.call("head_s"))) as Array)[0] if _raiders else Vector3(0, 0, 90)
+			DawnSfx.play(self, &"blow", lane, 6.0, 30.0)
+			DawnSfx.play(self, &"jingle", lane, 4.0, 30.0)
+			DawnSfx.play(self, &"voices", lane, 4.0, 30.0)
+			_caption("[Far down the lane: a horse blowing, harness, men's low voices. Not Irish.]", 2.0)
+			print("RAID_WAKE_CUE lane")
+		4:
+			var line := "Máire (from inside): %s" % MAIRE_WAKE_LINE
+			_caption(line, 4.5)
+			note_line("maire_wake", MAIRE_WAKE_LINE)
+
+
+func _caption(text: String, secs: float) -> void:
+	if _director and _director.has_method("flash"):
+		_director.call("flash", text, secs)
+
+
+func _input(event: InputEvent) -> void:
+	if not _lying:
+		return
+	# Asleep / waking: the view stays put (no spinning the sleeper with the mouse) and any move
+	# key, E or Space gets him up once the dog has started.
+	if event is InputEventMouseMotion:
+		get_viewport().set_input_as_handled()
+		return
+	if _rising:
+		return
+	var wants := false
+	for a in [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump"]:
+		if InputMap.has_action(a) and event.is_action_pressed(a):
+			wants = true
+	if event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_E:
+		wants = true
+	if wants:
+		get_viewport().set_input_as_handled()
+		request_rise()
+
+
+## Get up (input above, or smoke). Only once the screen is up and the barking has started.
+func request_rise() -> bool:
+	if not _lying or _rising or _beat != "wake" or _beat_t < RISE_ALLOWED_AT:
+		return false
+	_rising = true
+	_rise_t = 0.0
+	print("RAID_WAKE_RISE_START")
+	return true
+
+
+func _tick_rise(delta: float) -> void:
+	if not _lying:
+		return
+	if not _rising:
+		_hold_sleep_pose()
+		return
+	_rise_t += delta
+	var u := clampf(_rise_t / RISE_SECS, 0.0, 1.0)
+	# Up on an elbow, then to a knee, then standing: ease the lying offsets out.
+	var w := 1.0 - u * u * (3.0 - 2.0 * u)
+	var pose := _sleep_pose(w)
+	if u < 0.85:
+		var k := sin(u / 0.85 * PI)
+		pose["right_thigh"] = Vector3(0.6 * w + 0.9 * k, 0.0, 0.0)
+		pose["right_shin"] = Vector3(-0.9 * w - 1.1 * k, 0.0, 0.0)
+	_player.call("set_cinematic_pose", pose)
+	if u >= 1.0:
+		_lying = false
+		_rising = false
+		_player.call("end_cinematic")
+		print("RAID_WAKE_RISEN")
+		complete_step(&"wake")
+		_next_beat("look")
+
+
+# ---------------------------------------------------------------- step 5: the look from the bank
+
+func _tick_look(delta: float) -> void:
+	if _player == null:
+		return
+	var p := _player.global_position
+	var d_spot := Vector2(p.x - LOOK_SPOT.x, p.z - LOOK_SPOT.z).length()
+	if not _looked:
+		# At the look-out place on the bank's tail by the west gatepost (the one open view SSW down
+		# the lane; further west the palisade stands on the crest).
+		if d_spot <= LOOK_RADIUS:
+			_look_t += delta
+			if _look_t >= LOOK_SECS:
+				_looked = true
+				print("RAID_LOOK_DONE crouched=%s seen=%s head_s=%.1f" % [_player.get("is_crouching"), _seen, float(_raiders.call("head_s"))])
+				_caption("Down the lane through the mist: men on foot, ten or so, and one on a horse. Spears, bows. In front, a man in a léine and brat, picking the way.", 6.0)
+		else:
+			_look_t = maxf(0.0, _look_t - delta * 0.5)
+		return
+	# Back down into the yard, clear of the bank.
+	var d_c := Vector2(p.x - RATH_CENTRE.x, p.z - RATH_CENTRE.z).length()
+	if d_c <= YARD_RADIUS and d_spot >= YARD_CLEAR_OF_SPOT:
+		_finish_look()
+
+
+func _finish_look() -> void:
+	var g := get_node_or_null("/root/Game")
+	if g:
+		var o: Dictionary = g.get("prologue_outcome")
+		o["seen"] = _seen
+		g.set("prologue_outcome", o)
+	print("RAID_LOOK_BACK_IN_YARD seen=%s" % _seen)
+	complete_step(&"look")
+	_next_beat("knife")
+	_setup_knife_step()
+
+
+## Any ALERT from the party, from the look on: the seen flag (spec: seen on the bank; it stays
+## live through step 6, where the gateway still gives them a view straight up the causeway).
+func _tick_seen() -> void:
+	pass  # driven by the raiders' `spotted` signal
+
+
+func _on_raiders_spotted(by: Node3D) -> void:
+	if _seen:
+		return
+	_seen = true
+	var g := get_node_or_null("/root/Game")
+	if g:
+		var o: Dictionary = g.get("prologue_outcome")
+		o["seen"] = true
+		g.set("prologue_outcome", o)
+	if _heat and by:
+		_heat.call("note_pre_raid_alert", by)
+	print("RAID_SEEN by=%s step=%s" % [by.name if by else "?", current_step_id()])
+	if current_step_id() == &"look":
+		_caption("The man in front is pointing up at the bank, at you. They're coming on faster now.", 4.5)
+
+
+# ---------------------------------------------------------------- step 6: the knife and the girl
+
+func _setup_knife_step() -> void:
+	if _maire:
+		_maire.visible = true
+		_maire.call("place_at", MAIRE_DOOR, _maire_door_yaw)
+	if _girl:
+		_girl.visible = true
+		_girl.call("place", GIRL_AT_DOOR, MAIRE_DOOR_YAW)
+		_girl.call("face_yaw", MAIRE_DOOR_YAW)
+		# Holding on to her mother's léine.
+		if _maire:
+			_girl.call("reach_right", (_maire as Node3D).global_position + Vector3(0.0, 0.8, 0.0), 0.8)
+	if _herd_hand:
+		_herd_hand.visible = true
+		_herd_hand.call("place", HH_BYRE, PI * 0.5)
+		_herd_hand.call("face_point", Terrain.surface_point(Vector3(7.0, 0, 14.0), 0.0))
+	print("RAID_KNIFE_STEP_SETUP")
