@@ -139,17 +139,17 @@ func _build() -> void:
 	sc.add_point(Vector2(1.0, 0.15))
 	_flames.scale_amount_curve = sc
 	var fr := Gradient.new()
-	fr.set_color(0, Color(1.0, 0.92, 0.55, 1.0))
-	fr.set_color(1, Color(0.7, 0.12, 0.02, 0.0))
-	fr.add_point(0.35, Color(1.0, 0.55, 0.12, 0.95))
+	fr.set_color(0, Color(1.0, 0.78, 0.3, 0.95))
+	fr.set_color(1, Color(0.55, 0.1, 0.02, 0.0))
+	fr.add_point(0.35, Color(0.95, 0.42, 0.08, 0.85))
 	_flames.color_ramp = fr
 	var fq := QuadMesh.new()
 	fq.size = Vector2(0.75, 1.1)
 	var fm := StandardMaterial3D.new()
 	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	fm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	fm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	fm.vertex_color_use_as_albedo = true
+	fm.disable_fog = true  # the flames glow through the mist
 	fm.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	fm.albedo_texture = _soft_tex(true)
 	fm.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -188,7 +188,7 @@ func _build() -> void:
 	_smoke = CPUParticles3D.new()
 	_smoke.name = "Smoke"
 	_smoke.emitting = false
-	_smoke.amount = 90
+	_smoke.amount = 160
 	_smoke.lifetime = 11.0
 	_smoke.preprocess = 0.0
 	_smoke.local_coords = false
@@ -208,13 +208,13 @@ func _build() -> void:
 	ss.add_point(Vector2(1.0, 1.0))
 	_smoke.scale_amount_curve = ss
 	var sr := Gradient.new()
-	sr.set_color(0, Color(0.2, 0.17, 0.14, 0.0))
-	sr.set_color(1, Color(0.5, 0.5, 0.5, 0.0))
-	sr.add_point(0.08, Color(0.22, 0.19, 0.16, 0.85))
-	sr.add_point(0.5, Color(0.36, 0.34, 0.32, 0.6))
+	sr.set_color(0, Color(0.16, 0.13, 0.11, 0.0))
+	sr.set_color(1, Color(0.42, 0.41, 0.4, 0.0))
+	sr.add_point(0.06, Color(0.17, 0.14, 0.12, 0.95))
+	sr.add_point(0.55, Color(0.3, 0.28, 0.27, 0.75))
 	_smoke.color_ramp = sr
 	var sq := QuadMesh.new()
-	sq.size = Vector2(2.0, 2.0)
+	sq.size = Vector2(3.6, 3.6)
 	var sm := StandardMaterial3D.new()
 	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
