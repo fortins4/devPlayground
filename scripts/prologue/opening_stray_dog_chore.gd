@@ -78,6 +78,10 @@ var _runoff: bool = false ## DONE but still running out of sight
 var _last_pos: Vector3 = Vector3.ZERO
 var _stance: Array = [false, false, false, false]
 var _body: Node3D = null
+## Coat (the prologue's farm dog reuses this mesh and gait with its own colours).
+var coat: Color = C_HIDE
+var coat_dark: Color = C_HIDE_DARK
+var coat_muzzle: Color = C_MUZZLE
 
 
 func _ready() -> void:
@@ -450,12 +454,12 @@ func _build_dog() -> void:
 	add_child(_dog)
 
 	# Hound silhouette — body, chest, head, snout, legs, tail, ears.
-	_mesh_box(_dog, Vector3(0.0, 0.42, 0.0), Vector3(0.38, 0.32, 0.72), C_HIDE)
-	_mesh_box(_dog, Vector3(0.0, 0.48, 0.28), Vector3(0.34, 0.28, 0.28), C_HIDE_DARK)
-	_mesh_box(_dog, Vector3(0.0, 0.58, 0.52), Vector3(0.26, 0.24, 0.26), C_HIDE)
-	_mesh_box(_dog, Vector3(0.0, 0.52, 0.72), Vector3(0.16, 0.12, 0.22), C_MUZZLE)
-	_mesh_box(_dog, Vector3(-0.08, 0.70, 0.48), Vector3(0.06, 0.14, 0.08), C_HIDE_DARK)
-	_mesh_box(_dog, Vector3(0.08, 0.70, 0.48), Vector3(0.06, 0.14, 0.08), C_HIDE_DARK)
+	_mesh_box(_dog, Vector3(0.0, 0.42, 0.0), Vector3(0.38, 0.32, 0.72), coat)
+	_mesh_box(_dog, Vector3(0.0, 0.48, 0.28), Vector3(0.34, 0.28, 0.28), coat_dark)
+	_mesh_box(_dog, Vector3(0.0, 0.58, 0.52), Vector3(0.26, 0.24, 0.26), coat)
+	_mesh_box(_dog, Vector3(0.0, 0.52, 0.72), Vector3(0.16, 0.12, 0.22), coat_muzzle)
+	_mesh_box(_dog, Vector3(-0.08, 0.70, 0.48), Vector3(0.06, 0.14, 0.08), coat_dark)
+	_mesh_box(_dog, Vector3(0.08, 0.70, 0.48), Vector3(0.06, 0.14, 0.08), coat_dark)
 	_mesh_box(_dog, Vector3(-0.06, 0.60, 0.58), Vector3(0.04, 0.04, 0.04), C_EYE)
 	_mesh_box(_dog, Vector3(0.06, 0.60, 0.58), Vector3(0.04, 0.04, 0.04), C_EYE)
 	# Legs: shoulder / hip pivot, upper and lower segment, paw. Order LF, RF, LH, RH.
@@ -464,16 +468,16 @@ func _build_dog() -> void:
 		var hip := Node3D.new()
 		hip.position = Vector3(spec[0], HIP_Y, spec[1])
 		_dog.add_child(hip)
-		_mesh_box(hip, Vector3(0.0, -UPPER_LEN * 0.5, 0.0), Vector3(0.085, UPPER_LEN + 0.03, 0.09), C_HIDE_DARK)
+		_mesh_box(hip, Vector3(0.0, -UPPER_LEN * 0.5, 0.0), Vector3(0.085, UPPER_LEN + 0.03, 0.09), coat_dark)
 		var knee := Node3D.new()
 		knee.position = Vector3(0.0, -UPPER_LEN, 0.0)
 		hip.add_child(knee)
-		_mesh_box(knee, Vector3(0.0, -LOWER_LEN * 0.5, 0.0), Vector3(0.065, LOWER_LEN, 0.065), C_HIDE_DARK)
-		_mesh_box(knee, Vector3(0.0, -LOWER_LEN + 0.02, 0.025), Vector3(0.075, 0.04, 0.10), C_HIDE_DARK)
+		_mesh_box(knee, Vector3(0.0, -LOWER_LEN * 0.5, 0.0), Vector3(0.065, LOWER_LEN, 0.065), coat_dark)
+		_mesh_box(knee, Vector3(0.0, -LOWER_LEN + 0.02, 0.025), Vector3(0.075, 0.04, 0.10), coat_dark)
 		_legs.append({"hip": hip, "knee": knee, "front": spec[2]})
 	# Tail.
-	_mesh_box(_dog, Vector3(0.0, 0.55, -0.42), Vector3(0.06, 0.06, 0.28), C_HIDE)
-	_mesh_box(_dog, Vector3(0.0, 0.62, -0.55), Vector3(0.05, 0.05, 0.12), C_HIDE_DARK)
+	_mesh_box(_dog, Vector3(0.0, 0.55, -0.42), Vector3(0.06, 0.06, 0.28), coat)
+	_mesh_box(_dog, Vector3(0.0, 0.62, -0.55), Vector3(0.05, 0.05, 0.12), coat_dark)
 
 	var name_l := Label3D.new()
 	name_l.text = "Stray"

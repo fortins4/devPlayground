@@ -85,6 +85,7 @@ const DawnSfx := preload("res://scripts/prologue/prologue_dawn_sfx.gd")
 const HeatTrackerScript := preload("res://systems/stealth/heat_tracker.gd")
 const SackScript := preload("res://scripts/prologue/prologue_sack_chore.gd")
 const BurningScript := preload("res://scripts/prologue/prologue_raid_burning.gd")
+const FarmDogScript := preload("res://scripts/prologue/prologue_farm_dog.gd")
 
 const STEP_IDS: Array[StringName] = [&"news", &"supper", &"penning", &"night", &"wake", &"look", &"knife", &"out", &"burn"]
 
@@ -240,6 +241,7 @@ var _sack_saved: bool = false
 var _burn_started: bool = false
 var _chunk3_done: bool = false
 var _combat_hooked: bool = false
+var _farm_dog: Node3D = null
 
 
 func _ready() -> void:
@@ -496,6 +498,11 @@ func _spawn_cast() -> void:
 	_haze = HazeScript.new()
 	_haze.name = "PrologueHaze"
 	add_child(_haze)
+	# The household's own dog, about the yard for the evening (gone from the night fade on).
+	_farm_dog = FarmDogScript.new()
+	_farm_dog.name = "PrologueFarmDog"
+	_farm_dog.call("set_cast", _boy, _herd_hand)
+	add_child.call_deferred(_farm_dog)
 
 
 func _try_sit() -> void:
@@ -852,7 +859,9 @@ func _check_household() -> void:
 func _tick_chunk2(delta: float) -> void:
 	match _beat:
 		"night":
-			# Straight on from `night_reached`: the screen goes down.
+			# Straight on from `night_reached`: the screen goes down (and the dog is not seen again).
+			if _farm_dog:
+				_farm_dog.call("night_gone")
 			_ensure_fade()
 			if _player:
 				_player.call("begin_cinematic")
@@ -1012,6 +1021,8 @@ func _spawn_dawn_cast() -> void:
 	add_child(_sack)
 	_raiders.connect("struck", _on_raiders_struck)
 	_hook_combat()
+	if _farm_dog:
+		_farm_dog.call("night_gone")  # heard only at dawn (Decision 15)
 	_hide_name_tags()
 
 
@@ -1243,6 +1254,10 @@ func _setup_knife_step() -> void:
 
 
 # ================================================================ chunk 3: the flight and the burning
+
+func farm_dog() -> Node3D:
+	return _farm_dog
+
 
 func sack_chore() -> Node3D:
 	return _sack
