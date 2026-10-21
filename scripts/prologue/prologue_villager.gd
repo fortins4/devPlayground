@@ -28,7 +28,9 @@ const ARRIVE := 0.08
 ## Palette keys as KerneMeshBuilder.PALETTE_PLAYER.
 var palette: Dictionary = {}
 ## Kit props (StringName): nasal_helm, mail_coif, cap, hood_up, kite_shield, spear, lance,
-## light_spears, sword, bow, arrow_bag.
+## light_spears, sword, bow, arrow_bag; step 9: bow_slung (the bow on his back by its string, hands
+## free), long_knife (a sheathed long knife at the belt; `set_knife_drawn`), jack (a padded jack's
+## low quilted collar at the neck).
 var kit: Array = []
 @export var beardless: bool = false
 @export var riding: bool = false
@@ -71,6 +73,12 @@ var _thrust_w: float = 0.0
 var _thrust_target_w: float = 0.0
 var _draw_w: float = 0.0
 var _drawing: bool = false
+var _knife_sheath: Node3D = null
+var _knife_blade: Node3D = null
+var _knife_out: bool = false
+var _lean: float = 0.0
+var _lean_now: float = 0.0
+var _seized_w: float = 0.0
 
 
 func _ready() -> void:
@@ -284,6 +292,37 @@ func is_drawn() -> bool:
 	return _drawing and _draw_w > 0.9
 
 
+## The long knife out of its sheath into the right hand (kit long_knife), or back.
+func set_knife_drawn(on: bool) -> void:
+	_knife_out = on
+	if _knife_blade:
+		_knife_blade.visible = on
+	if _knife_sheath:
+		var hilt := _knife_sheath.get_node_or_null("Hilt") as Node3D
+		if hilt:
+			hilt.visible = not on
+
+
+func is_knife_drawn() -> bool:
+	return _knife_out
+
+
+func knife_tip() -> Vector3:
+	if _knife_blade and _knife_blade.visible:
+		return _knife_blade.global_transform * Vector3(0.0, 0.0, -0.36)
+	return right_hand_point()
+
+
+## Torso pitch on top of the gait (rad; negative leans back): a man heaving on a rope.
+func set_lean(rad: float) -> void:
+	_lean = rad
+
+
+## Taken from behind (0..1): head jerked back, hands up at the arm across his face. No blood.
+func set_seized(w: float) -> void:
+	_seized_w = clampf(w, 0.0, 1.0)
+
+
 ## The arrow leaves the string: drawn → empty-handed, the next one nocked a moment later.
 func loose() -> void:
 	_drawing = false
@@ -334,12 +373,35 @@ func _physics_process(delta: float) -> void:
 		_pose_left_arm(delta)
 		if riding:
 			_pose_riding()
+		_pose_extra(delta)
 		_pose_down(delta)
 		_place_kit(delta)
 	if _bark_t > 0.0:
 		_bark_t -= delta
 		if _bark_t <= 0.0:
 			_bark.visible = false
+
+
+func _pose_extra(delta: float) -> void:
+	_lean_now = lerpf(_lean_now, _lean, clampf(delta * 5.0, 0.0, 1.0))
+	var torso := _loco.get_joint("torso")
+	if torso and absf(_lean_now) > 0.001:
+		torso.rotation.x += _lean_now
+	if _seized_w <= 0.0:
+		return
+	var e := _seized_w
+	var head := _loco.get_joint("head")
+	if head:
+		head.rotation.x -= 0.55 * e
+	if torso:
+		torso.rotation.x -= 0.25 * e
+	for side in [["left_arm", "left_forearm", 1.0], ["right_arm", "right_forearm", -1.0]]:
+		var a := _loco.get_joint(String(side[0]))
+		var f := _loco.get_joint(String(side[1]))
+		if a:
+			a.rotation = a.rotation.lerp(Vector3(deg_to_rad(95.0), 0.0, deg_to_rad(12.0) * float(side[2])), e)
+		if f:
+			f.rotation = f.rotation.lerp(Vector3(deg_to_rad(95.0), 0.0, 0.0), e)
 
 
 func _pose_down(delta: float) -> void:
@@ -408,7 +470,7 @@ func _pose_left_arm(delta: float) -> void:
 	_draw_w = move_toward(_draw_w, 1.0 if (_drawing and _nock_w > 0.9) else 0.0, delta * 2.2)
 	var w := _reach_l_w
 	var pt := _reach_l_point
-	if _nock_w > 0.0 and _bow:
+	if _nock_w > 0.0 and _bow and not kit.has(&"bow_slung"):
 		# Bow hand out before him at chest height, a little to his left; drawn, at full stretch.
 		pt = global_transform * Vector3(-0.12 * (stature_m / RIG_STATURE), (1.25 + 0.12 * _draw_w) * (stature_m / RIG_STATURE), -0.6 - 0.15 * _draw_w)
 		w = maxf(w, _nock_w)
@@ -536,6 +598,48 @@ func _build_kit() -> void:
 		_kbox(_bow, Vector3(0.0, 0.0, 0.06), Vector3(0.006, 1.5, 0.006), Color(0.82, 0.78, 0.7))  # string
 		_arrow = _kbox(_bow, Vector3(0.0, 0.0, -0.05), Vector3(0.012, 0.012, 0.72), Color(0.7, 0.62, 0.48))
 		_arrow.visible = false
+		if torso and kit.has(&"bow_slung"):
+			# Slung: across the back by its string, stave diagonal from the right shoulder down to the
+			# left hip, string across the chest side — both hands free.
+			_bow.top_level = false
+			remove_child(_bow)
+			torso.add_child(_bow)
+			_bow.position = Vector3(0.0, 0.12, 0.17)
+			_bow.rotation = Vector3(0.0, PI * 0.5, 0.62)
+			_bow.scale = Vector3.ONE * maxf(stature_m / RIG_STATURE, 0.9)
+	if hips and kit.has(&"long_knife"):
+		# A long single-edged knife (~0.35 m blade) in a leather sheath, slung at the front left of
+		# the belt, hilt toward the right hand.
+		_knife_sheath = Node3D.new()
+		_knife_sheath.name = "KnifeSheath"
+		_knife_sheath.position = Vector3(-0.1, -0.06, -0.15)
+		_knife_sheath.rotation = Vector3(0.0, 0.0, deg_to_rad(-62.0))
+		hips.add_child(_knife_sheath)
+		_kbox(_knife_sheath, Vector3(0.0, -0.17, 0.0), Vector3(0.05, 0.38, 0.022), Color(0.3, 0.21, 0.13))
+		var hilt := _kbox(_knife_sheath, Vector3(0.0, 0.08, 0.0), Vector3(0.03, 0.12, 0.03), Color(0.36, 0.27, 0.17))
+		hilt.name = "Hilt"
+		_knife_blade = Node3D.new()
+		_knife_blade.name = "LongKnife"
+		_knife_blade.top_level = true
+		_knife_blade.visible = false
+		add_child(_knife_blade)
+		_kbox(_knife_blade, Vector3(0.0, 0.0, 0.03), Vector3(0.03, 0.03, 0.12), Color(0.36, 0.27, 0.17))  # grip
+		_kbox(_knife_blade, Vector3(0.0, 0.0, -0.035), Vector3(0.06, 0.012, 0.016), iron, 0.5)  # guard
+		_kbox(_knife_blade, Vector3(0.0, 0.0, -0.21), Vector3(0.036, 0.008, 0.34), Color(0.6, 0.61, 0.62), 0.7)
+	if torso and kit.has(&"jack"):
+		# Padded jack: a low quilted collar standing round the base of the neck.
+		var neck_y := 0.3
+		if head and head.get_parent() == torso:
+			neck_y = head.position.y - 0.17
+		var jc := _kmat(Color(palette.get("tunic", Color(0.62, 0.56, 0.42))).darkened(0.12))
+		for seg in [[Vector3(0.0, 0.0, -0.1), Vector3(0.24, 0.07, 0.05)], [Vector3(0.0, 0.0, 0.1), Vector3(0.24, 0.07, 0.05)], [Vector3(-0.115, 0.0, 0.0), Vector3(0.05, 0.07, 0.2)], [Vector3(0.115, 0.0, 0.0), Vector3(0.05, 0.07, 0.2)]]:
+			var c := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = seg[1]
+			c.mesh = bm
+			c.material_override = jc
+			c.position = Vector3(0.0, neck_y, 0.0) + seg[0]
+			torso.add_child(c)
 
 
 func _place_kit(_delta: float) -> void:
@@ -557,7 +661,20 @@ func _place_kit(_delta: float) -> void:
 		# Levelled, the hand holds it nearer the butt (a third of the way up).
 		var off := up_b * Vector3(0.0, 0.45 * _thrust_w, 0.0)
 		_spear.global_transform = Transform3D(up_b, _right_hand.global_position + off)
-	if _bow and _left_hand:
+	if _knife_blade and _knife_blade.visible and _right_hand:
+		# In the fist, blade forward-and-down at rest; along the arm toward the mark on a cut.
+		var kb := yaw * Basis(Vector3.RIGHT, -0.35)
+		if _thrust_w > 0.0:
+			var kd := (_thrust_point - _right_hand.global_position)
+			if kd.length() > 0.1:
+				var fwd := -kd.normalized()
+				var xr := Vector3.UP.cross(fwd)
+				if xr.length() > 0.01:
+					xr = xr.normalized()
+					var lv := Basis(xr, fwd.cross(xr).normalized(), fwd)
+					kb = Basis(kb.get_rotation_quaternion().slerp(lv.get_rotation_quaternion(), _thrust_w))
+		_knife_blade.global_transform = Transform3D(kb, _right_hand.global_position)
+	if _bow and _left_hand and not kit.has(&"bow_slung"):
 		var tilt := Basis(Vector3.RIGHT, lerpf(0.12, 0.0, _nock_w)) * Basis(Vector3.FORWARD, lerpf(0.0, 0.25, _nock_w))
 		_bow.global_transform = Transform3D(yaw * tilt, _left_hand.global_position)
 		_bow.scale = Vector3.ONE * maxf(s, 0.9)
