@@ -1,4 +1,4 @@
-[gd_scene load_steps=26 format=3 uid="uid://cq8riochtopendrv01"]
+[gd_scene load_steps=27 format=3 uid="uid://cq8riochtopendrv01"]
 
 [ext_resource type="Script" path="res://scripts/prologue/opening_farm_greybox.gd" id="1_greybox"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_drive_director.gd" id="2_director"]
@@ -15,6 +15,7 @@
 [ext_resource type="Script" path="res://scripts/prologue/opening_sequence.gd" id="13_seq"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_pen_gate_chore.gd" id="14_gate"]
 [ext_resource type="Script" path="res://scripts/prologue/opening_daydream_intro.gd" id="15_intro"]
+[ext_resource type="Script" path="res://scripts/prologue/opening_time_of_day.gd" id="16_tod"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_morning_mat"]
 sky_top_color = Color(0.5, 0.62, 0.74, 1)
@@ -57,6 +58,9 @@ light_color = Color(1, 0.92, 0.8, 1)
 light_energy = 1.2
 shadow_enabled = true
 directional_shadow_max_distance = 240.0
+
+[node name="OpeningTimeOfDay" type="Node" parent="."]
+script = ExtResource("16_tod")
 
 [node name="PathMarkers" type="Node3D" parent="."]
 
