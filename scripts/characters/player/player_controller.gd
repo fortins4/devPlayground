@@ -4160,6 +4160,21 @@ func _finish_goad_stow() -> void:
 		back.visible = combat == null or combat.current_weapon != CombatSystem.Weapon.GOAD
 
 
+## Opening start / T restart: the goad rides slung on his back at once (unarmed, no stow
+## animation, no guard). The player draws it himself with 3.
+func snap_goad_stowed() -> void:
+	if combat == null:
+		return
+	if combat.current_weapon == CombatSystem.Weapon.UNARMED and _goad_draw_u <= 0.001 and not _goad_stowing:
+		return
+	if combat.current_weapon != CombatSystem.Weapon.UNARMED:
+		combat.set_weapon(CombatSystem.Weapon.UNARMED)
+	if not _goad_seat_ready:
+		_goad_draw_u = 0.0  # _bind_locomotion_joints seats it (weapon is unarmed)
+		return
+	sample_goad_draw(0.0)
+
+
 ## Capture hook. u=0 is the back seat, u=1 is the landed two-hand idle.
 func sample_goad_draw(u: float) -> void:
 	if _goad_draw_tween and _goad_draw_tween.is_valid():

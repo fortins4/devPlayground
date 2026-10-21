@@ -124,8 +124,9 @@ func _bind() -> void:
 	if _player:
 		_player_start = _player.global_transform
 		var combat := _player.get_node_or_null("CombatSystem")
-		if combat and combat.has_method("set_weapon"):
-			combat.call("set_weapon", 2)  # CombatSystem.Weapon.GOAD — opening kit: the goad only.
+		# Opening kit: the goad only, and he starts with it slung on his back (stowed). He
+		# draws it himself (3) when the drive needs it; the drive hint says so.
+		_stow_goad()
 		if combat and "knife_in_kit" in combat:
 			combat.set("knife_in_kit", false)  # no knife in the opening (it first appears in the raid)
 	var home := _home_center()
@@ -186,7 +187,25 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _player:
 				_player.global_transform = _player_start
 				_player.set("velocity", Vector3.ZERO)
+				_stow_goad()  # a restart starts as the game does: goad on his back
 			get_viewport().set_input_as_handled()
+
+
+func _stow_goad() -> void:
+	if _player == null:
+		return
+	if _player.has_method("snap_goad_stowed"):
+		_player.call("snap_goad_stowed")
+		return
+	var combat := _player.get_node_or_null("CombatSystem")
+	if combat and combat.has_method("set_weapon"):
+		combat.call("set_weapon", 3)  # CombatSystem.Weapon.UNARMED
+
+
+## True while the goad is in his hands (the drive's prods need it drawn).
+func goad_in_hand() -> bool:
+	var combat := _player.get_node_or_null("CombatSystem") if _player else null
+	return combat != null and int(combat.get("current_weapon")) == 2  # CombatSystem.Weapon.GOAD
 
 
 # ---------------------------------------------------------------- queries (HUD / smoke)

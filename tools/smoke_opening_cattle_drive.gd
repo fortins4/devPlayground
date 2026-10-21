@@ -64,7 +64,19 @@ func _run() -> void:
 	_check(spawn_to_home < 16.0, "player should spawn near the house/pen")
 	_check(herd_to_home > 80.0, "pasture herd should graze a good distance from home")
 	var combat := player.get_node_or_null("CombatSystem")
-	_check(combat != null and String(combat.call("weapon_name")) == "goad", "opening kit should start on goad")
+	# The opening starts with the goad slung on his back (stowed); he draws it himself with 3.
+	_check(combat != null and String(combat.call("weapon_name")) == "unarmed", "opening kit should start with the goad stowed (got %s)" % (combat.call("weapon_name") if combat else "none"))
+	var k3 := InputEventKey.new()
+	k3.keycode = KEY_3
+	k3.physical_keycode = KEY_3
+	k3.pressed = true
+	Input.parse_input_event(k3)
+	await _wait_physics(0.1)
+	var k3u := k3.duplicate() as InputEventKey
+	k3u.pressed = false
+	Input.parse_input_event(k3u)
+	await _wait_physics(0.6)
+	_check(combat != null and String(combat.call("weapon_name")) == "goad", "3 should draw the goad")
 
 	# Pen gate: stands open, and is inert before 6/6 (no prompt, E does nothing).
 	var gate: Node = get_first_node_in_group("opening_pen_gate")
