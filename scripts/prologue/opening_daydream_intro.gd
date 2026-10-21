@@ -33,7 +33,7 @@ const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 ## north field bank (oak / ash crowns stand well clear of the stakes from here).
 const SPOT := Vector3(0.3, 0.0, -7.3)
 const SPOT_YAW_DEG := 6.0
-const CALL_LINE := "Cian! Cian, a stór — come here to me. I've work for you."
+const CALL_LINE := "Cian! There you are, with your head in the trees again. The herd's to be home and penned before dark."
 
 ## Timeline (s from the first frame of the shot).
 const T_CALL := 8.6               ## Máire's call
