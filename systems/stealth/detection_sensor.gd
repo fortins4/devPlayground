@@ -11,6 +11,13 @@ signal alerted(target: Node3D)
 ## Light / mist: scales how far it sees (1 = full day; grey dawn light and ground mist < 1). Sight
 ## range and the distance falloff both use view_distance × light_factor.
 @export var light_factor: float = 1.0
+## Low ground mist (raid prologue, first light): anything whose visibility point is below
+## `low_mist_top` (world height; 0 = no mist) is lost in it beyond a distance that shrinks the lower
+## it is — `low_mist_hide_beyond` m at the mist's top down to a quarter of that at ground level (a
+## man crouched in the grass is gone at ~14 m, crouched down in a ditch at ~6 m); a man standing
+## shows over it.
+@export var low_mist_top: float = 0.0
+@export var low_mist_hide_beyond: float = 22.0
 @export var view_half_angle_deg: float = 42.0
 @export var hearing_range: float = 9.0
 @export var eye_height: float = 1.55
@@ -125,6 +132,10 @@ func _try_vision(eye: Vector3, aim: Vector3, to_target: Vector3, dist: float, vi
 	var reach := view_distance * clampf(light_factor, 0.05, 1.0)
 	if dist > reach:
 		return 0.0
+	if low_mist_top > 0.0 and aim.y < low_mist_top:
+		var low := clampf(aim.y / low_mist_top, 0.0, 1.0)
+		if dist > low_mist_hide_beyond * lerpf(0.25, 1.0, low):
+			return 0.0
 	var forward := -global_transform.basis.z
 	forward.y = 0.0
 	if forward.length_squared() < 0.0001:
