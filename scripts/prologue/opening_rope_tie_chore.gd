@@ -15,8 +15,14 @@ class_name OpeningRopeTieChore
 ##   3. E at the post: she's brought up head-to-post and he ties the rope to the post with both
 ##      hands (knot worked, then drawn tight). Once tied a rope runs from her neck to the post.
 ## States: penned → lead_out → leading → tying → tied.
+##
+## Prologue return (raid sequence step "penning", twilight after the milking — the same chores in
+## reverse): E at the post unties her by hand → he leads her back to the pen gate → E at the gate:
+## he lifts the latch, swings the west leaf back, she walks in, he slips the rope off her neck and
+## shuts the leaf → E again drops the latch and he tries it with a tug ("latch it well tonight").
+## States: untying → leading_back → lead_in → latch_wait → latching → penned_back.
 
-enum TieState { PENNED, LEAD_OUT, LEADING, TYING, TIED }
+enum TieState { PENNED, LEAD_OUT, LEADING, TYING, TIED, UNTYING, LEADING_BACK, LEAD_IN, LATCH_WAIT, LATCHING, PENNED_BACK }
 
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 
@@ -54,6 +60,12 @@ const C_POST_DARK := Color(0.28, 0.20, 0.12)
 const C_ROPE := Color(0.55, 0.48, 0.32)
 
 const SEQ_STEP := &"milk"
+## Prologue return: raid sequence step that owns the untie / lead back / latch.
+const RETURN_STEP := &"penning"
+const UNTIE_SECS := 1.6
+const LATCH_CHECK_SECS := 0.9
+## Her way back in: up to the gateway (west half), through it, then on to a free spot in the pen.
+const IN_PATH: Array[Vector3] = [Vector3(5.4, 0.0, 11.6), Vector3(5.3, 0.0, 9.6), Vector3(5.4, 0.0, 7.6), Vector3(7.9, 0.0, 4.9)]
 
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 @export var gate_path: NodePath = ^"../OpeningPenGateChore"
@@ -112,6 +124,36 @@ func _process(delta: float) -> void:
 					_finish_tie(true)
 		TieState.TIED:
 			_hold_cow_at(_tie_pos(), _tie_yaw(), delta)
+		TieState.UNTYING:
+			_hold_cow_at(_tie_pos(), _tie_yaw(), delta)
+			if _work_t > 0.0 or _player_ready():
+				_work_t += delta
+				if _work_t >= UNTIE_SECS:
+					_state = TieState.LEADING_BACK
+					_work_t = 0.0
+					_trail.clear()
+					_trail.append(_flat(_cow.global_position))
+					_player.call("end_hand_work", self)
+					_player.call("begin_lead", self)
+					print("PROLOGUE_MILK_UNTIED")
+		TieState.LEADING_BACK:
+			_tick_leading()
+		TieState.LEAD_IN:
+			_tick_lead_in(delta)
+		TieState.LATCH_WAIT:
+			pass
+		TieState.LATCHING:
+			if _work_t > 0.0 or _player_ready():
+				_work_t += delta
+				var k := clampf(_work_t / RELATCH_SECS, 0.0, 1.0)
+				_gate.call("set_lead_pose", 1.0 - k, 0.0)
+				if _work_t >= RELATCH_SECS + LATCH_CHECK_SECS:
+					_gate.call("set_lead_pose", 0.0, 0.0)
+					_state = TieState.PENNED_BACK
+					_release_player()
+					_flash("Latched fast, and tried with a tug. All six are penned for the night.", 3.5)
+					print("PROLOGUE_MILK_PENNED_BACK")
+					_report_return_done()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -128,7 +170,12 @@ func chore_done() -> bool:
 
 
 func tie_state() -> String:
-	return ["penned", "lead_out", "leading", "tying", "tied"][int(_state)]
+	return ["penned", "lead_out", "leading", "tying", "tied", "untying", "leading_back", "lead_in", "latch_wait", "latching", "penned_back"][int(_state)]
+
+
+## Prologue return finished: she is back in the pen and the gate is latched.
+func returned() -> bool:
+	return _state == TieState.PENNED_BACK
 
 
 func is_tied() -> bool:
@@ -153,7 +200,7 @@ func animal_pos() -> Vector3:
 
 ## World ends of the visible rope: [post knot or Cian's hand, her neck].
 func rope_ends() -> Array:
-	if _state == TieState.TIED or (_state == TieState.TYING and _work_t > 0.0):
+	if _state == TieState.TIED or (_state == TieState.TYING and _work_t > 0.0) or (_state == TieState.UNTYING and _work_t < UNTIE_SECS * 0.6):
 		return [_knot_far(), _neck_point()]
 	return [_hand_point(), _neck_point()]
 
@@ -163,7 +210,11 @@ func rope_visible() -> bool:
 
 
 func interact_prompt() -> String:
-	if _player == null or not is_instance_valid(_player) or not _gate_open():
+	if _player == null or not is_instance_valid(_player):
+		return ""
+	if _return_open():
+		return _return_prompt()
+	if not _gate_open():
 		return ""
 	var p := _player.global_position
 	match _state:
@@ -179,6 +230,8 @@ func interact_prompt() -> String:
 
 
 func is_active() -> bool:
+	if _return_open():
+		return _state != TieState.PENNED_BACK
 	return _gate_open() and _state != TieState.TIED
 
 
@@ -193,6 +246,16 @@ func objective_text() -> String:
 			return "Lead the milk cow to the post by the house — E at the post to tie her."
 		TieState.TYING:
 			return "Tie the milk cow to the post."
+		TieState.TIED:
+			return "Untie the milk cow at the post — E — and lead her back to the pen."
+		TieState.UNTYING:
+			return "Untie the milk cow from the post."
+		TieState.LEADING_BACK:
+			return "Lead the milk cow back to the pen gate — E at the gate to put her in."
+		TieState.LEAD_IN:
+			return "Put her in with the others and shut the gate behind her."
+		TieState.LATCH_WAIT, TieState.LATCHING:
+			return "Latch the pen gate — E at the gate. Latch it well tonight."
 	return ""
 
 
@@ -239,7 +302,11 @@ func try_interact() -> bool:
 func _try_interact() -> bool:
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player") as Node3D
-	if _player == null or _cow == null or not _gate_open():
+	if _player == null or _cow == null:
+		return false
+	if _return_open():
+		return _try_return_interact()
+	if not _gate_open():
 		return false
 	var p := _player.global_position
 	match _state:
@@ -269,6 +336,143 @@ func _try_interact() -> bool:
 			print("OPENING_MILK_TIE_BEGIN")
 			return true
 	return false
+
+
+# ---------------------------------------------------------------- prologue return (post → pen)
+
+func _return_prompt() -> String:
+	var p := _player.global_position
+	match _state:
+		TieState.TIED:
+			if _near(p, POST_POS):
+				return "E — untie the milk cow"
+		TieState.LEADING_BACK:
+			if _near(p, GATE_STAND, 2.6) and p.z > 10.15:
+				if not _near(animal_pos(), GATE_STAND, TIE_REACH):
+					return "Bring her up to the gate"
+				return "E — open the gate and put her in"
+		TieState.LATCH_WAIT:
+			if _near(p, GATE_STAND, 2.6) and p.z > 10.15:
+				return "E — drop the latch (latch it well)"
+	return ""
+
+
+func _try_return_interact() -> bool:
+	var p := _player.global_position
+	match _state:
+		TieState.TIED:
+			if not _near(p, POST_POS):
+				return false
+			_state = TieState.UNTYING
+			_work_t = 0.0
+			var stand := POST_POS + _stand_dir() * STAND_DIST
+			_player.call("begin_hand_work", self, stand, _yaw_to(stand, POST_POS))
+			print("PROLOGUE_MILK_UNTIE_BEGIN")
+			return true
+		TieState.LEADING_BACK:
+			if not (_near(p, GATE_STAND, 2.6) and p.z > 10.15):
+				return false
+			if not _near(animal_pos(), GATE_STAND, TIE_REACH):
+				_flash("Bring her up to the gate first.", 2.0)
+				return true
+			if _gate == null or not bool(_gate.call("pen_latched")):
+				return false
+			_state = TieState.LEAD_IN
+			_phase = 0
+			_phase_t = 0.0
+			_path_i = 0
+			_player.call("end_lead", self)
+			_player.call("begin_hand_work", self, GATE_STAND, _yaw_to(GATE_STAND, _gate.call("latch_point")))
+			print("PROLOGUE_MILK_LEAD_IN_BEGIN")
+			return true
+		TieState.LATCH_WAIT:
+			if not (_near(p, GATE_STAND, 2.6) and p.z > 10.15):
+				return false
+			_state = TieState.LATCHING
+			_work_t = 0.0
+			_phase = 4
+			_player.call("begin_hand_work", self, GATE_STAND, _yaw_to(GATE_STAND, _gate.call("latch_point")))
+			print("PROLOGUE_MILK_LATCH_BEGIN")
+			return true
+	return false
+
+
+## Gate beats in reverse: 0 lift the latch, 1 swing the west leaf back, 2 she walks in (rope
+## slipped off at the gateway), 3 shut the leaf (latch still up) → latch_wait for his E.
+func _tick_lead_in(delta: float) -> void:
+	if not _player_ready() and _phase == 0 and _phase_t == 0.0:
+		_hold_cow_at(_cow.global_position, _cow.rotation.y, delta)
+		return
+	_phase_t += delta
+	match _phase:
+		0:
+			_gate.call("set_lead_pose", clampf(_phase_t / UNLATCH_SECS, 0.0, 1.0), 0.0)
+			if _phase_t >= UNLATCH_SECS:
+				_next_phase()
+		1:
+			_gate.call("set_lead_pose", 1.0, clampf(_phase_t / OPEN_SECS, 0.0, 1.0))
+			if _phase_t >= OPEN_SECS:
+				_next_phase()
+		2:
+			var tgt := IN_PATH[_path_i]
+			if _path_i >= 2 and _roped:
+				_set_roped(false)
+				print("PROLOGUE_MILK_ROPE_OFF")
+			if _cow_at(tgt, 0.45):
+				_path_i += 1
+				if _path_i >= IN_PATH.size():
+					_cow.call("set_pen_slot", Vector3(tgt.x, _cow.global_position.y, tgt.z))
+					_next_phase()
+					return
+			# Once she is through the gateway the leaf can swing to behind her.
+			if _path_i >= 3 and _flat(_cow.global_position).z < 8.2:
+				_cow.call("set_pen_slot", Vector3(IN_PATH[-1].x, _cow.global_position.y, IN_PATH[-1].z))
+				_next_phase()
+				return
+			_walk_cow_to(IN_PATH[_path_i])
+		3:
+			_gate.call("set_lead_pose", 1.0, 1.0 - clampf(_phase_t / SHUT_SECS, 0.0, 1.0))
+			if _phase_t >= SHUT_SECS:
+				_gate.call("set_lead_pose", 1.0, 0.0)
+				_state = TieState.LATCH_WAIT
+				_player.call("end_hand_work", self)
+				print("PROLOGUE_MILK_LEAF_SHUT latch_up=true")
+
+
+func _return_open() -> bool:
+	var raid := get_tree().get_first_node_in_group("raid_sequence") if is_inside_tree() else null
+	return raid != null and bool(raid.call("is_step_active", RETURN_STEP)) and _state >= TieState.TIED
+
+
+func _report_return_done() -> void:
+	var raid := get_tree().get_first_node_in_group("raid_sequence") if is_inside_tree() else null
+	if raid and raid.has_method("report_cow_penned"):
+		raid.call("report_cow_penned")
+
+
+## Prologue capture / smoke: jump the return to a state ("leading_back", "latch_wait", "penned_back").
+func force_return_state(state_name: String) -> void:
+	_release_player()
+	match state_name:
+		"leading_back":
+			_place_cow(_tie_pos(), _tie_yaw())
+			_set_roped(true)
+			_trail.clear()
+			_trail.append(_flat(_cow.global_position))
+			_state = TieState.LEADING_BACK
+			if _player and _player.has_method("begin_lead"):
+				_player.call("begin_lead", self)
+		"latch_wait", "penned_back":
+			_place_cow(IN_PATH[-1], 0.0)
+			_set_roped(false)
+			_state = TieState.LATCH_WAIT
+			if _gate:
+				_gate.call("set_lead_pose", 1.0, 0.0)
+			if state_name == "penned_back":
+				_gate.call("set_lead_pose", 0.0, 0.0)
+				_state = TieState.PENNED_BACK
+				_report_return_done()
+	_rope.visible = _roped
 
 
 # ---------------------------------------------------------------- lead-out at the gate
@@ -372,8 +576,18 @@ func _player_ready() -> bool:
 
 ## Player rig callback: world targets for [left hand, right hand] this frame.
 func hand_work_grips() -> Array:
-	if _state == TieState.LEAD_OUT:
+	if _state == TieState.LEAD_OUT or _state == TieState.LEAD_IN:
 		return _gate_grips()
+	if _state == TieState.LATCHING:
+		# Right hand drops the latch bar into the keeper, then both hands try the leaf (a tug).
+		var latch: Vector3 = _gate.call("latch_point")
+		var f := -_player.global_transform.basis.z
+		f.y = 0.0
+		var left := Vector3.UP.cross(f.normalized()).normalized()
+		var tug := smoothstep(RELATCH_SECS, RELATCH_SECS + 0.3, _work_t) * (1.0 - smoothstep(RELATCH_SECS + 0.5, RELATCH_SECS + 0.8, _work_t))
+		return [latch + left * 0.12 - f * 0.06 * tug, latch - left * 0.04 - f * 0.06 * tug]
+	if _state == TieState.UNTYING:
+		return _untie_grips()
 	var c := _knot_near()
 	var out := _stand_dir()
 	var side := Vector3.UP.cross(-out).normalized()  # Cian's left as he faces the post
@@ -399,6 +613,19 @@ func hand_work_grips() -> Array:
 	l += (side * 0.07 + out * 0.05 - Vector3.UP * 0.02) * pull
 	r += (-side * 0.07 + out * 0.05 - Vector3.UP * 0.02) * pull
 	return [l, r]
+
+
+## Untying: both hands at the knot, the right working the end loose, then lifting the turns off.
+func _untie_grips() -> Array:
+	var c := _knot_near()
+	var out := _stand_dir()
+	var side := Vector3.UP.cross(-out).normalized()
+	var u := clampf(_work_t / UNTIE_SECS, 0.0, 1.0)
+	var ph := _work_t * TAU * 1.4
+	var l := c + side * HAND_HALF
+	var r := c - side * HAND_HALF + (side * cos(ph) * 0.03 + Vector3.UP * sin(ph) * 0.035) * (1.0 - smoothstep(0.55, 0.7, u))
+	var lift := smoothstep(0.6, 1.0, u)
+	return [l + out * 0.1 * lift - Vector3.UP * 0.12 * lift, r + out * 0.1 * lift - Vector3.UP * 0.12 * lift]
 
 
 ## Gate beats: both hands lift the latch; the right starts the leaf's swing; hands hold the rope
@@ -590,7 +817,8 @@ func _rebuild_rope(a: Vector3, b: Vector3) -> void:
 	for c in _rope.get_children():
 		_rope.remove_child(c)
 		c.free()
-	var at_post := _state == TieState.TIED or (_state == TieState.TYING and _work_t > 0.0)
+	var at_post := _state == TieState.TIED or (_state == TieState.TYING and _work_t > 0.0) \
+		or (_state == TieState.UNTYING and _work_t < UNTIE_SECS * 0.6)
 	if at_post:
 		var ring := TorusMesh.new()
 		ring.inner_radius = POST_RADIUS + 0.005
