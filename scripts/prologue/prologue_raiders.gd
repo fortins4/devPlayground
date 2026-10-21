@@ -14,8 +14,22 @@ class_name PrologueRaiders
 ## the dawn light-and-mist factor. ALERT on Cian → `spotted` (the raid sequence sets `seen`): the
 ## party hurries on to a nearer hold point and the archers put arrows on their strings (no
 ## shooting at people yet).
+## Step 7: after a pause at the hold the party comes on up the rest of the lane (Bend2 → Bend1 →
+## the causeway → the gate mouth) — `advance()`; `reached_causeway()` is the step 7 deadline.
+## Sight stays on (ALERT → `spotted`) except while `watch` is off (step 6: nobody in the column is
+## looking for him while he is indoors at the peg; the spec has no seen in step 6).
+## Attack branch (Decision 6, 6.16): `start_combat(cian)` — the serjeants come at him with levelled
+## spears and the archers loose from range; every blow or arrow that lands is `struck` (the raid
+## sequence applies it and downs him; nobody here kills). Each man has a Hurtbox and a CombatSystem
+## (team 1) wearing what he wears: mail (the rider, one serjeant), padded (the other serjeants, the
+## jacked archers) or none (the guide, two archers) — the goad and the knife do next to nothing
+## through padding and nothing through mail.
+## Step 8: `release(man)` takes a man out of the column for the burning (PrologueRaidBurning walks
+## him); `stop_column()` ends the column walk altogether.
 
 signal spotted(by: Node3D)
+signal struck(target: Node3D, amount: float, kind: StringName, from: Node3D)
+signal arrived
 
 const VillagerScript := preload("res://scripts/prologue/prologue_villager.gd")
 const SensorScript := preload("res://systems/stealth/detection_sensor.gd")
@@ -23,7 +37,11 @@ const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 const HORSE_SCENE := "res://scenes/characters/horse/horse.tscn"
 
 ## The lane from the south (PathMarkers Bend6 → Bend5 → Bend4 → Bend3 → Bend2), walked upward.
-const LANE: Array[Vector3] = [Vector3(-2.0, 0, 118.0), Vector3(10.0, 0, 92.0), Vector3(-12.0, 0, 70.0), Vector3(-18.0, 0, 54.0), Vector3(-15.0, 0, 37.0)]
+## Then on (step 7) to Bend1 (4, 25), the causeway foot over the ditch and the gate mouth.
+const LANE: Array[Vector3] = [Vector3(-2.0, 0, 118.0), Vector3(10.0, 0, 92.0), Vector3(-12.0, 0, 70.0), Vector3(-18.0, 0, 54.0), Vector3(-15.0, 0, 37.0),
+	Vector3(4.0, 0, 25.0), Vector3(5.8, 0, 20.5), Vector3(6.4, 0, 15.5)]
+const CAUSEWAY_I := 6       ## LANE index of the causeway foot
+const ARRIVE_BACK := 2.5    ## the head stops this far short of the gate mouth
 ## How far along the lane (m from LANE[0]) the head of the column stops: unseen / seen.
 const HOLD_UNSEEN := 74.0   ## just short of Bend3 (−18, 54), ~42 m below the gate
 const HOLD_SEEN := 92.0     ## past Bend3 toward Bend2, ~30 m below the gate
@@ -36,6 +54,19 @@ const ORDER := [
 	["archer", 2.0], ["archer", 1.4], ["archer", 1.6], ["archer", 1.4], ["archer", 1.5],
 ]
 const LIGHT_FACTOR := 0.5   ## grey first light and ground mist: half the daylight sight range
+const LOW_MIST_TOP := 1.4   ## the ground mist's top (OpeningTimeOfDay MIST_TOP): low figures in it…
+const LOW_MIST_HIDE := 22.0 ## …are lost beyond this (crouched in the ditch / grass)
+const ArrowScript := preload("res://scripts/prologue/prologue_arrow.gd")
+const DawnSfx := preload("res://scripts/prologue/prologue_dawn_sfx.gd")
+## Attack branch tuning.
+const CLOSE_SPEED := 3.2    ## serjeants running in with spears levelled
+const SPEAR_REACH := 2.1
+const THRUST_EVERY := 1.3
+const THRUST_DMG := 24.0
+const ARROW_DMG := 18.0
+const LOOSE_EVERY := 2.6
+const BOW_RANGE := 60.0
+const BOW_MIN := 4.0
 
 var men: Array[Node3D] = []
 var guide: Node3D = null
@@ -51,6 +82,17 @@ var _seen: bool = false
 var _horse_legs: Array[Node3D] = []
 var _horse_t: float = 0.0
 var _lane_len: Array[float] = []
+var watch: bool = true
+var _column: bool = true
+var _free: Dictionary = {}
+var _combat_target: Node3D = null
+var _cd: Dictionary = {}
+var _arrived: bool = false
+var _arrows: Array[Node3D] = []
+var arrows_loosed: int = 0
+## Step 8: men still at a job for the burning (driving the herd, the brand) keep at it in a fight.
+var busy_check: Callable = Callable()
+var thrusts: int = 0
 
 
 func _ready() -> void:
@@ -64,6 +106,9 @@ func _ready() -> void:
 		_lane_len.append(acc)
 	_spawn()
 	_place_all(0.0)
+	if horse and rider:
+		horse.global_position = Terrain.surface_point(rider.global_position, 0.0)
+		horse.rotation.y = rider.rotation.y
 
 
 func start() -> void:
@@ -73,6 +118,67 @@ func start() -> void:
 
 func is_seen() -> bool:
 	return _seen
+
+
+## Step 6 / 7: sight on or off (off: meters cleared and the sensors idle).
+func set_watch(on: bool) -> void:
+	watch = on
+	for sn in _sensors:
+		sn.set_physics_process(on)
+		sn.call("force_awareness", 0)
+
+
+## Step 7: on from the hold up the rest of the lane to the gate mouth.
+func advance(speed: float = -1.0) -> void:
+	_hold = _lane_len[_lane_len.size() - 1] - ARRIVE_BACK
+	_speed = speed if speed > 0.0 else (HURRY if _seen else WALK)
+	_running = true
+	print("RAIDERS_ADVANCE head_s=%.1f speed=%.2f" % [_s, _speed])
+
+
+func causeway_s() -> float:
+	return _lane_len[CAUSEWAY_I]
+
+
+func reached_causeway() -> bool:
+	return _s >= causeway_s() - 0.5
+
+
+func has_arrived() -> bool:
+	return _arrived
+
+
+func release(m: Node3D) -> void:
+	_free[m] = true
+
+
+func is_released(m: Node3D) -> bool:
+	return _free.has(m)
+
+
+func stop_column() -> void:
+	_column = false
+
+
+func men_with_role(role: StringName) -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	for m in men:
+		if StringName(m.get_meta("role", &"")) == role:
+			out.append(m)
+	return out
+
+
+func in_combat() -> bool:
+	return _combat_target != null
+
+
+## Smoke: count of arrows in flight or stuck in the turf.
+func arrow_nodes() -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	for a in _arrows:
+		if is_instance_valid(a):
+			out.append(a)
+	return out
 
 
 func head_s() -> float:
@@ -109,6 +215,9 @@ func max_meter() -> float:
 func debug_set_head(s: float) -> void:
 	_s = clampf(s, 0.0, _hold)
 	_place_all(0.0)
+	if horse and rider:
+		horse.global_position = Terrain.surface_point(rider.global_position, 0.0)
+		horse.rotation.y = rider.rotation.y
 
 
 func archers() -> Array[Node3D]:
@@ -133,13 +242,26 @@ func lane_point(s: float) -> Array:
 
 
 func _physics_process(delta: float) -> void:
+	if _combat_target:
+		_tick_combat(delta)
+	if horse and rider:
+		horse.global_position = Terrain.surface_point(rider.global_position, 0.0)
+		horse.rotation.y = rider.rotation.y
 	if not _running:
 		return
-	var moving := _s < _hold - 0.01
+	var moving := _column and _s < _hold - 0.01
 	if moving:
 		_s = minf(_hold, _s + _speed * delta)
-	_place_all(delta)
-	_tick_horse(delta, _speed if moving else 0.0)
+	if _column:
+		_place_all(delta)
+	if not _arrived and _s >= _lane_len[_lane_len.size() - 1] - ARRIVE_BACK - 0.01:
+		_arrived = true
+		print("RAIDERS_ARRIVED")
+		arrived.emit()
+	var rv := float(rider.get("_speed_now")) if rider and not _column else (_speed if moving else 0.0)
+	_tick_horse(delta, rv)
+	if not watch:
+		return
 	if not _seen:
 		for sn in _sensors:
 			if int(sn.get("awareness")) == 2:
@@ -149,7 +271,7 @@ func _physics_process(delta: float) -> void:
 
 func _on_seen(by: Node3D) -> void:
 	_seen = true
-	_hold = HOLD_SEEN
+	_hold = maxf(_hold, HOLD_SEEN)  # already coming on past it (step 7): keep on to the gate
 	_speed = HURRY
 	for a in archers():
 		a.call("set_nocked", true)
@@ -165,6 +287,8 @@ func _place_all(_delta: float) -> void:
 	for i in men.size():
 		back += float(ORDER[i][1])
 		var m := men[i]
+		if _free.has(m) or (_combat_target and StringName(m.get_meta("role", &"")) != &"rider"):
+			continue
 		var pd: Array = lane_point(_s - back)
 		var p: Vector3 = pd[0]
 		var d: Vector3 = pd[1]
@@ -179,9 +303,101 @@ func _place_all(_delta: float) -> void:
 			m.call("walk_path", [target], maxf(_speed * 1.4, 0.4) if _s < _hold - 0.01 else 0.6)
 			if _s >= _hold - 0.01:
 				m.call("face_yaw", yaw)
-	if horse and rider:
-		horse.global_position = Terrain.surface_point(rider.global_position, 0.0)
-		horse.rotation.y = rider.rotation.y
+
+
+# ---------------------------------------------------------------- attack branch
+
+## Decision 6: Cian has gone for one of them. Everyone but the rider (he sits his horse on the
+## lane) turns on him: spears levelled and run in, bows drawn and loosed from where they stand.
+func start_combat(target: Node3D) -> void:
+	if _combat_target:
+		return
+	_combat_target = target
+	_seen = true
+	var k := 0
+	for m in men:
+		_cd[m] = 0.4 + 0.35 * k
+		k += 1
+		m.call("set_crouch", false)
+		if StringName(m.get_meta("role", &"")) == &"archer":
+			m.call("set_nocked", true)
+	print("RAIDERS_COMBAT")
+
+
+func stop_combat() -> void:
+	_combat_target = null
+	for m in men:
+		m.call("level_spear", Vector3.ZERO, 0.0)
+		m.call("set_drawing", false)
+
+
+func _tick_combat(delta: float) -> void:
+	var t := _combat_target
+	if t == null or not is_instance_valid(t):
+		_combat_target = null
+		return
+	var tp := t.global_position
+	for m in men:
+		var role := StringName(m.get_meta("role", &""))
+		if role == &"rider" or bool(m.call("is_down")):
+			continue
+		if busy_check.is_valid() and bool(busy_check.call(m)):
+			continue
+		var to := Vector3(tp.x - m.global_position.x, 0.0, tp.z - m.global_position.z)
+		var d := to.length()
+		_cd[m] = float(_cd.get(m, 0.0)) - delta
+		match role:
+			&"serjeant", &"guide":
+				m.call("level_spear", tp + Vector3.UP * 1.0, 1.0 if d < 6.0 else 0.0)
+				if d > SPEAR_REACH * 0.85:
+					m.call("walk_path", [tp - to.normalized() * (SPEAR_REACH * 0.7)], CLOSE_SPEED)
+				else:
+					m.call("face_point", tp)
+					if float(_cd[m]) <= 0.0:
+						_cd[m] = THRUST_EVERY
+						thrusts += 1
+						struck.emit(t, THRUST_DMG, &"cut", m)
+			&"archer":
+				m.call("face_point", tp)
+				if d < BOW_MIN:
+					m.call("walk_path", [m.global_position - to.normalized() * 3.0], 2.6)
+				elif d > BOW_RANGE:
+					m.call("walk_path", [tp - to.normalized() * (BOW_RANGE * 0.8)], 2.6)
+				else:
+					m.call("set_drawing", true)
+					if float(_cd[m]) <= 0.0 and bool(m.call("is_drawn")):
+						_cd[m] = LOOSE_EVERY
+						_loose_at(m, t, d)
+
+
+func _loose_at(m: Node3D, t: Node3D, d: float) -> void:
+	m.call("loose")
+	m.call("set_nocked", true)
+	arrows_loosed += 1
+	var from := m.global_position + Vector3(0, 1.4, 0) + (-m.global_transform.basis.z) * 0.6
+	# Half-light, a moving man: the nearer, the likelier.
+	var crouch := float(t.call("get_visibility_factor")) if t.has_method("get_visibility_factor") else 1.0
+	var p_hit := clampf(0.9 - d / 70.0, 0.2, 0.85) * lerpf(0.6, 1.0, (crouch - 0.55) / 0.45)
+	var hit := randf() < p_hit
+	var aim := t.global_position + Vector3(0, 1.1, 0)
+	if not hit:
+		var off := Vector3(randf_range(-2.2, 2.2), 0, randf_range(-2.2, 2.2))
+		aim = Terrain.surface_point(t.global_position + off, 0.0)
+	DawnSfx.play(self, &"loose", from, -4.0, 6.0)
+	var host := self
+	var a := ArrowScript.shoot(self, from, aim, not hit, func() -> void:
+		if hit and is_instance_valid(t) and host._combat_target == t:
+			host.struck.emit(t, ARROW_DMG, &"arrow", m))
+	_arrows.append(a)
+
+
+## Step 8 (and anywhere): an archer looses one arrow at `aim` (a hit if `hit`); `done` on arrival.
+func loose_one(m: Node3D, aim: Vector3, hit: bool, done: Callable = Callable()) -> void:
+	m.call("loose")
+	var from := m.global_position + Vector3(0, 1.4, 0) + (-m.global_transform.basis.z) * 0.6
+	DawnSfx.play(self, &"loose", from, -2.0, 8.0)
+	arrows_loosed += 1
+	_arrows.append(ArrowScript.shoot(self, from, aim, not hit, done))
 
 
 func _tick_horse(delta: float, v: float) -> void:
@@ -250,6 +466,7 @@ func _spawn() -> void:
 				v.set("kit", [&"bow", &"arrow_bag", &"cap" if i % 2 == 0 else &"hood_up"])
 		add_child(v)
 		men.append(v)
+		_add_hurtbox(v, role, i)
 		if role == "guide":
 			guide = v
 			_add_sensor(v, 1.55)
@@ -257,6 +474,40 @@ func _spawn() -> void:
 			rider = v
 			_add_sensor(v, 1.75)  # + the 0.62 m seat: eye ~2.4 m above the lane
 	_spawn_horse()
+
+
+## Hurtbox (layer 4: the player's hitbox finds it) and a CombatSystem wearing his armour.
+func _add_hurtbox(v: Node3D, role: String, i: int) -> void:
+	var hb := Area3D.new()
+	hb.name = "Hurtbox"
+	hb.collision_layer = 4
+	hb.collision_mask = 0
+	hb.monitorable = true
+	hb.monitoring = false
+	var cs := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.34
+	cap.height = 1.7
+	cs.shape = cap
+	cs.position = Vector3(0, 0.9 + (0.62 if role == "rider" else 0.0), 0)
+	hb.add_child(cs)
+	v.add_child(hb)
+	var cb := CombatSystem.new()
+	cb.name = "CombatSystem"
+	cb.team = 1
+	cb.starting_weapon = CombatSystem.Weapon.UNARMED
+	cb.show_damage_numbers = false
+	var arm := &"none"
+	match role:
+		"rider":
+			arm = &"mail"
+		"serjeant":
+			arm = &"mail" if i == 2 else &"padded"
+		"archer":
+			arm = &"padded" if i % 2 == 1 else &"none"
+	cb.armour = arm
+	v.set_meta("armour", arm)
+	v.add_child(cb)
 
 
 func _add_sensor(host: Node3D, eye: float) -> void:
@@ -268,6 +519,8 @@ func _add_sensor(host: Node3D, eye: float) -> void:
 	sn.set("eye_height", eye)
 	sn.set("hearing_range", 7.0)
 	sn.set("light_factor", LIGHT_FACTOR)
+	sn.set("low_mist_top", LOW_MIST_TOP)
+	sn.set("low_mist_hide_beyond", LOW_MIST_HIDE)
 	host.add_child(sn)
 	var lbl := sn.get_node_or_null("AwarenessLabel") as Node3D
 	if lbl:

@@ -37,8 +37,35 @@ class_name RaidSequence
 ##   6 knife   (P) Máire is up at the door with Cian's sister holding her léine; her locked shout. The
 ##              knife off its peg on the door jamb (PrologueKnifePeg: the first knife in the game —
 ##              combat.knife_in_kit, alias knife_carried, turns true only there) and his sister by the
-##              hand (PrologueHandHold). Both done → step `out`, the end of chunk 2 (step 7, the flight,
-##              is not built: the party waits at its hold point below the ráth).
+##              hand (PrologueHandHold). Both done → step `out`. Nobody in the party is watching for
+##              him while he is at the door (the spec has no seen in step 6: raiders.set_watch(false)).
+##
+## Chunk 3 (spec steps 7–8), first light of day 1:
+##   7 out     (P) lead Máire and the girl out by the gate (the only way out) and west along the outer
+##              ditch past the spring scoop into the wood edge (~35 m) before the party reaches the
+##              causeway. The herd-hand won't come: he goes to the pen gate to talk to them (locked
+##              line). Máire and the girl follow on foot and crouch when he crouches. Optional: the
+##              sack of meal and seed-corn by the quern (PrologueSackChore: 1.45 m/s, no sprint, goad
+##              stowed). After a pause at the hold the party comes on up the lane to the gate.
+##              Fail (the party at the causeway with any of them still short of clear, or Cian seen —
+##              ALERT — on the run): the girl freezes in the ditch, Máire goes back for her and a
+##              serjeant cuts her forearm; Cian coming up makes him break off to cover the yard →
+##              maire_hurt, household_clean = false, a heat bump; no death. All in the wood unseen →
+##              household_clean; sack_saved if he still has the sack.
+##   attack    (anywhere from first light, Decision 6) Cian swings at one of them / lands a blow →
+##              HeatTracker.raise_raid_alarm, they all turn on him (spears in, archers loose from
+##              range); armour (6.16) means the goad and the knife do next to nothing; he is downed in
+##              seconds → CharacterHealth.set_downed (not dead), cian_wound = deep, seen,
+##              household_clean = false, the screen goes down (step 12, not built). Not a game over.
+##   8 burn    (C) household in the wood and the party at the ráth: PrologueRaidBurning — the pen
+##              opened and the six driven off down the lane south, the house thatch and then the byre
+##              fired from a brand off the family's hearth, the herd-hand struck down at a distance
+##              (herd_hand_dead), the rider on the causeway, the guide back from the fire. Stay
+##              hidden; seen (breaking cover) → the attack branch, the herd outcome unchanged.
+##              Both roofs going, the herd away and the herd-hand down → done (chunk 3 ends; step 9
+##              is not built).
+## Name tags: the old world labels (Meal, Tie post, Trough, the stray's, the place names, Máire's
+## and the herd-hand's names) are hidden for the whole prologue; spoken barks still show.
 
 signal step_changed(step_id: StringName, briefed: bool)
 signal line_spoken(key: String, text: String)
@@ -56,8 +83,10 @@ const PegScript := preload("res://scripts/prologue/prologue_knife_peg.gd")
 const HandHoldScript := preload("res://scripts/prologue/prologue_hand_hold.gd")
 const DawnSfx := preload("res://scripts/prologue/prologue_dawn_sfx.gd")
 const HeatTrackerScript := preload("res://systems/stealth/heat_tracker.gd")
+const SackScript := preload("res://scripts/prologue/prologue_sack_chore.gd")
+const BurningScript := preload("res://scripts/prologue/prologue_raid_burning.gd")
 
-const STEP_IDS: Array[StringName] = [&"news", &"supper", &"penning", &"night", &"wake", &"look", &"knife", &"out"]
+const STEP_IDS: Array[StringName] = [&"news", &"supper", &"penning", &"night", &"wake", &"look", &"knife", &"out", &"burn"]
 
 ## Delay after the closer before the boy is in at the gate ("a short beat later").
 const START_DELAY := 2.5
@@ -125,6 +154,26 @@ const YARD_CLEAR_OF_SPOT := 4.0
 ## Step 6: Máire at the door with the girl; the herd-hand out by the byre's yard door.
 const GIRL_AT_DOOR := Vector3(-4.75, 0.0, 3.55)
 const HH_BYRE := Vector3(2.7, 0.0, -1.6)
+# ---- chunk 3
+const HH_LINE := "It's some mistake. They'll be wanting the lord's ráth."
+const HH_TO_PEN: Array[Vector3] = [Vector3(1.2, 0.0, 2.0), Vector3(1.4, 0.0, 9.0), Vector3(5.2, 0.0, 11.3)]
+const ADVANCE_DELAY_UNSEEN := 11.0  ## they wait at the hold before coming on (unseen: a careful walk)
+const ADVANCE_DELAY_SEEN := 4.0     ## seen on the bank: hurrying, and soon
+const CLEAR_R := 16.2               ## past the inner lip of the outer ditch = out of the gate
+const CLEAR_X := 2.6                ## …and west of the causeway
+const WOOD_X := -32.5               ## the west wood's inner edge is x = −32.5 all the way along
+const COVER_MAIRE := Vector3(-35.6, 0.0, 21.6)
+const COVER_GIRL := Vector3(-35.9, 0.0, 20.7)
+const MAIRE_GAP := 1.7
+const MAIRE_RUN := 2.8
+const ATTACK_NEAR := 2.6            ## a swing at a raider within this → the attack branch
+const DOWN_AT_HP := 20.0            ## Cian goes down rather than dying (step 12 picks him up)
+const CUT_HEAT := 10.0
+const BREAK_OFF_NEAR := 5.0
+const BREAK_OFF_FALLBACK := 30.0
+const SERJEANT_RUN := 3.0
+const YARD_COVER: Array[Vector3] = [Vector3(6.4, 0.0, 15.5), Vector3(4.0, 0.0, 11.0)]
+const DOWN_FADE_SECS := 2.4
 
 var _running: bool = false
 var _finished_chunk: bool = false
@@ -172,6 +221,23 @@ var _seen: bool = false
 var _knife_taken: bool = false
 var _girl_in_hand: bool = false
 var _knife_shouted: bool = false
+# ---- chunk 3
+var _sack: Node3D = null
+var _burning: Node3D = null
+var _advance_left: float = -1.0
+var _failed: bool = false
+var _fail_reason: String = ""
+var _fail_beat: String = ""
+var _fail_t: float = 0.0
+var _fail_serjeant: Node3D = null
+var _attacked: bool = false
+var _downed: bool = false
+var _down_t: float = 0.0
+var _in_wood: bool = false
+var _sack_saved: bool = false
+var _burn_started: bool = false
+var _chunk3_done: bool = false
+var _combat_hooked: bool = false
 
 
 func _ready() -> void:
@@ -232,7 +298,7 @@ func awaiting_maire() -> bool:
 
 
 func is_finished() -> bool:
-	return false  # chunk 2 hands on to the flight (step 7, not built)
+	return false  # chunk 3 ends at step 8 (step 9 not built); the hub stays with the raid sequence
 
 
 func is_night_reached() -> bool:
@@ -381,6 +447,7 @@ func start_now() -> void:
 		_maire.call("walk_route", route, MILK_YAW)
 	# He sits on at the meal stool, as she bade him.
 	_try_sit()
+	_hide_name_tags()
 	print("RAID_SEQUENCE_START step=news")
 	step_changed.emit(current_step_id(), true)
 
@@ -530,7 +597,7 @@ func _process(delta: float) -> void:
 					_beat = "night"
 					print("RAID_CHUNK1_NIGHT_REACHED")
 					night_reached.emit()
-		"night", "fade_out", "night_black", "fade_in", "wake", "look", "knife", "out":
+		"night", "fade_out", "night_black", "fade_in", "wake", "look", "knife", "out", "burn_wait", "burn", "chunk3_done":
 			_tick_chunk2(delta)
 
 
@@ -623,7 +690,19 @@ func objective_text() -> String:
 				bits.append(String(_hand.call("objective_text")) if _hand else "")
 			return "  ".join(bits)
 		&"out":
-			return "Get Máire and your sister out by the gate."
+			if _downed:
+				return ""
+			if _attacked:
+				return "Get away from them."
+			if _fail_beat in ["freeze", "maire_back", "cut", "standover"]:
+				return "Your sister has frozen in the ditch. Get back to them."
+			return "Get Máire and your sister out by the gate and west along the outer ditch into the wood, before they reach the causeway."
+		&"burn":
+			if _downed:
+				return ""
+			if _attacked:
+				return "Get away from them."
+			return "Stay hidden at the wood edge."
 	return ""
 
 
@@ -765,6 +844,7 @@ func _check_household() -> void:
 		_next_beat("out")
 		print("RAID_CHUNK2_HOUSEHOLD_READY seen=%s" % _seen)
 		household_ready.emit()
+		_setup_out_step()
 
 
 func _tick_chunk2(delta: float) -> void:
@@ -811,7 +891,10 @@ func _tick_chunk2(delta: float) -> void:
 				_knife_shouted = true
 				_maire.call("say_line", "maire_knife", MAIRE_KNIFE_LINE, 7.0)
 		"out":
-			_tick_seen()
+			_tick_out(delta)
+		"burn_wait", "burn", "chunk3_done":
+			_tick_burn(delta)
+	_tick_downed(delta)
 
 
 func _world_day() -> int:
@@ -922,6 +1005,12 @@ func _spawn_dawn_cast() -> void:
 	(_pallet as MeshInstance3D).material_override = m
 	root.add_child(_pallet)
 	_pallet.global_position = Terrain.surface_point(SLEEP_POS, 0.03)
+	_sack = SackScript.new()
+	_sack.name = "PrologueSackChore"
+	add_child(_sack)
+	_raiders.connect("struck", _on_raiders_struck)
+	_hook_combat()
+	_hide_name_tags()
 
 
 func _sleep_pose(w: float) -> Dictionary:
@@ -1112,6 +1201,7 @@ func _tick_seen() -> void:
 
 func _on_raiders_spotted(by: Node3D) -> void:
 	if _seen:
+		_spotted_after_look(by)
 		return
 	_seen = true
 	var g := get_node_or_null("/root/Game")
@@ -1124,6 +1214,7 @@ func _on_raiders_spotted(by: Node3D) -> void:
 	print("RAID_SEEN by=%s step=%s" % [by.name if by else "?", current_step_id()])
 	if current_step_id() == &"look":
 		_caption("The man in front is pointing up at the bank, at you. They're coming on faster now.", 4.5)
+	_spotted_after_look(by)
 
 
 # ---------------------------------------------------------------- step 6: the knife and the girl
@@ -1143,4 +1234,373 @@ func _setup_knife_step() -> void:
 		_herd_hand.visible = true
 		_herd_hand.call("place", HH_BYRE, PI * 0.5)
 		_herd_hand.call("face_point", Terrain.surface_point(Vector3(7.0, 0, 14.0), 0.0))
+	# Step 6 has no seen: nobody below is looking for him while he is at the door.
+	if _raiders:
+		_raiders.call("set_watch", false)
 	print("RAID_KNIFE_STEP_SETUP")
+
+
+# ================================================================ chunk 3: the flight and the burning
+
+func sack_chore() -> Node3D:
+	return _sack
+
+
+func burning() -> Node3D:
+	return _burning
+
+
+func has_failed() -> bool:
+	return _failed
+
+
+func fail_reason() -> String:
+	return _fail_reason
+
+
+func fail_beat() -> String:
+	return _fail_beat
+
+
+func fail_serjeant() -> Node3D:
+	return _fail_serjeant
+
+
+func was_attacked() -> bool:
+	return _attacked
+
+
+func is_downed() -> bool:
+	return _downed
+
+
+func household_in_wood() -> bool:
+	return _in_wood
+
+
+func is_chunk3_done() -> bool:
+	return _chunk3_done
+
+
+func _outcome_set(vals: Dictionary) -> void:
+	var g := get_node_or_null("/root/Game")
+	if g == null:
+		return
+	var o: Dictionary = g.get("prologue_outcome")
+	for k in vals.keys():
+		o[k] = vals[k]
+	g.set("prologue_outcome", o)
+
+
+## Every Label3D in the scene that names a thing (old greybox / world tags, Máire's and the
+## herd-hand's names) goes; speech ("Bark") and the cattle's lowing stay.
+func _hide_name_tags() -> void:
+	var root := get_tree().current_scene if get_tree().current_scene else get_parent()
+	var n := 0
+	for l in root.find_children("*", "Label3D", true, false):
+		var lb := l as Label3D
+		if lb.name == "Bark" or lb.name == "Lowing":
+			continue
+		if lb.visible:
+			n += 1
+		lb.visible = false
+	print("RAID_NAME_TAGS_HIDDEN n=%d" % n)
+
+
+func _setup_out_step() -> void:
+	if _herd_hand:
+		_herd_hand.call("say", HH_LINE, 6.0)
+		note_line("herd_hand_out", HH_LINE)
+		_herd_hand.call("walk_path", HH_TO_PEN, 1.05)
+	if _maire:
+		_maire.call("follow", _player, MAIRE_GAP, MAIRE_RUN)
+	if _raiders:
+		_raiders.call("set_watch", true)
+	_advance_left = ADVANCE_DELAY_SEEN if _seen else ADVANCE_DELAY_UNSEEN
+	_hide_name_tags()
+	print("RAID_OUT_STEP_SETUP seen=%s advance_in=%.1f" % [_seen, _advance_left])
+
+
+func _crouch_sync() -> void:
+	if _player == null:
+		return
+	var c := bool(_player.get("is_crouching"))
+	if _maire and _maire.call("following") != null:
+		_maire.call("set_crouch", c)
+	if _girl and _hand and not bool(_hand.call("is_frozen")):
+		_girl.call("set_crouch", c)
+
+
+func _clear(p: Vector3) -> bool:
+	return Vector2(p.x - RATH_CENTRE.x, p.z - RATH_CENTRE.z).length() > CLEAR_R and p.x < CLEAR_X
+
+
+func household_clear() -> bool:
+	return _player and _maire and _girl and _clear(_player.global_position) and _clear(_maire.global_position) and _clear(_girl.global_position)
+
+
+func _in_wood_now() -> bool:
+	return _player and _maire and _girl and _player.global_position.x < WOOD_X and _maire.global_position.x < WOOD_X and _girl.global_position.x < WOOD_X
+
+
+func _tick_advance(delta: float) -> void:
+	if _advance_left > 0.0:
+		_advance_left -= delta
+		if _advance_left <= 0.0 and _raiders and not _attacked:
+			_raiders.call("advance")
+
+
+func _tick_out(delta: float) -> void:
+	_tick_advance(delta)
+	if _downed:
+		return
+	_crouch_sync()
+	if not _failed and not _attacked and _raiders and bool(_raiders.call("reached_causeway")) and not household_clear():
+		_start_fail("causeway")
+	_tick_fail(delta)
+	if not _in_wood and _fail_beat not in ["freeze", "maire_back", "cut", "standover"] and _in_wood_now():
+		_reach_wood()
+
+
+func _reach_wood() -> void:
+	_in_wood = true
+	_sack_saved = _sack != null and bool(_sack.call("is_carried"))
+	var clean := not _failed and not _attacked
+	_outcome_set({"household_clean": clean, "sack_saved": _sack_saved, "seen": _seen})
+	print("RAID_HOUSEHOLD_IN_WOOD clean=%s sack_saved=%s seen=%s failed=%s" % [clean, _sack_saved, _seen, _failed])
+	# Down in the trees at the edge, crouched; he is free to watch or pull back.
+	if _maire:
+		_maire.call("run_to", COVER_MAIRE, 1.4)
+		_maire.call("set_crouch", true)
+	if _girl:
+		if _hand and bool(_hand.call("is_in_hand")):
+			_hand.call("let_go")
+		_girl.call("follow", null, Vector3.ZERO, 0.0)
+		_girl.call("walk_path", [COVER_GIRL], 1.2)
+		_girl.call("set_crouch", true)
+	complete_step(&"out")
+	_next_beat("burn_wait")
+
+
+# ---------------------------------------------------------------- step 7 fail
+
+func _spotted_after_look(by: Node3D) -> void:
+	match current_step_id():
+		&"out":
+			if _heat and by:
+				_heat.call("note_raid_alert", by)
+			if not _failed and not _attacked and not _in_wood:
+				_start_fail("seen")
+		&"burn":
+			if not _attacked:
+				_start_attack("broke_cover")
+
+
+func _start_fail(reason: String) -> void:
+	_failed = true
+	_fail_reason = reason
+	_fail_beat = "freeze"
+	_fail_t = 0.0
+	if reason == "seen":
+		_seen = true
+		_outcome_set({"seen": true})
+	if _hand:
+		_hand.call("freeze")
+	# The nearest serjeant comes for her.
+	var best: Node3D = null
+	var bd := INF
+	for m in _raiders.call("men_with_role", &"serjeant"):
+		var d := (m as Node3D).global_position.distance_to(_girl.global_position)
+		if d < bd:
+			bd = d
+			best = m
+	_fail_serjeant = best
+	if best:
+		_raiders.call("release", best)
+	if _maire:
+		_maire.call("run_to", _girl.global_position + Vector3(0.5, 0, 0.3), MAIRE_RUN)
+	print("RAID_FAIL reason=%s girl_at=%s" % [reason, _girl.global_position])
+	_caption("Your sister has frozen down in the ditch and won't move. Máire is going back for her.", 5.0)
+
+
+func _tick_fail(delta: float) -> void:
+	if not _failed or _fail_beat == "" or _fail_beat == "resumed":
+		return
+	_fail_t += delta
+	var s := _fail_serjeant
+	var gp := _girl.global_position
+	match _fail_beat:
+		"freeze":
+			if s:
+				s.call("walk_path", [gp + (s.global_position - gp).normalized() * 1.6], SERJEANT_RUN)
+				s.call("level_spear", gp + Vector3(0, 0.9, 0), 1.0 if s.global_position.distance_to(gp) < 7.0 else 0.0)
+			var md := Vector2(_maire.global_position.x - gp.x, _maire.global_position.z - gp.z).length()
+			if md < 1.0:
+				_maire.call("set_crouch", true)
+				_fail_beat = "maire_back"
+				_fail_t = 0.0
+		"maire_back":
+			if s:
+				s.call("walk_path", [gp + (s.global_position - gp).normalized() * 1.6], SERJEANT_RUN)
+				s.call("level_spear", _maire.global_position + Vector3(0, 0.9, 0), 1.0)
+			if s == null or s.global_position.distance_to(gp) < 2.1:
+				_fail_beat = "cut"
+				_fail_t = 0.0
+		"cut":
+			if s:
+				s.call("face_point", _maire.global_position)
+				s.call("level_spear", _maire.global_position + Vector3(0, 0.9 + 0.2 * sin(_fail_t * 12.0), 0), 1.0)
+			if _fail_t > 0.35:
+				_maire.call("set_forearm_cut", true)
+				_outcome_set({"maire_hurt": true, "household_clean": false})
+				if _heat:
+					_heat.call("bump", CUT_HEAT, &"maire_cut")
+				print("RAID_MAIRE_CUT heat=%.1f" % float(_heat.get("heat")) if _heat else "RAID_MAIRE_CUT")
+				_caption("A serjeant's spear opens Máire's forearm as she pulls your sister in to her. He stands over them.", 5.5)
+				_fail_beat = "standover"
+				_fail_t = 0.0
+		"standover":
+			if s:
+				s.call("face_point", gp)
+				s.call("level_spear", gp + Vector3(0, 0.7, 0), 1.0)
+			var near := _player and Vector2(_player.global_position.x - gp.x, _player.global_position.z - gp.z).length() <= BREAK_OFF_NEAR
+			if near or _fail_t > BREAK_OFF_FALLBACK:
+				# He breaks off to cover the yard: the household are nothing to him beside the cattle.
+				if s:
+					s.call("level_spear", Vector3.ZERO, 0.0)
+					s.call("walk_path", YARD_COVER, 2.2)
+				_maire.call("set_crouch", false)
+				_maire.call("follow", _player, MAIRE_GAP, MAIRE_RUN)
+				_hand.call("resume")
+				_girl.call("set_crouch", false)
+				print("RAID_SERJEANT_BROKE_OFF near=%s" % near)
+				if near:
+					_caption("He sees you coming and breaks off, back to cover the yard.", 4.0)
+				_fail_beat = "resumed"
+
+
+# ---------------------------------------------------------------- attack branch
+
+func _hook_combat() -> void:
+	if _combat_hooked or _player == null:
+		return
+	var c: Node = _player.get("combat")
+	if c == null:
+		return
+	_combat_hooked = true
+	c.connect("attack_performed", _on_player_attack)
+	c.connect("hit_landed", _on_player_hit)
+
+
+func _on_player_attack(_attacker: Node, _kind: StringName, _weapon: StringName) -> void:
+	if _attacked or _raiders == null or _player == null:
+		return
+	for m in _raiders.get("men"):
+		if (m as Node3D).global_position.distance_to(_player.global_position) <= ATTACK_NEAR:
+			_start_attack("swing")
+			return
+
+
+func _on_player_hit(_attacker: Node, target: Node, _dmg: float, _kind: StringName) -> void:
+	if _attacked or _raiders == null:
+		return
+	if target in _raiders.get("men"):
+		_start_attack("hit")
+
+
+func _start_attack(reason: String) -> void:
+	if _attacked or _downed:
+		return
+	_attacked = true
+	_seen = true
+	_outcome_set({"seen": true, "household_clean": false})
+	if _heat:
+		_heat.call("raise_raid_alarm", StringName("cian_" + reason))
+	if _raiders:
+		if _burning:
+			_raiders.set("busy_check", Callable(_burning, "is_busy"))
+		_raiders.call("start_combat", _player)
+	print("RAID_ATTACK_BRANCH reason=%s step=%s" % [reason, current_step_id()])
+	_caption("They're all at you now: spears coming in, and the bowmen drawing.", 4.0)
+
+
+func _on_raiders_struck(target: Node3D, amount: float, kind: StringName, from: Node3D) -> void:
+	if _downed or target != _player:
+		return
+	var c: Node = _player.get("combat")
+	var hp := float(c.get("health")) if c else 0.0
+	if hp - amount <= DOWN_AT_HP:
+		_go_down()
+		return
+	var dir := (_player.global_position - from.global_position) if from else Vector3.FORWARD
+	dir.y = 0.0
+	if c:
+		c.call("apply_damage", amount, from, true, dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD)
+	var ch := get_node_or_null("/root/CharacterHealth")
+	if ch:
+		ch.call("apply_wound_tag", &"cut")
+	print("RAID_CIAN_STRUCK kind=%s hp=%.0f" % [kind, float(c.get("health")) if c else -1.0])
+
+
+func _go_down() -> void:
+	_downed = true
+	_down_t = 0.0
+	var ch := get_node_or_null("/root/CharacterHealth")
+	if ch:
+		ch.call("apply_wound_tag", &"deep")
+		ch.call("set_downed", true)
+	_outcome_set({"cian_wound": "deep", "seen": true, "household_clean": false})
+	if _player:
+		_player.call("begin_cinematic")
+	if _raiders:
+		_raiders.call("stop_combat")
+	if _sack:
+		_sack.call("release_if_carried")
+	print("RAID_CIAN_DOWNED step=%s" % current_step_id())
+	_ensure_fade()
+	_fade_label.text = "Cian goes down under them."
+
+
+func _tick_downed(delta: float) -> void:
+	if not _downed:
+		return
+	_down_t += delta
+	_fade_rect.color.a = clampf(_down_t / DOWN_FADE_SECS, 0.0, 1.0)
+	_fade_label.modulate.a = clampf((_down_t - DOWN_FADE_SECS * 0.5) / 0.8, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------- step 8
+
+func _tick_burn(delta: float) -> void:
+	_tick_advance(delta)
+	if _downed:
+		return
+	if not _burn_started and _raiders and bool(_raiders.call("has_arrived")):
+		_burn_started = true
+		_burning = BurningScript.new()
+		_burning.name = "PrologueRaidBurning"
+		add_child(_burning)
+		var cows: Array = _director.call("get_cows") if _director and _director.has_method("get_cows") else []
+		var gate := get_tree().get_first_node_in_group("opening_pen_gate")
+		_burning.call("setup", _raiders, cows, gate, _herd_hand)
+		_burning.connect("finished", _on_burning_finished)
+		_burning.connect("herd_hand_struck", _on_herd_hand_struck)
+		if _attacked:
+			_raiders.set("busy_check", Callable(_burning, "is_busy"))
+		_burning.call("start")
+		_next_beat("burn")
+		print("RAID_STEP8_START")
+
+
+func _on_herd_hand_struck() -> void:
+	_outcome_set({"herd_hand_dead": true})
+	_caption("Out on the causeway the old man goes down. He doesn't get up.", 5.0)
+
+
+func _on_burning_finished() -> void:
+	_outcome_set({"herd_hand_dead": true})
+	_chunk3_done = true
+	complete_step(&"burn")
+	_next_beat("chunk3_done")
+	var g := get_node_or_null("/root/Game")
+	print("RAID_CHUNK3_DONE outcome=%s" % [g.get("prologue_outcome") if g else {}])
