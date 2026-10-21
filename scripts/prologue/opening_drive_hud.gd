@@ -138,10 +138,17 @@ func _process(_delta: float) -> void:
 		or _chore_active(_gate_chore)
 		or prologue_active
 	):
-		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
+		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · %s3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse" % _knife_hint()
 	else:
-		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse"
+		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · %s3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse" % _knife_hint()
 
+
+
+## "2 knife" only once the knife is carried (raid day, off the peg).
+func _knife_hint() -> String:
+	var p := get_tree().get_first_node_in_group("player")
+	var c: Node = p.get_node_or_null("CombatSystem") if p else null
+	return "2 knife · " if c and bool(c.get("knife_in_kit")) else ""
 
 
 func _chore_prompt(chore: Node) -> String:

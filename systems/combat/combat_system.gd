@@ -73,6 +73,13 @@ var is_shaft_blocking: bool = false
 ## False where the knife is not part of Cian's kit (the opening: it first appears in the raid).
 ## Key 2 and Q then never draw it. set_weapon() itself is unchanged (scripted / smoke use).
 var knife_in_kit: bool = true
+## The raid spec's `knife_carried`: the same flag under its spec name (the prologue sets it when
+## Cian takes the household knife off the peg). While false, set_weapon(KNIFE) is refused too.
+var knife_carried: bool:
+	get:
+		return knife_in_kit
+	set(v):
+		knife_in_kit = v
 ## Which way the held goad faces. chest | left | right | high | low.
 ## chest keeps the old frontal catch. The other four stop only that side.
 ## Independent of sparring guard_face / BlockPostureTable.
@@ -266,6 +273,8 @@ func is_in_recovery() -> bool:
 func set_weapon(weapon: Weapon) -> void:
 	if is_attacking:
 		return
+	if weapon == Weapon.KNIFE and not knife_in_kit:
+		return  # no knife carried (the opening / the raid before the peg)
 	if is_charging:
 		cancel_charge()
 	is_shaft_blocking = false
