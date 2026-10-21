@@ -185,6 +185,13 @@ const YARD_COVER: Array[Vector3] = [Vector3(6.4, 0.0, 15.5), Vector3(4.0, 0.0, 1
 const DOWN_FADE_SECS := 2.4
 
 var _running: bool = false
+## World / object tags ('Meal', 'Tie post', 'Trough', …) go once the opening's chores are done
+## (from dusk) and stay gone through the dawn. Character name tags go too unless this is set: the
+## spec's people are unnamed in the scene (only Máire is named, in her lines), and the dusk yard
+## reads as a place rather than a labelled diagram without them.
+@export var keep_character_tags: bool = false
+var _tag_watch_t: float = 0.0
+var _tags_rehidden: int = 0
 var _finished_chunk: bool = false
 var _start_left: float = -1.0
 var _index: int = 0
@@ -542,6 +549,7 @@ func _process(delta: float) -> void:
 		return
 	if not _running:
 		return
+	_watch_tags(delta)
 	_beat_t += delta
 	match _beat:
 		"boy_in":
@@ -1330,19 +1338,67 @@ func _outcome_set(vals: Dictionary) -> void:
 	g.set("prologue_outcome", o)
 
 
-## Every Label3D in the scene that names a thing (old greybox / world tags, Máire's and the
-## herd-hand's names) goes; speech ("Bark") and the cattle's lowing stay.
-func _hide_name_tags() -> void:
+## Every Label3D in the scene that names a thing goes: the old greybox / world / chore tags, and
+## (unless keep_character_tags) the people's and the dog's name tags. Speech ("Bark") and the
+## cattle's lowing stay. Returns how many were showing.
+func _hide_name_tags(quiet: bool = false) -> int:
 	var root := get_tree().current_scene if get_tree().current_scene else get_parent()
 	var n := 0
 	for l in root.find_children("*", "Label3D", true, false):
 		var lb := l as Label3D
 		if lb.name == "Bark" or lb.name == "Lowing":
 			continue
+		if keep_character_tags and is_character_tag(lb):
+			continue
 		if lb.visible:
 			n += 1
 		lb.visible = false
-	print("RAID_NAME_TAGS_HIDDEN n=%d" % n)
+	if not quiet:
+		print("RAID_NAME_TAGS_HIDDEN n=%d" % n)
+	return n
+
+
+## A name tag over a person or an animal (not a world / object tag).
+static func is_character_tag(lb: Label3D) -> bool:
+	var p := lb.get_parent()
+	while p != null:
+		if p.is_in_group("prologue_villager") or p.is_in_group("opening_maire_door_talk") or p.is_in_group("prologue_farm_dog") or p.is_in_group("opening_stray_dog") or p is CharacterBody3D:
+			return true
+		p = p.get_parent()
+	return false
+
+
+## Tags that a chore script shows again later (a state change re-showing its label) are put
+## back down; checked twice a second from dusk on.
+func _watch_tags(delta: float) -> void:
+	_tag_watch_t += delta
+	if _tag_watch_t < 0.5:
+		return
+	_tag_watch_t = 0.0
+	var n := _hide_name_tags(true)
+	if n > 0:
+		_tags_rehidden += n
+		print("RAID_TAGS_REHIDDEN n=%d" % n)
+
+
+func tags_rehidden() -> int:
+	return _tags_rehidden
+
+
+## Smoke: the object / world tags showing now (character tags listed apart).
+func visible_tags() -> Dictionary:
+	var root := get_tree().current_scene if get_tree().current_scene else get_parent()
+	var obj: Array = []
+	var chars: Array = []
+	for l in root.find_children("*", "Label3D", true, false):
+		var lb := l as Label3D
+		if lb.name == "Bark" or lb.name == "Lowing" or not lb.is_visible_in_tree() or lb.text.strip_edges() == "":
+			continue
+		if is_character_tag(lb):
+			chars.append(lb.text)
+		else:
+			obj.append(lb.text)
+	return {"object": obj, "character": chars}
 
 
 func _setup_out_step() -> void:
