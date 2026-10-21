@@ -21,8 +21,9 @@ class_name RaidSequence
 ##
 ## Chunk 2 (spec steps 4–6), the night and first light of day 1:
 ##   night (end of 3) on `night_reached`: the screen goes down to black; under it the day turns
-##              (WorldClock.advance_day → day 1), Cian is asleep on a rush pallet across the doorway
-##              under the eave (the greybox house is a closed drum: doorway framing, conflict 6.15),
+##              (WorldClock.advance_day → day 1), Cian is asleep INSIDE the roundhouse on a rush
+##              pallet just inside the door (PrologueHouseInterior: a simple dark shell, door glow,
+##              the hearth embers where Máire stirs); he wakes there and steps out into the mist,
 ##              the light is set to first light (OpeningTimeOfDay stage 4, grey with ground mist),
 ##              and the screen comes up again.
 ##   4 wake    (C) off-screen, in order: the dog barking at the gate; a yelp, then nothing; the cattle
@@ -35,7 +36,7 @@ class_name RaidSequence
 ##              HeatTracker.note_pre_raid_alert, they hurry to a nearer hold and the archers nock;
 ##              unseen → seen = false and they come on at a walk to the far hold.
 ##   6 knife   (P) Máire is up at the door with Cian's sister holding her léine; her locked shout. The
-##              knife off its peg on the door jamb (PrologueKnifePeg: the first knife in the game —
+##              knife off its peg inside, left of the door (PrologueKnifePeg: the first knife in the game —
 ##              combat.knife_in_kit, alias knife_carried, turns true only there) and his sister by the
 ##              hand (PrologueHandHold). Both done → step `out`. Nobody in the party is watching for
 ##              him while he is at the door (the spec has no seen in step 6: raiders.set_watch(false)).
@@ -86,6 +87,7 @@ const HeatTrackerScript := preload("res://systems/stealth/heat_tracker.gd")
 const SackScript := preload("res://scripts/prologue/prologue_sack_chore.gd")
 const BurningScript := preload("res://scripts/prologue/prologue_raid_burning.gd")
 const FarmDogScript := preload("res://scripts/prologue/prologue_farm_dog.gd")
+const HouseInteriorScript := preload("res://scripts/prologue/prologue_house_interior.gd")
 
 const STEP_IDS: Array[StringName] = [&"news", &"supper", &"penning", &"night", &"wake", &"look", &"knife", &"out", &"burn"]
 
@@ -130,10 +132,14 @@ const MAIRE_KNIFE_LINE := "The knife, Cian, off the peg! Take your sister and go
 const FADE_OUT_SECS := 2.0
 const NIGHT_HOLD_SECS := 2.4
 const FADE_IN_SECS := 2.6
-## Asleep on a rush pallet across the doorway, under the eave, his back to the yard (camera side),
-## head to the west. Rig faces −Z: yaw 0 = facing north, into the doorway.
-const SLEEP_POS := Vector3(-7.2, 0.0, 2.55)
-const SLEEP_YAW := 0.0
+## Asleep inside on a rush pallet just inside the door (right of it as you go out), laid along the
+## wall, head in toward the back, facing the hearth (the camera behind him has the door glow).
+## Rig faces −Z: yaw 0 = facing north. The pallet is turned to the wall's tangent there.
+const SLEEP_POS := Vector3(-8.23, 0.0, 0.82)
+const PALLET_YAW := -0.384
+const SLEEP_YAW := PALLET_YAW
+## Máire at the hearth (crouched, stirring the embers) through the wake and the look.
+const MAIRE_HEARTH := Vector3(-6.5, 0.0, -1.1)
 const RISE_SECS := 1.6
 ## Off-screen sound cues (seconds after the screen is up): bark, yelp → silence, the cattle, the
 ## lane, then Máire. About 8 s in all.
@@ -242,6 +248,7 @@ var _burn_started: bool = false
 var _chunk3_done: bool = false
 var _combat_hooked: bool = false
 var _farm_dog: Node3D = null
+var _interior: Node3D = null
 
 
 func _ready() -> void:
@@ -939,8 +946,9 @@ func _ensure_fade() -> void:
 	_fade_layer.add_child(_fade_label)
 
 
-## Under the black: the day turns, the light is first light, Cian is asleep across the doorway and
-## the party is on the lane. Máire is inside asleep (not shown); the herd-hand is in the byre.
+## Under the black: the day turns, the light is first light, Cian is asleep just inside the door and
+## the party is on the lane. Máire is up at the hearth, stirring the embers; the herd-hand is in
+## the byre.
 func _night_cut() -> void:
 	_dawn = true
 	var wc := get_node_or_null("/root/WorldClock")
@@ -950,8 +958,10 @@ func _night_cut() -> void:
 	if tod and tod.has_method("debug_set_progress"):
 		tod.call("debug_set_progress", 4.0)
 	if _maire:
-		_maire.call("place_at", MAIRE_DOOR + Vector3(0.0, 0.0, -0.6), _maire_door_yaw)
-		_maire.visible = false
+		var hc := HouseInteriorScript.centre()
+		_maire.call("place_at", MAIRE_HEARTH, atan2(-(hc.x - MAIRE_HEARTH.x), -(hc.z - MAIRE_HEARTH.z)))
+		_maire.visible = true
+		_maire.call("set_crouch", true)
 	if _herd_hand:
 		_herd_hand.call("place", HH_BYRE, PI * 0.5)
 		_herd_hand.visible = false
@@ -1004,11 +1014,16 @@ func _spawn_dawn_cast() -> void:
 	_hand.name = "PrologueHandHold"
 	add_child(_hand)
 	_hand.call("set_girl", _girl)
-	# A rush pallet on the ground across the doorway.
+	# The house opens for the dawn: a dark shell, door glow, hearth embers.
+	_interior = HouseInteriorScript.new()
+	_interior.name = "PrologueHouseInterior"
+	add_child(_interior)
+	_interior.call("build", root)
+	# A rush pallet on the ground just inside the door, along the wall.
 	_pallet = MeshInstance3D.new()
 	_pallet.name = "RushPallet"
 	var bm := BoxMesh.new()
-	bm.size = Vector3(2.0, 0.06, 0.8)
+	bm.size = Vector3(1.9, 0.06, 0.75)
 	(_pallet as MeshInstance3D).mesh = bm
 	var m := StandardMaterial3D.new()
 	m.albedo_color = Color(0.55, 0.5, 0.3)
@@ -1016,6 +1031,7 @@ func _spawn_dawn_cast() -> void:
 	(_pallet as MeshInstance3D).material_override = m
 	root.add_child(_pallet)
 	_pallet.global_position = Terrain.surface_point(SLEEP_POS, 0.03)
+	_pallet.rotation.y = PALLET_YAW
 	_sack = SackScript.new()
 	_sack.name = "PrologueSackChore"
 	add_child(_sack)
@@ -1235,6 +1251,7 @@ func _on_raiders_spotted(by: Node3D) -> void:
 func _setup_knife_step() -> void:
 	if _maire:
 		_maire.visible = true
+		_maire.call("set_crouch", false)
 		_maire.call("place_at", MAIRE_DOOR, _maire_door_yaw)
 	if _girl:
 		_girl.visible = true
@@ -1257,6 +1274,10 @@ func _setup_knife_step() -> void:
 
 func farm_dog() -> Node3D:
 	return _farm_dog
+
+
+func house_interior() -> Node3D:
+	return _interior
 
 
 func sack_chore() -> Node3D:

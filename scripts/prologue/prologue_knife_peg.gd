@@ -8,17 +8,20 @@ class_name PrologueKnifePeg
 ## and lifts it off by the thong (~1 s, PlayerController hand work: the goad goes on his back
 ## meanwhile and comes back after), and belts it at his right hip. Then knife_in_kit = true, key 2
 ## draws it, and the sheath shows on his belt (the in-hand knife is the rig's WeaponVisual).
-## The greybox roundhouse is a solid drum with no interior (conflict 6.15: doorway framing), so the
-## peg is on the west door jamb, at the face of the doorway.
+## The peg is on the INSIDE face of the wattle wall (PrologueHouseInterior opens the house from
+## dawn), at shoulder height, left of the doorway as you go out (+X of the door: facing out, south,
+## your left is east). He goes back in to it (or takes it on the way out).
 
 const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 const SEQ_STEP := &"knife"
 const DOOR_POS := Vector3(-7.2, 0.0, 1.77)
-## World: driven into the front face of the west door jamb (jamb x −7.87…−7.73, face z 1.91),
-## shoulder height for Cian (1.70 m).
-const PEG_POS := Vector3(-7.8, 1.42, 1.95)
-const STAND := Vector3(-7.62, 0.0, 2.42)
-const STAND_YAW := 0.25                         ## facing the jamb (north, a touch west)
+const HouseInterior := preload("res://scripts/prologue/prologue_house_interior.gd")
+## Wall angle of the peg (rad about the house centre; the doorway is at PI/2 ± 0.17): ~0.85 m
+## east of the door's centre line, on the inner (sooty wattle) face, shoulder height for Cian.
+const PEG_ANG := PI * 0.5 - 0.26
+const PEG_H := 1.42
+const PEG_R := 3.5 - 0.15
+const STAND_IN := 0.62                          ## he stands this far in from the wall to reach
 const INTERACT_RANGE := 1.6
 const TAKE_SECS := 1.0
 const C_PEG := Color(0.4, 0.29, 0.17)
@@ -59,6 +62,28 @@ func is_taken() -> bool:
 	return _state == State.TAKEN
 
 
+## World peg point (ground y from the house, which sits at y 0).
+static func peg_ground() -> Vector3:
+	return HouseInterior.ring_point(PEG_ANG, PEG_R)
+
+
+## Unit vector from the wall into the house at the peg.
+static func inward() -> Vector3:
+	var c := HouseInterior.centre()
+	var p := peg_ground()
+	return Vector3(c.x - p.x, 0.0, c.z - p.z).normalized()
+
+
+static func stand_pos() -> Vector3:
+	return peg_ground() + inward() * STAND_IN
+
+
+## Facing the peg (player forward is −Z rotated by yaw).
+static func stand_yaw() -> float:
+	var f := -inward()
+	return atan2(-f.x, -f.z)
+
+
 func peg_pos() -> Vector3:
 	return _peg_world()
 
@@ -74,7 +99,7 @@ func is_active() -> bool:
 func interact_prompt() -> String:
 	if not _open() or _state != State.HANGING or _player == null:
 		return ""
-	if _near(_player.global_position, STAND, INTERACT_RANGE):
+	if _near(_player.global_position, stand_pos(), INTERACT_RANGE):
 		return "E — take the knife off the peg"
 	return ""
 
@@ -98,13 +123,13 @@ func try_interact() -> bool:
 		return false
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player") as Node3D
-	if _player == null or not _near(_player.global_position, STAND, INTERACT_RANGE):
+	if _player == null or not _near(_player.global_position, stand_pos(), INTERACT_RANGE):
 		return false
 	if bool(_player.call("is_leading")) or bool(_player.call("is_hand_working")) or bool(_player.call("is_carrying")):
 		return false
 	_state = State.TAKING
 	_t = 0.0
-	_player.call("begin_hand_work", self, Terrain.surface_point(STAND, 0.0), STAND_YAW)
+	_player.call("begin_hand_work", self, Terrain.surface_point(stand_pos(), 0.0), stand_yaw())
 	print("PROLOGUE_KNIFE_REACH")
 	return true
 
@@ -112,11 +137,19 @@ func try_interact() -> bool:
 ## Hand-work grips: right hand up at the peg on the thong, left on the sheath below it.
 func hand_work_grips() -> Array:
 	var peg := _peg_world()
-	return [peg + Vector3(0.12, -0.3, 0.1), peg + Vector3(0.03, -0.1, 0.08)]
+	var b := Basis(Vector3.UP, _peg_yaw())
+	return [peg + b * Vector3(-0.12, -0.3, 0.1), peg + b * Vector3(-0.03, -0.1, 0.08)]
+
+
+## Peg node yaw: local +Z points into the house (off the wall).
+func _peg_yaw() -> float:
+	var n := inward()
+	return atan2(n.x, n.z)
 
 
 func _peg_world() -> Vector3:
-	return Vector3(PEG_POS.x, Terrain.surface_y(PEG_POS.x, PEG_POS.z) + PEG_POS.y, PEG_POS.z)
+	var g := peg_ground()
+	return Vector3(g.x, PEG_H, g.z)
 
 
 func _process(delta: float) -> void:
@@ -182,11 +215,13 @@ func belt_node() -> Node3D:
 
 func _build_peg() -> void:
 	var w := _peg_world()
-	_box(self, w, Vector3(0.03, 0.03, 0.09), C_PEG)
+	var peg := _box(self, w, Vector3(0.03, 0.03, 0.09), C_PEG)
+	peg.rotation.y = _peg_yaw()
 	_on_peg = Node3D.new()
 	_on_peg.name = "KnifeOnPeg"
 	add_child(_on_peg)
 	_on_peg.position = w
+	_on_peg.rotation.y = _peg_yaw()
 	_box(_on_peg, Vector3(0.0, -0.07, 0.03), Vector3(0.006, 0.12, 0.006), C_THONG)
 	_box(_on_peg, Vector3(0.0, -0.25, 0.03), Vector3(0.05, 0.22, 0.022), C_SHEATH)
 	_box(_on_peg, Vector3(0.0, -0.1, 0.03), Vector3(0.03, 0.09, 0.03), C_HILT)
