@@ -29,10 +29,11 @@ const Terrain := preload("res://scripts/prologue/opening_terrain.gd")
 @export var family_caller_path: NodePath = ^"../FamilyCaller"
 
 ## Daydream spot: on the causeway in the ráth gateway (between the palisade ends, ~18 m from
-## the house door), facing just west of south out over the lane, the fields and the tree clumps
-## to the south-east / south. Máire stands in plain view across the yard when he turns.
+## the house door), facing ~14° east of south out over the lane, the fields and the tree clumps.
+## The facing keeps the carved post by the lane (-0.6, 24) and both gateposts out of the shot for
+## the whole push. Máire stands in plain view across the yard when he turns.
 const SPOT := Vector3(6.2, 0.0, 17.2)
-const SPOT_YAW_DEG := 185.0
+const SPOT_YAW_DEG := 194.0
 const CALL_LINE := "Cian! There you are, with your head in the trees again. The herd's to be home and penned before dark."
 
 ## Timeline (s from the first frame of the shot).
