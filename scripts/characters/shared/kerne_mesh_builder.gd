@@ -266,11 +266,13 @@ static func build(visual: Node3D, palette: Dictionary = PALETTE_PLAYER, include_
 
 	if include_kit_props:
 		# Same goad as the hands: 1.30 shaft, same 0.045 thickness, same gray head.
-		# Head beside the right shoulder. Butt just off the grass, against the back.
+		# Slung on a diagonal across the back: head beside the right shoulder, butt up behind the
+		# left hip, off the ground and clear of the legs in stand / walk / trot (the same high
+		# diagonal the bucket carry and the crouch already use: player CARRY_GOAD_POS / _ROT_DEG).
 		var back_goad := Node3D.new()
 		back_goad.name = "BackGoad"
-		back_goad.position = Vector3(0.189, -0.648, 0.209)
-		back_goad.rotation_degrees = Vector3(-2.50, 0.39, -8.92)
+		back_goad.position = Vector3(-0.30, -0.40, 0.21)
+		back_goad.rotation_degrees = Vector3(-4.0, 0.0, -30.0)
 		torso.add_child(back_goad)
 		var goad_mesh := BoxMesh.new()
 		goad_mesh.size = Vector3(0.045, 1.30, 0.045)
