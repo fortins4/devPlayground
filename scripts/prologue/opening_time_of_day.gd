@@ -7,6 +7,10 @@ class_name OpeningTimeOfDay
 ##   2 dusk           (~20:50) penning, the milk-cow tie, the meal: sun ~5° up in the WNW (it sets
 ##                    ~21:10 a little NW of west) — warm, low, long shadows, dimmer sky + ambient,
 ##                    still bright enough to play.
+##   3 twilight       (~21:40) the prologue's last chores after the meal (RaidSequence steps 1–3):
+##                    sun ~4° below the horizon in the NW — no direct sun, no shadows, a deep blue
+##                    sky with the afterglow low on the horizon, the yard in soft cool light (civil
+##                    twilight lasts ~40 min at 52.5°N in May; small yard work is still easy).
 ## Progress value p (0..2) comes from OpeningSequence / OpeningDriveDirector; the shown value eases
 ## toward it at RATE stages/s and each stage pair is blended with a smoothstep, so there are no pops.
 ## Drives the scene's own DirectionalLight3D ("Sun") and WorldEnvironment (a per-instance
@@ -38,6 +42,12 @@ const STAGES := [
 		"sun": Color(1.0, 0.6, 0.34), "sun_e": 0.95,
 		"top": Color(0.30, 0.35, 0.54), "hor": Color(0.94, 0.62, 0.42), "ghor": Color(0.52, 0.42, 0.36),
 		"sky_e": 0.85, "amb": Color(0.80, 0.74, 0.76), "amb_e": 1.0, "amb_sky": 0.55, "fog": Color(0.72, 0.56, 0.48),
+	},
+	{
+		"name": "twilight", "az": 315.0, "el": -4.0,
+		"sun": Color(0.9, 0.55, 0.4), "sun_e": 0.0,
+		"top": Color(0.10, 0.14, 0.30), "hor": Color(0.62, 0.44, 0.40), "ghor": Color(0.22, 0.21, 0.24),
+		"sky_e": 0.62, "amb": Color(0.52, 0.56, 0.72), "amb_e": 0.8, "amb_sky": 0.35, "fog": Color(0.34, 0.33, 0.40),
 	},
 ]
 
@@ -89,6 +99,10 @@ func story_progress() -> float:
 	if _seq == null or not is_instance_valid(_seq):
 		return _shown
 	if bool(_seq.call("is_finished")):
+		# After the meal the prologue (RaidSequence) carries the light on into twilight.
+		var raid := get_tree().get_first_node_in_group("raid_sequence")
+		if raid and bool(raid.call("is_running")):
+			return float(raid.call("time_progress"))
 		return 2.0
 	match StringName(_seq.call("current_step_id")):
 		&"maire":
@@ -140,7 +154,7 @@ func sun_azimuth_deg() -> float:
 
 ## Smoke / capture helper: jump straight to a progress value (no blend).
 func debug_set_progress(p: float) -> void:
-	_shown = clampf(p, 0.0, 2.0)
+	_shown = clampf(p, 0.0, float(STAGES.size() - 1))
 	_apply(_shown)
 
 
@@ -169,7 +183,9 @@ func _apply(p: float) -> void:
 		var to_sun := Vector3(sin(az) * cos(el), sin(el), -cos(az) * cos(el))
 		_light.global_transform.basis = Basis.looking_at(-to_sun, Vector3.UP)
 		_light.light_color = s["sun"]
-		_light.light_energy = s["sun_e"]
+		# Once the sun is at / under the horizon it lights nothing (no light from below the ground).
+		_light.light_energy = float(s["sun_e"]) * smoothstep(-0.5, 2.0, float(s["el"]))
+		_light.visible = _light.light_energy > 0.001
 	if _env:
 		_env.ambient_light_color = s["amb"]
 		_env.ambient_light_energy = s["amb_e"]

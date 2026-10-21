@@ -193,6 +193,10 @@ func force_finish() -> void:
 
 func objective_text() -> String:
 	if _finished:
+		# The prologue carries on after the meal (RaidSequence): its steps own the line.
+		var raid := _group("raid_sequence")
+		if raid and bool(raid.call("is_running")):
+			return String(raid.call("objective_text"))
 		return "The day's work is done. Explore the farm, or rest a while."
 	if awaiting_maire():
 		var what := "she has a word for you" if _index >= CLOSER_INDEX else "she has the next job"

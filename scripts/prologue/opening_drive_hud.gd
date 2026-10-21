@@ -117,6 +117,15 @@ func _process(_delta: float) -> void:
 		f = _chore_prompt(_meal_chore)
 	if f == "":
 		f = _chore_prompt(_gate_chore)
+	var prologue_active := false
+	# The drive's "herd is home" banner belongs to the afternoon: gone once the prologue runs on.
+	var raid := get_tree().get_first_node_in_group("raid_sequence")
+	if raid and bool(raid.call("is_running")) and _banner.visible:
+		_banner.visible = false
+	for c in get_tree().get_nodes_in_group("prologue_chore"):
+		if f == "":
+			f = _chore_prompt(c)
+		prologue_active = prologue_active or _chore_active(c)
 	_flash.text = f
 	_flash.visible = f != ""
 	if (
@@ -127,6 +136,7 @@ func _process(_delta: float) -> void:
 		or _chore_active(_dog_chore)
 		or _chore_active(_meal_chore)
 		or _chore_active(_gate_chore)
+		or prologue_active
 	):
 		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · 3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse"
 	else:
