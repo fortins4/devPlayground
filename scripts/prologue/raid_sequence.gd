@@ -162,8 +162,10 @@ const ADVANCE_DELAY_SEEN := 4.0     ## seen on the bank: hurrying, and soon
 const CLEAR_R := 16.2               ## past the inner lip of the outer ditch = out of the gate
 const CLEAR_X := 2.6                ## …and west of the causeway
 const WOOD_X := -32.5               ## the west wood's inner edge is x = −32.5 all the way along
-const COVER_MAIRE := Vector3(-35.6, 0.0, 21.6)
-const COVER_GIRL := Vector3(-35.9, 0.0, 20.7)
+## Down in the trees just inside the wood, by the gap at the north end of the west field bank (the
+## bank at x −25.2 runs z 0 → 140 with no way over; the way to the wood is round its north end).
+const COVER_MAIRE := Vector3(-35.6, 0.0, -8.4)
+const COVER_GIRL := Vector3(-35.9, 0.0, -9.3)
 const MAIRE_GAP := 1.7
 const MAIRE_RUN := 2.8
 const ATTACK_NEAR := 2.6            ## a swing at a raider within this → the attack branch

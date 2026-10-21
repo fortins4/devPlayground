@@ -92,9 +92,11 @@ func _process(delta: float) -> void:
 		pts.append(_start)
 	_flames.emission_points = pts
 	_embers.emission_points = pts
-	_flames.amount_ratio = e
-	_embers.amount_ratio = e
-	_smoke.amount_ratio = 0.25 + 0.75 * intensity
+	# (CPUParticles3D has no amount_ratio: the fire grows by where it emits and how big.)
+	_flames.scale_amount_min = 0.5 + 0.4 * e
+	_flames.scale_amount_max = 0.9 + 0.9 * e
+	_smoke.scale_amount_min = 1.2 + 1.2 * intensity
+	_smoke.scale_amount_max = 1.8 + 1.8 * intensity
 	# Smoke rises from the burning part, centred over it, more from the crown as it takes.
 	var c := Vector3.ZERO
 	for p in pts:
