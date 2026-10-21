@@ -93,6 +93,7 @@ var _arrows: Array[Node3D] = []
 var arrows_loosed: int = 0
 ## Step 8: men still at a job for the burning (driving the herd, the brand) keep at it in a fight.
 var busy_check: Callable = Callable()
+var _rng := RandomNumberGenerator.new()  ## seeded: the same fight plays the same way
 var thrusts: int = 0
 
 
@@ -315,11 +316,12 @@ func start_combat(target: Node3D) -> void:
 		return
 	_combat_target = target
 	_seen = true
+	_rng.seed = 1169
 	var k := 0
 	for m in men:
 		# Spearmen need a moment to close and level; the bowmen to nock and draw.
 		var archer := StringName(m.get_meta("role", &"")) == &"archer"
-		_cd[m] = (1.2 + 0.3 * k) if archer else (1.0 + 0.6 * k)
+		_cd[m] = (0.9 + 0.2 * k) if archer else (1.4 + 0.6 * k)
 		k += 1
 		m.call("set_crouch", false)
 		if StringName(m.get_meta("role", &"")) == &"archer":
@@ -360,7 +362,7 @@ func _tick_combat(delta: float) -> void:
 						_cd[m] = THRUST_EVERY
 						thrusts += 1
 						# He twists away from some of them; most go home.
-						if randf() < THRUST_HIT:
+						if _rng.randf() < THRUST_HIT:
 							struck.emit(t, THRUST_DMG, &"cut", m)
 			&"archer":
 				m.call("face_point", tp)
@@ -383,10 +385,10 @@ func _loose_at(m: Node3D, t: Node3D, d: float) -> void:
 	# Half-light, a moving man: the nearer, the likelier.
 	var crouch := float(t.call("get_visibility_factor")) if t.has_method("get_visibility_factor") else 1.0
 	var p_hit := clampf(0.9 - d / 70.0, 0.2, 0.85) * lerpf(0.6, 1.0, (crouch - 0.55) / 0.45)
-	var hit := randf() < p_hit
+	var hit := _rng.randf() < p_hit
 	var aim := t.global_position + Vector3(0, 1.1, 0)
 	if not hit:
-		var off := Vector3(randf_range(-2.2, 2.2), 0, randf_range(-2.2, 2.2))
+		var off := Vector3(_rng.randf_range(-2.2, 2.2), 0, _rng.randf_range(-2.2, 2.2))
 		aim = Terrain.surface_point(t.global_position + off, 0.0)
 	DawnSfx.play(self, &"loose", from, -4.0, 6.0)
 	var host := self
