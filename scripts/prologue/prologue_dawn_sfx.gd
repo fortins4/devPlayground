@@ -12,6 +12,11 @@ extends RefCounted
 ## Steps 7–8 (same placeholders):
 ##   loose    a bowstring's flat thump and the arrow's short hiss
 ##   crackle  dry thatch catching: a few seconds of pops and a soft roar (looped by the fire)
+## Step 9 (same placeholders):
+##   horn      a cow-horn call from the lane, two long low notes (the recall)
+##   struggle  a muffled struggle in the reeds: thrashing water, a smothered grunt, then quiet
+##   stone     a stone dropping into reeds and shallow water: a rustle and a plop
+##   clash     knife on knife / a quick cut: a short bright scrape
 
 const MIX_RATE := 22050
 const MooScript := preload("res://scripts/prologue/opening_bogged_cow_chore.gd")
@@ -40,6 +45,14 @@ static func stream(kind: StringName) -> AudioStream:
 			wav = _build_loose()
 		&"crackle":
 			wav = _build_crackle()
+		&"horn":
+			wav = _build_horn()
+		&"struggle":
+			wav = _build_struggle()
+		&"stone":
+			wav = _build_stone()
+		&"clash":
+			wav = _build_clash()
 		_:
 			wav = _build_blow()
 	_cache[kind] = wav
@@ -217,3 +230,94 @@ static func _build_crackle() -> AudioStreamWAV:
 	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	wav.loop_end = n
 	return wav
+
+
+static func _build_horn() -> AudioStreamWAV:
+	var len_s := 3.4
+	var n := int(len_s * MIX_RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / MIX_RATE
+		# Two blown notes (1.4 s and 1.6 s) with a breathy onset; a cow horn sits low (~150 Hz).
+		var env := 0.0
+		var f := 148.0
+		if t < 1.4:
+			env = smoothstep(0.0, 0.18, t) * (1.0 - smoothstep(1.15, 1.4, t))
+			f = 146.0 + 6.0 * minf(t / 0.3, 1.0)
+		elif t > 1.65:
+			var u := t - 1.65
+			env = smoothstep(0.0, 0.2, u) * (1.0 - smoothstep(1.35, 1.7, u))
+			f = 140.0 + 4.0 * minf(u / 0.3, 1.0)
+		ph += TAU * f / MIX_RATE
+		var tone := sin(ph) * 0.6 + sin(ph * 2.0) * 0.28 + sin(ph * 3.0) * 0.14 + sin(ph * 4.0) * 0.06
+		out[i] = tone * env * 0.7
+	return _pack(out)
+
+
+static func _build_struggle() -> AudioStreamWAV:
+	var len_s := 2.8
+	var n := int(len_s * MIX_RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4410
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / MIX_RATE
+		# Thrashing in shallow water, dying away over the last second.
+		lp = lerpf(lp, rng.randf_range(-1.0, 1.0), 0.08)
+		var fade := 1.0 - smoothstep(1.6, 2.7, t)
+		out[i] = lp * 0.35 * fade * (0.6 + 0.4 * absf(sin(t * 9.0)))
+	# A few heavy splashes / kicks, and one smothered grunt (low, muffled, through a hand).
+	for k in 7:
+		var at := int(rng.randf_range(0.05, 1.7) * MIX_RATE)
+		var amp := rng.randf_range(0.3, 0.6) * (1.0 - float(k) / 9.0)
+		var lp2 := 0.0
+		for j in 2200:
+			if at + j >= n:
+				break
+			lp2 = lerpf(lp2, rng.randf_range(-1.0, 1.0), 0.12)
+			out[at + j] += lp2 * amp * exp(-float(j) / 600.0)
+	var g0 := int(0.35 * MIX_RATE)
+	var ph := 0.0
+	for j in int(0.55 * MIX_RATE):
+		var t := float(j) / MIX_RATE
+		ph += TAU * (120.0 - 20.0 * t) / MIX_RATE
+		var env := smoothstep(0.0, 0.06, t) * (1.0 - smoothstep(0.35, 0.55, t))
+		out[g0 + j] += (sin(ph) * 0.5 + sin(ph * 2.0) * 0.15) * env * 0.45
+	return _pack(out)
+
+
+static func _build_stone() -> AudioStreamWAV:
+	var n := int(0.7 * MIX_RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2277
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / MIX_RATE
+		# Reed rustle, then a plop (a quick falling tone) in the shallow water.
+		var rustle := rng.randf_range(-1.0, 1.0) * exp(-t * 9.0) * 0.3
+		var plop := 0.0
+		if t > 0.08:
+			var u := t - 0.08
+			ph += TAU * (520.0 - 380.0 * minf(u / 0.06, 1.0)) / MIX_RATE
+			plop = sin(ph) * exp(-u * 30.0) * 0.6
+		out[i] = rustle + plop
+	return _pack(out)
+
+
+static func _build_clash() -> AudioStreamWAV:
+	var n := int(0.35 * MIX_RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5150
+	for i in n:
+		var t := float(i) / MIX_RATE
+		var ring := sin(TAU * 2350.0 * t) * 0.3 + sin(TAU * 3720.0 * t) * 0.2
+		out[i] = (ring + rng.randf_range(-1.0, 1.0) * 0.4) * exp(-t * 22.0)
+	return _pack(out)

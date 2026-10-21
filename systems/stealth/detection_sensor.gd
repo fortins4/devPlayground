@@ -32,6 +32,11 @@ signal alerted(target: Node3D)
 @export var wet_suspicion_range: float = 5.0
 @export var wet_suspicion_bump: float = 0.3
 
+## Optional cover between the eye and the target (e.g. a reed bed): called as
+## cover_factor.call(eye, aim) -> float, multiplied into the target's visibility factor
+## (1 = no cover, 0 = hidden). Unset = no cover (every existing sensor unchanged).
+var cover_factor: Callable = Callable()
+
 var awareness: Awareness = Awareness.UNAWARE
 var meter: float = 0.0
 var last_known_position: Vector3 = Vector3.ZERO
@@ -152,6 +157,10 @@ func _try_vision(eye: Vector3, aim: Vector3, to_target: Vector3, dist: float, vi
 		return 0.0
 	if not _has_line_of_sight(eye, aim):
 		return 0.0
+	if cover_factor.is_valid():
+		vis_factor *= clampf(float(cover_factor.call(eye, aim)), 0.0, 1.0)
+		if vis_factor <= 0.001:
+			return 0.0
 	_seeing = true
 	_check_wet_suspicion(dist)
 	var dist_factor := 1.0 - (dist / reach)
