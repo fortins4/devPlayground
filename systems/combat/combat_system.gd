@@ -48,6 +48,12 @@ const WEAPON_NAMES := {
 
 @export var max_health: float = 100.0
 @export var team: int = 0 ## 0 = player allies, 1 = hostiles
+## What the wearer has on (raid spec 6.16): &"none", &"padded" (gambeson / aketon / jack) or
+## &"mail" (hauberk / short mail shirt). The goad and the work knife do little through padding and
+## nothing through mail; damage is scaled by ARMOUR_FACTOR before it reaches health. Default
+## &"none" leaves every existing fight unchanged.
+@export var armour: StringName = &"none"
+const ARMOUR_FACTOR := {&"none": 1.0, &"padded": 0.12, &"mail": 0.0}
 @export var starting_weapon: Weapon = Weapon.HATCHET
 @export var enable_block: bool = false ## Shield later; off for cattle-farm starter kit
 @export var enable_face_guard: bool = false ## Sparring face-guard / posture; off for player kit
@@ -825,6 +831,9 @@ func apply_damage(
 			blocked.emit(_owner_body, from, mitigated)
 			if amount <= 0.01:
 				return 0.0
+	amount *= float(ARMOUR_FACTOR.get(armour, 1.0))
+	if amount <= 0.01:
+		return 0.0
 	health = maxf(0.0, health - amount)
 	health_changed.emit(health, max_health)
 	incoming_strike_direction = strike_direction
