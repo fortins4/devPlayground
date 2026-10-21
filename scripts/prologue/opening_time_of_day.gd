@@ -11,6 +11,10 @@ class_name OpeningTimeOfDay
 ##                    sun ~4° below the horizon in the NW — no direct sun, no shadows, a deep blue
 ##                    sky with the afterglow low on the horizon, the yard in soft cool light (civil
 ##                    twilight lasts ~40 min at 52.5°N in May; small yard work is still easy).
+##   4 first light    (~04:45 next morning, raid day; RaidSequence steps 4–6): sun ~5° below the
+##                    horizon in the NE — no direct sun, a grey-blue sky paling low in the north-
+##                    east, cool flat light, and ground mist lying in the fields (height fog).
+##                    Reached only through the night cut (debug_set_progress under the black).
 ## Progress value p (0..2) comes from OpeningSequence / OpeningDriveDirector; the shown value eases
 ## toward it at RATE stages/s and each stage pair is blended with a smoothstep, so there are no pops.
 ## Drives the scene's own DirectionalLight3D ("Sun") and WorldEnvironment (a per-instance
@@ -30,26 +34,39 @@ const STAGES := [
 		"sun": Color(1.0, 0.96, 0.88), "sun_e": 1.25,
 		"top": Color(0.40, 0.57, 0.78), "hor": Color(0.80, 0.82, 0.80), "ghor": Color(0.62, 0.62, 0.54),
 		"sky_e": 1.0, "amb": Color(0.78, 0.80, 0.80), "amb_e": 0.72, "amb_sky": 1.0, "fog": Color(0.78, 0.80, 0.80),
+		"fog_d": 0.0028, "mist": 0.0,
 	},
 	{
 		"name": "late_afternoon", "az": 272.0, "el": 25.0,
 		"sun": Color(1.0, 0.86, 0.66), "sun_e": 1.12,
 		"top": Color(0.42, 0.55, 0.74), "hor": Color(0.90, 0.80, 0.64), "ghor": Color(0.66, 0.60, 0.50),
 		"sky_e": 0.95, "amb": Color(0.80, 0.75, 0.66), "amb_e": 0.75, "amb_sky": 0.85, "fog": Color(0.86, 0.77, 0.62),
+		"fog_d": 0.0028, "mist": 0.0,
 	},
 	{
 		"name": "dusk", "az": 300.0, "el": 5.0,
 		"sun": Color(1.0, 0.6, 0.34), "sun_e": 0.95,
 		"top": Color(0.30, 0.35, 0.54), "hor": Color(0.94, 0.62, 0.42), "ghor": Color(0.52, 0.42, 0.36),
 		"sky_e": 0.85, "amb": Color(0.80, 0.74, 0.76), "amb_e": 1.0, "amb_sky": 0.55, "fog": Color(0.72, 0.56, 0.48),
+		"fog_d": 0.0028, "mist": 0.0,
 	},
 	{
 		"name": "twilight", "az": 315.0, "el": -4.0,
 		"sun": Color(0.9, 0.55, 0.4), "sun_e": 0.0,
 		"top": Color(0.10, 0.14, 0.30), "hor": Color(0.62, 0.44, 0.40), "ghor": Color(0.22, 0.21, 0.24),
 		"sky_e": 0.62, "amb": Color(0.52, 0.56, 0.72), "amb_e": 0.8, "amb_sky": 0.35, "fog": Color(0.34, 0.33, 0.40),
+		"fog_d": 0.0028, "mist": 0.0,
+	},
+	{
+		"name": "first_light", "az": 55.0, "el": -5.0,
+		"sun": Color(0.9, 0.8, 0.75), "sun_e": 0.0,
+		"top": Color(0.30, 0.36, 0.48), "hor": Color(0.74, 0.74, 0.76), "ghor": Color(0.40, 0.42, 0.44),
+		"sky_e": 0.72, "amb": Color(0.62, 0.66, 0.74), "amb_e": 0.9, "amb_sky": 0.45, "fog": Color(0.62, 0.65, 0.70),
+		"fog_d": 0.012, "mist": 0.05,
 	},
 ]
+## Ground mist (height fog) lies below this height above the yard (m).
+const MIST_TOP := 1.4
 
 var _light: DirectionalLight3D = null
 var _env: Environment = null
@@ -193,6 +210,9 @@ func _apply(p: float) -> void:
 		# the yard in the bank's long shadow stays readable.
 		_env.ambient_light_sky_contribution = s["amb_sky"]
 		_env.fog_light_color = s["fog"]
+		_env.fog_density = float(s["fog_d"])
+		_env.fog_height = MIST_TOP
+		_env.fog_height_density = float(s["mist"])
 	if _sky_mat:
 		_sky_mat.sky_top_color = s["top"]
 		_sky_mat.sky_horizon_color = s["hor"]

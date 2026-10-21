@@ -8,6 +8,9 @@ signal awareness_changed(prev: Awareness, next: Awareness)
 signal alerted(target: Node3D)
 
 @export var view_distance: float = 14.0
+## Light / mist: scales how far it sees (1 = full day; grey dawn light and ground mist < 1). Sight
+## range and the distance falloff both use view_distance × light_factor.
+@export var light_factor: float = 1.0
 @export var view_half_angle_deg: float = 42.0
 @export var hearing_range: float = 9.0
 @export var eye_height: float = 1.55
@@ -119,7 +122,8 @@ func _evaluate_stimulus(target: Node3D) -> float:
 
 
 func _try_vision(eye: Vector3, aim: Vector3, to_target: Vector3, dist: float, vis_factor: float) -> float:
-	if dist > view_distance:
+	var reach := view_distance * clampf(light_factor, 0.05, 1.0)
+	if dist > reach:
 		return 0.0
 	var forward := -global_transform.basis.z
 	forward.y = 0.0
@@ -139,7 +143,7 @@ func _try_vision(eye: Vector3, aim: Vector3, to_target: Vector3, dist: float, vi
 		return 0.0
 	_seeing = true
 	_check_wet_suspicion(dist)
-	var dist_factor := 1.0 - (dist / view_distance)
+	var dist_factor := 1.0 - (dist / reach)
 	var center_bonus := 1.0 - (ang / view_half_angle_deg) * 0.35
 	return raise_rate_seen * dist_factor * center_bonus * vis_factor
 
