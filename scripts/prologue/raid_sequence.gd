@@ -63,8 +63,13 @@ class_name RaidSequence
 ##              fired from a brand off the family's hearth, the herd-hand struck down at a distance
 ##              (herd_hand_dead), the rider on the causeway, the guide back from the fire. Stay
 ##              hidden; seen (breaking cover) → the attack branch, the herd outcome unchanged.
-##              Both roofs going, the herd away and the herd-hand down → done (chunk 3 ends; step 9
-##              is not built).
+##              Both roofs going, the herd away and the herd-hand down → step 8 done.
+##   9 fen     (P) unless the attack branch is on: a fade, and the household is down in the reeds at
+##              the tóchar fen edge (decision 13). PrologueFenStraggler: the stiff cow breaks off the
+##              drove into the fen and bogs; one Welsh archer comes after her. killed (the unseen
+##              takedown) / spared (lie still, or a stone the other way) / fought (noticed or an open
+##              fight: Cian cut, seen, heat bump; the archer lives). Any outcome → a short hold and a
+##              fade to black, and the run stops there (step 10 on is not built).
 ## Name tags: the old world labels (Meal, Tie post, Trough, the stray's, the place names, Máire's
 ## and the herd-hand's names) are hidden for the whole prologue; spoken barks still show.
 
@@ -88,8 +93,9 @@ const SackScript := preload("res://scripts/prologue/prologue_sack_chore.gd")
 const BurningScript := preload("res://scripts/prologue/prologue_raid_burning.gd")
 const FarmDogScript := preload("res://scripts/prologue/prologue_farm_dog.gd")
 const HouseInteriorScript := preload("res://scripts/prologue/prologue_house_interior.gd")
+const FenScript := preload("res://scripts/prologue/prologue_fen_straggler.gd")
 
-const STEP_IDS: Array[StringName] = [&"news", &"supper", &"penning", &"night", &"wake", &"look", &"knife", &"out", &"burn"]
+const STEP_IDS: Array[StringName] = [&"news", &"supper", &"penning", &"night", &"wake", &"look", &"knife", &"out", &"burn", &"fen"]
 
 ## Delay after the closer before the boy is in at the gate ("a short beat later").
 const START_DELAY := 2.5
@@ -183,6 +189,14 @@ const BREAK_OFF_FALLBACK := 30.0
 const SERJEANT_RUN := 3.0
 const YARD_COVER: Array[Vector3] = [Vector3(6.4, 0.0, 15.5), Vector3(4.0, 0.0, 11.0)]
 const DOWN_FADE_SECS := 2.4
+# ---- chunk 4 (step 9)
+const FEN_AFTER_SECS := 4.0          ## after step 8 is done, this long watching the fire, then down
+const FEN_FADE_SECS := 1.6
+const FEN_BLACK_SECS := 2.2
+const FEN_LINE := "Down through the wood, to the tóchar fen."
+const FEN_HEAT := 15.0               ## fought: the archer saw his face (heat bump)
+const END_HOLD_SECS := 2.5           ## step 9 resolved: hold on the fen a moment…
+const END_FADE_SECS := 3.0           ## …then to black, and the run stops there
 
 var _running: bool = false
 ## World / object tags ('Meal', 'Tie post', 'Trough', …) go once the opening's chores are done
@@ -256,6 +270,10 @@ var _chunk3_done: bool = false
 var _combat_hooked: bool = false
 var _farm_dog: Node3D = null
 var _interior: Node3D = null
+# ---- chunk 4
+var _fen: Node3D = null
+var _fen_outcome: StringName = &""
+var _run_ended: bool = false
 
 
 func _ready() -> void:
@@ -621,7 +639,7 @@ func _process(delta: float) -> void:
 					_beat = "night"
 					print("RAID_CHUNK1_NIGHT_REACHED")
 					night_reached.emit()
-		"night", "fade_out", "night_black", "fade_in", "wake", "look", "knife", "out", "burn_wait", "burn", "chunk3_done":
+		"night", "fade_out", "night_black", "fade_in", "wake", "look", "knife", "out", "burn_wait", "burn", "chunk3_done", "fen_fade_out", "fen_black", "fen_fade_in", "fen", "end_hold", "end_fade", "end":
 			_tick_chunk2(delta)
 
 
@@ -727,6 +745,10 @@ func objective_text() -> String:
 			if _attacked:
 				return "Get away from them."
 			return "Stay hidden at the wood edge."
+		&"fen":
+			if _downed or _fen == null or _beat != "fen":
+				return ""
+			return String(_fen.call("objective_text"))
 	return ""
 
 
@@ -852,6 +874,40 @@ func debug_jump_to_night_pending() -> void:
 	step_changed.emit(current_step_id(), true)
 
 
+## Smokes / stills: straight to step 9 under the black (the opening, the night and steps 4–8 done
+## the quick way): first light, the dawn cast, the knife off the peg, the herd-hand dead, the
+## household clean in the wood → the fen cut, then the fade-in as in play.
+func debug_jump_to_fen() -> void:
+	debug_jump_to_night_pending()
+	_night = true
+	_night_cut()
+	_lying = false
+	_rising = false
+	if _player:
+		_player.call("set_cinematic_pose", {})
+		_player.call("begin_cinematic")
+	if _peg:
+		_peg.call("force_taken")
+	_knife_taken = true
+	_looked = true
+	_in_wood = true
+	_burn_started = true
+	_chunk3_done = true
+	if _girl:
+		_girl.visible = true
+	if _maire:
+		_maire.visible = true
+	_index = STEP_IDS.find(&"fen")
+	_briefed = true
+	_outcome_set({"household_clean": true, "herd_hand_dead": true, "seen": false})
+	_ensure_fade()
+	_fade_rect.color.a = 1.0
+	_fade_label.text = FEN_LINE
+	_fen_cut()
+	_next_beat("fen_black")
+	step_changed.emit(current_step_id(), true)
+
+
 func report_knife_taken() -> void:
 	_knife_taken = true
 	_check_household()
@@ -918,8 +974,18 @@ func _tick_chunk2(delta: float) -> void:
 				_maire.call("say_line", "maire_knife", MAIRE_KNIFE_LINE, 7.0)
 		"out":
 			_tick_out(delta)
-		"burn_wait", "burn", "chunk3_done":
+		"burn_wait", "burn":
 			_tick_burn(delta)
+		"chunk3_done":
+			_tick_burn(delta)
+			if _beat_t >= FEN_AFTER_SECS and not _attacked and not _downed:
+				_ensure_fade()
+				_fade_label.text = FEN_LINE
+				if _player:
+					_player.call("begin_cinematic")
+				_next_beat("fen_fade_out")
+		"fen_fade_out", "fen_black", "fen_fade_in", "fen", "end_hold", "end_fade", "end":
+			_tick_fen(delta)
 	_tick_downed(delta)
 
 
@@ -1326,6 +1392,144 @@ func household_in_wood() -> bool:
 
 func is_chunk3_done() -> bool:
 	return _chunk3_done
+
+
+func fen() -> Node3D:
+	return _fen
+
+
+func fen_outcome() -> StringName:
+	return _fen_outcome
+
+
+## Step 9 resolved, held and faded: the screen is black and the run has stopped.
+func is_run_ended() -> bool:
+	return _run_ended
+
+
+# ---------------------------------------------------------------- step 9 (chunk 4)
+
+func _tick_fen(delta: float) -> void:
+	if _downed:
+		return
+	match _beat:
+		"fen_fade_out":
+			_fade_rect.color.a = clampf(_beat_t / FEN_FADE_SECS, 0.0, 1.0)
+			if _beat_t >= FEN_FADE_SECS:
+				_fen_cut()
+				_next_beat("fen_black")
+		"fen_black":
+			_fade_rect.color.a = 1.0
+			_fade_label.modulate.a = clampf(minf(_beat_t / 0.5, (FEN_BLACK_SECS - _beat_t) / 0.5), 0.0, 1.0)
+			if _beat_t >= FEN_BLACK_SECS:
+				_fade_label.modulate.a = 0.0
+				_fen.call("start")
+				_next_beat("fen_fade_in")
+		"fen_fade_in":
+			_fade_rect.color.a = 1.0 - clampf(_beat_t / FEN_FADE_SECS, 0.0, 1.0)
+			if _beat_t >= FEN_FADE_SECS:
+				_fade_rect.color.a = 0.0
+				_fade_layer.visible = false
+				if _player:
+					_player.call("end_cinematic")
+				print("RAID_STEP9_START")
+				_next_beat("fen")
+		"fen":
+			pass
+		"end_hold":
+			if _beat_t >= END_HOLD_SECS:
+				_ensure_fade()
+				_fade_label.text = ""
+				_fade_label.modulate.a = 0.0
+				_next_beat("end_fade")
+		"end_fade":
+			_fade_rect.color.a = clampf(_beat_t / END_FADE_SECS, 0.0, 1.0)
+			if _beat_t >= END_FADE_SECS:
+				_fade_rect.color.a = 1.0
+				_run_ended = true
+				complete_step(&"fen")
+				if _fen:
+					_fen.process_mode = Node.PROCESS_MODE_DISABLED
+				var g := get_node_or_null("/root/Game")
+				print("RAID_RUN_END straggler=%s outcome=%s" % [_fen_outcome, g.get("prologue_outcome") if g else {}])
+				print("RAID_CHUNK4_DONE")
+				_next_beat("end")
+		"end":
+			_fade_rect.color.a = 1.0
+			if _player and not bool(_player.call("is_input_locked")):
+				_player.call("begin_cinematic")
+
+
+## Under the black: the household down in the reeds at the fen edge; the drove on the lane.
+func _fen_cut() -> void:
+	if _raiders:
+		_raiders.call("stop_combat")
+		_raiders.visible = false
+		_raiders.process_mode = Node.PROCESS_MODE_DISABLED
+	if _burning:
+		_burning.process_mode = Node.PROCESS_MODE_DISABLED
+	if _sack:
+		_sack.call("release_if_carried")
+	if _hand and bool(_hand.call("is_in_hand")):
+		_hand.call("let_go")
+	var cows: Array = _director.call("get_cows") if _director and _director.has_method("get_cows") else []
+	var pal := {}
+	if _raiders and _raiders.has_method("_palette"):
+		pal = {"archer": _raiders.call("_palette", "archer", 1), "archer2": _raiders.call("_palette", "archer", 2), "serjeant": _raiders.call("_palette", "serjeant", 0)}
+	_fen = FenScript.new()
+	_fen.name = "PrologueFenStraggler"
+	add_child(_fen)
+	_fen.call("setup", self, _player, _maire, _girl, cows, pal)
+	_fen.connect("finished", _on_fen_finished)
+	_fen.connect("cian_struck", _on_fen_struck)
+	if _player:
+		var combat := _player.get_node_or_null("CombatSystem")
+		if combat and combat.has_method("set_weapon"):
+			combat.call("set_weapon", 3)  # hands empty, the goad on his back (3 takes it up, 2 draws the knife)
+	_hide_name_tags(true)
+	print("RAID_FEN_CUT")
+
+
+func _on_fen_struck(amount: float, tag: StringName, from: Node3D) -> void:
+	if _downed or _player == null:
+		return
+	var c: Node = _player.get("combat")
+	var hp := float(c.get("health")) if c else 0.0
+	if hp - amount <= DOWN_AT_HP:
+		_go_down()
+		if _fen:
+			_fen.call("abort")
+		return
+	if c:
+		c.call("apply_damage", amount, from, true)
+	var ch := get_node_or_null("/root/CharacterHealth")
+	if ch:
+		ch.call("apply_wound_tag", tag)
+	_seen = true
+	_outcome_set({"cian_wound": String(tag), "seen": true})
+	print("RAID_CIAN_STRUCK_FEN tag=%s hp=%.0f" % [tag, float(c.get("health")) if c else -1.0])
+
+
+func _on_fen_finished(o: StringName, flags: Dictionary) -> void:
+	_fen_outcome = o
+	var vals := {"straggler": String(o)}
+	match o:
+		&"killed":
+			vals["cian_wound"] = "none"
+		&"fought":
+			vals["cian_wound"] = String(flags.get("cian_wound", "none"))
+			vals["seen"] = true
+			_seen = true
+			if _heat:
+				_heat.call("bump", FEN_HEAT, &"straggler_fought")
+	_outcome_set(vals)
+	if _downed:
+		return
+	if _player:
+		_player.call("begin_cinematic")
+	var g := get_node_or_null("/root/Game")
+	print("RAID_STEP9_DONE straggler=%s outcome=%s" % [o, g.get("prologue_outcome") if g else {}])
+	_next_beat("end_hold")
 
 
 func _outcome_set(vals: Dictionary) -> void:
