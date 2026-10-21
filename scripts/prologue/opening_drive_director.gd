@@ -1,6 +1,6 @@
 extends Node3D
 class_name OpeningDriveDirector
-## First-morning tutorial: walk the lane from the house to the pasture, stir the grazing herd
+## Opening tutorial: walk the lane from the house to the pasture, stir the grazing herd
 ## with the goad, and drive enough head back into the home pen beside the byre.
 ##
 ## Reuses raid_cow.gd AI via opening_cow.gd (idle → goad → drove + path bias). Standalone scene:
@@ -366,7 +366,7 @@ func objective_text() -> String:
 		Stage.WALK_OUT:
 			if family_bark_visible():
 				return "%s calls from the door — walk the lane south and bring the cattle home." % family_speaker()
-			return "First morning. Walk the lane south to the pasture and bring the cattle home."
+			return "Late in the day. Walk the lane south to the pasture and bring the cattle home."
 		Stage.AT_HERD:
 			return "The herd is grazing. Draw the goad (3) and prod a cow (LMB / RMB) to stir them."
 		Stage.DRIVING:
@@ -377,7 +377,7 @@ func objective_text() -> String:
 				bits += "  Some are grazing — keep pushing."
 			return bits
 		Stage.SUCCESS:
-			return "The herd is home in the pen. Finish the morning's work, or wander the farm."
+			return "The herd is home in the pen. Finish the day's work, or wander the farm."
 	return ""
 
 

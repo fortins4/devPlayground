@@ -2,9 +2,9 @@
 
 Tightly authored opening sequence (greybox first). Keep cinematic scenes and beat scripts here; hand off to open world when `Game.finish_prologue()` runs.
 
-## Opening morning (set sequence)
+## Opening afternoon to dusk (set sequence)
 
-The first morning on the farm, played as a fixed sequence with Máire as the hub. See `/STATUS.md` for where things stand and `/GET_UP_TO_SPEED.md` for the locked rules.
+An afternoon on the farm running into dusk, played as a fixed sequence with Máire as the hub. See `/STATUS.md` for where things stand and `/GET_UP_TO_SPEED.md` for the locked rules.
 
 | | |
 |---|---|
@@ -21,7 +21,7 @@ Máire waves when she has a line waiting and speaks it automatically when Cian c
 1. **Máire at the door.** Her talk hands out the bucket job.
 2. **Water the trough.** Pick up the stave bucket by the byre, fill it at the dug-out spring scoop west of the house, pour it at the trough. **Three trips**: each pour raises the water a third (HUD: "Trough n/3"). Cian stows the goad and carries the bucket by the handle with **both hands**. The load slows his walk and blocks sprint. The goad comes back after the pour.
 3. **Bring the herd home.** No cow is tethered at the start; all six go on the drive. One of the **six** is bogged in the back paddock beyond the pasture, and her lowing leads there. Goad her out, drive her back to rejoin the other five, then drive all six home. The walk out is quiet. On the lane home a **stray dog ambushes** the herd and scatters the nearest head. Scare it off (E / goad prod up close), regather, pen **6/6**, then swing the gate shut and **latch** it.
-4. **Tie the milk cow.** Máire wants the red milk cow (Cow1, the quiet one) kept by the house for the morning milking. E at the latched pen gate: Cian stows the goad, lifts the latch and swings the west leaf back by hand; the milk cow comes to the gateway, he slips the rope loop over her head and she steps out beside him; he swings the leaf shut and drops the latch so the other five stay penned. He leads her on the rope (goad on his back, rope in the right hand, slow walk, no sprint) — she follows his own track, so she goes round the pen corner, not through the fence — to the **tie post** in the yard by the house. E at the post: she comes up head to the post and he ties the rope off with **both hands**; then a rope runs from the post to the loop round her neck and she stands tied there.
+4. **Tie the milk cow.** Máire wants the red milk cow (Cow1, the quiet one) kept by the house to milk before dark. E at the latched pen gate: Cian stows the goad, lifts the latch and swings the west leaf back by hand; the milk cow comes to the gateway, he slips the rope loop over her head and she steps out beside him; he swings the leaf shut and drops the latch so the other five stay penned. He leads her on the rope (goad on his back, rope in the right hand, slow walk, no sprint) — she follows his own track, so she goes round the pen corner, not through the fence — to the **tie post** in the yard by the house. E at the post: she comes up head to the post and he ties the rope off with **both hands**; then a rope runs from the post to the loop round her neck and she stands tied there.
 5. **Stow and meal.** Stow the goad (1 / unarmed), then E to eat by the house: Cian sits on the ground at the low stool, eats, and rises back into normal walking. Máire has a closing line.
 
 Interactions are on **E** (pick up / fill / pour, shout at the dog, latch the gate, rope the milk cow at the gate / tie her at the post, eat).

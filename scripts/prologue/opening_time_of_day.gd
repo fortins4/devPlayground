@@ -9,10 +9,10 @@ class_name OpeningTimeOfDay
 ##                    still bright enough to play.
 ## Progress value p (0..2) comes from OpeningSequence / OpeningDriveDirector; the shown value eases
 ## toward it at RATE stages/s and each stage pair is blended with a smoothstep, so there are no pops.
-## Drives the scene's own DirectionalLight3D ("MorningSun") and WorldEnvironment (a per-instance
+## Drives the scene's own DirectionalLight3D ("Sun") and WorldEnvironment (a per-instance
 ## copy, so the packed scene resource is never edited).
 
-@export var light_path: NodePath = ^"../MorningSun"
+@export var light_path: NodePath = ^"../Sun"
 @export var env_path: NodePath = ^"../WorldEnvironment"
 ## Stages per second the light moves at (a whole stage takes ~22 s of play).
 const RATE := 1.0 / 22.0

@@ -1,5 +1,5 @@
 extends Node
-## Opening morning as a SET SEQUENCE with Máire as the hub.
+## Opening afternoon (to dusk) as a SET SEQUENCE with Máire as the hub.
 ##
 ##   1 maire  — talk to Máire at the door (her talk ends by giving the bucket job)
 ##   2 bucket — pick up the bucket, fill it at the spring scoop, pour it at the trough
@@ -10,7 +10,7 @@ extends Node
 ##                → driving, with the stray-dog ambush on the lane (ambush / regather)
 ##                → all 6 in the pen, gate latched
 ##   4 milk   — take the milk cow out of the pen on a rope and tie her to the post by the house by
-##              hand (for the morning milking). No knife anywhere in the opening.
+##              hand (for milking before dark). No knife anywhere in the opening.
 ##   5 meal   — stow the goad and eat the meal, then Máire's closing line
 ##
 ## After each step (2..5) completes, the next step stays LOCKED until Cian walks back to Máire:
@@ -33,7 +33,7 @@ const CLOSER_INDEX := 5
 ## at the end of her door talk — see OpeningFamilyCaller.talk_lines).
 const HANDOFF_LINES := {
 	&"drive": "Good lad. Now bring the herd home from the south pasture. All six, mind — count them into the pen.",
-	&"milk": "All six home, thank God. Now bring the red milk cow out of the pen on the rope and tie her to the post by the house. I'll want her handy for the milking in the morning.",
+	&"milk": "All six home, thank God. Now bring the red milk cow out of the pen on the rope and tie her to the post by the house. I'll milk her there before dark.",
 	&"meal": "That's her tied, good lad. Put that goad away and come eat — your meal's by the door.",
 }
 const CLOSER_LINE := "That's the day's work done, and done well. Sit and rest a while, a stór."
@@ -193,7 +193,7 @@ func force_finish() -> void:
 
 func objective_text() -> String:
 	if _finished:
-		return "The morning's work is done. Explore the farm, or rest a while."
+		return "The day's work is done. Explore the farm, or rest a while."
 	if awaiting_maire():
 		var what := "she has a word for you" if _index >= CLOSER_INDEX else "she has the next job"
 		return "Go back to Máire at the house door — %s." % what

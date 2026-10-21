@@ -1,5 +1,5 @@
 extends "res://scripts/world/raid/raid_cow.gd"
-## Opening-morning cow: reuses raid_cow.gd goad / proximity / path-bias AI unchanged and only
+## Opening cow: reuses raid_cow.gd goad / proximity / path-bias AI unchanged and only
 ## layers tutorial feel on top (raid_cow.gd itself is untouched so the F5 raid lane is unaffected).
 ##
 ## - Idle grazing until goaded (base behaviour: proximity pressure only after herded/driven).

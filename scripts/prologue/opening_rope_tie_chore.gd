@@ -2,7 +2,7 @@ extends Node3D
 class_name OpeningRopeTieChore
 ## Opening-farm chore (set-sequence step "milk", after the herd is penned and before the meal):
 ## Cian takes the red milk cow out of the night pen and ties her to the post by the house, so she
-## is to hand for the morning milking. No knife anywhere in the opening (canon): hands and rope.
+## is to hand for milking before dark. No knife anywhere in the opening (canon): hands and rope.
 ##
 ## How she gets from the pen to the post (the realistic way a herdsman does it):
 ##   1. E at the latched pen gate: he lifts the latch and swings the west leaf back by hand.
@@ -351,7 +351,7 @@ func _finish_tie(announce: bool) -> void:
 	_rope.visible = true
 	_release_player()
 	if announce:
-		_flash("She's tied fast at the post, handy for the morning milking.", 3.0)
+		_flash("She's tied fast at the post, ready for milking before dark.", 3.0)
 		print("OPENING_MILK_TIE_SOFT_SUCCESS")
 	_report_done()
 

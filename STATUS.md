@@ -12,7 +12,7 @@ The opening (`scenes/prologue/opening_cattle_drive.tscn`, F4 from the main greyb
 2. **Bucket to the trough.** Pick up the stave bucket by the byre, fill it at the dug-out spring scoop west of the house, and pour it at the trough. It takes three trips, and each pour raises the water by a third (HUD shows "Trough n/3"). Cian stows the goad and carries the bucket by the handle with both hands. The load slows him to a braced walk and blocks sprint. The goad is drawn again after the last pour.
 3. **Herd drive.** No cow is tethered at the start; all six go. One of the 6 cows is bogged at the pasture. Free her, drive her back to the herd, then drive all 6 home. A stray dog ambushes and scatters them on the lane.
 4. **Penning.** All 6/6 in the night pen, then close and latch the pen gate to end the drive.
-5. **Milk cow.** Cian ropes the red milk cow at the latched gate (lifts the latch, swings the west leaf, she steps out, he shuts and re-latches it so the other five stay in), leads her on the rope to the post by the house and ties her there by hand (goad stowed, both hands) for the morning milking.
+5. **Milk cow.** Cian ropes the red milk cow at the latched gate (lifts the latch, swings the west leaf, she steps out, he shuts and re-latches it so the other five stay in), leads her on the rope to the post by the house and ties her there by hand (goad stowed, both hands) to be milked before dark.
 6. **Stow and meal.** Stow the goad, eat at the house: Cian sits at the stool, then gets up cleanly back into walking.
 
 ### Ringfort and history pass (H1–H8)

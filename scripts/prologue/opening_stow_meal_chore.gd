@@ -1,6 +1,6 @@
 extends Node3D
 class_name OpeningStowMealChore
-## Closing morning beat: stow the goad (key 1 / unarmed), then E-eat a greybox meal
+## Closing evening beat: stow the goad (key 1 / unarmed), then E-eat a greybox meal
 ## by the house. Additive soft cue; does not gate cattle soft success.
 ## E: Cian walks to the seat beside the low stool, sits on the ground at it (input locked), eats,
 ## then rises back into foot loco (PlayerController.begin_seat / end_seat).
@@ -114,7 +114,7 @@ func interact_prompt() -> String:
 	if not _gate_open():
 		return _not_yet()
 	if _is_unarmed():
-		return "E — eat the morning meal"
+		return "E — eat the evening meal"
 	return "Stow the goad first (1)"
 
 
@@ -191,7 +191,7 @@ func _try_interact() -> bool:
 
 
 func _start_eat() -> void:
-	_flash("Morning meal — that's better.", 2.5)
+	_flash("Evening meal — that's better.", 2.5)
 	if _player and _player.has_method("begin_seat") and bool(_player.call("begin_seat", SEAT_POS, SEAT_YAW)):
 		# He walks to the seat and sits; the meal timer starts once he is down.
 		_phase = MealPhase.SEATING
@@ -240,7 +240,7 @@ func _reset_stew_full() -> void:
 
 func _build_props() -> void:
 	_meal_root = Node3D.new()
-	_meal_root.name = "MorningMeal"
+	_meal_root.name = "EveningMeal"
 	_meal_root.position = MEAL_POS
 	add_child(_meal_root)
 

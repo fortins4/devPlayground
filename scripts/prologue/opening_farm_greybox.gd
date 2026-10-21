@@ -1,6 +1,6 @@
 @tool
 extends Node3D
-## Greybox geometry for the first-morning cattle drive (house · byre · home pen · twisting
+## Greybox geometry for the opening's evening cattle drive (house · byre · home pen · twisting
 ## lane · secluded pasture behind gradual rolling hills (lane winds through saddles) · bog edge · west ditch · neighbours' ringfort).
 ##
 ## Builds plain boxes/prisms/cylinders at _ready into an un-owned child, so the layout shows in

@@ -33,7 +33,7 @@ const BARK_Y := 2.00
 const DOOR_POS := Vector3(-7.2, 0.0, 1.77)
 
 @export var speaker_name: String = "Máire"
-@export var callout_line: String = "Cian! Bring them home before the sun's high — and mind the bog!"
+@export var callout_line: String = "Cian! Bring them home before dark — and mind the bog!"
 @export var bark_hold_secs: float = 6.5
 @export var auto_trigger_delay: float = 1.1
 @export var retrigger_on_reset: bool = true
@@ -42,7 +42,7 @@ const DOOR_POS := Vector3(-7.2, 0.0, 1.77)
 
 ## Door talk = step 1 (folds in the old door callout). Its last line hands out step 2.
 var talk_lines: PackedStringArray = PackedStringArray([
-	"Cian! There you are. The herd's to be home before the sun is high.",
+	"Good lad. The herd's to be home before the light goes.",
 	"But water first — take the bucket from by the byre and fill it at the spring scoop, west of the house.",
 ])
 
