@@ -68,6 +68,7 @@ var _kit_mats: Dictionary = {}
 var crouching: bool = false
 var _down_on: bool = false
 var _down_w: float = 0.0
+var _down_body: bool = false
 var _thrust_point: Vector3 = Vector3.ZERO
 var _thrust_w: float = 0.0
 var _thrust_target_w: float = 0.0
@@ -263,9 +264,11 @@ func set_crouch(on: bool) -> void:
 	crouching = on
 
 
-## Struck down: he goes over backwards and lies still (no blood, no close-up).
-func set_down(on: bool) -> void:
+## Struck down: he goes over backwards and lies still (no blood, no close-up). `body` (the fen
+## archer after the takedown): the held lying pose (DOWN_POSE), fully still once down.
+func set_down(on: bool, body: bool = false) -> void:
 	_down_on = on
+	_down_body = body
 	if on:
 		_path.clear()
 		_follow = null
@@ -404,6 +407,28 @@ func _pose_extra(delta: float) -> void:
 			f.rotation = f.rotation.lerp(Vector3(deg_to_rad(95.0), 0.0, 0.0), e)
 
 
+## set_down(true, true) — the body: lying on his back in the reeds, rolled a little onto his
+## right side, head fallen to that side, the right arm flung out on the ground, the left slack at
+## his side, the left knee a little up. An absolute pose (rest + these offsets) blended in over
+## the idle rig, so once he is fully down nothing breathes, sways or drifts: he stays put.
+const DOWN_POSE := {
+	"hips": Vector3(0.0, 0.12, 0.0),
+	"torso": Vector3(-0.08, -0.1, 0.05),
+	"head": Vector3(-0.25, -0.75, 0.1),
+	"left_arm": Vector3(-0.12, 0.0, 0.12),
+	"left_forearm": Vector3(0.15, 0.0, 0.0),
+	"right_arm": Vector3(-0.05, 0.0, -1.25),
+	"right_forearm": Vector3(0.35, 0.0, 0.0),
+	"left_thigh": Vector3(0.45, 0.0, -0.05),
+	"left_shin": Vector3(-0.8, 0.0, 0.0),
+	"right_thigh": Vector3(0.1, 0.0, 0.1),
+	"right_shin": Vector3(-0.15, 0.0, 0.0),
+}
+const DOWN_ROLL := -0.38  ## about his long axis: onto the right side
+const DOWN_LIFT := 0.15   ## the tipped body's half depth, so he lies on the turf, not in it
+const DOWN_BACK := 0.6    ## dragged back a step as he went over (off the cow's nose)
+
+
 func _pose_down(delta: float) -> void:
 	_down_w = move_toward(_down_w, 1.0 if _down_on else 0.0, delta * 1.6)
 	if _down_w <= 0.0:
@@ -411,21 +436,36 @@ func _pose_down(delta: float) -> void:
 	var root := _loco.get_joint("root")
 	if root == null:
 		return
-	# Over backwards (rig faces −Z: +X rotation tips the head to +Z) onto the ground. The root is
-	# at the feet, so the tipped body lies along the ground through the pivot: lift it by half its
-	# depth so it lies on the turf, not in it.
 	var e := _down_w * _down_w * (3.0 - 2.0 * _down_w)
-	root.rotation.x += PI * 0.5 * e
-	root.position.y += 0.14 * e
-	root.position.z += 0.1 * e
-	for j in ["left_thigh", "right_thigh"]:
-		var t := _loco.get_joint(j)
-		if t:
-			t.rotation.x += 0.25 * e
-	for j in ["left_arm", "right_arm"]:
-		var a := _loco.get_joint(j)
-		if a:
-			a.rotation.z += (0.9 if j == "left_arm" else -0.9) * e
+	if not _down_body:
+		# Over backwards (rig faces −Z: +X rotation tips the head to +Z) onto the ground. The root is
+		# at the feet, so the tipped body lies along the ground through the pivot: lift it by half its
+		# depth so it lies on the turf, not in it.
+		root.rotation.x += PI * 0.5 * e
+		root.position.y += 0.14 * e
+		root.position.z += 0.1 * e
+		for j in ["left_thigh", "right_thigh"]:
+			var t := _loco.get_joint(j)
+			if t:
+				t.rotation.x += 0.25 * e
+		for j in ["left_arm", "right_arm"]:
+			var a := _loco.get_joint(j)
+			if a:
+				a.rotation.z += (0.9 if j == "left_arm" else -0.9) * e
+		return
+	var rest: Dictionary = _loco.get("_rest")
+	# The body: over backwards about the feet (the root), rolled about his long axis.
+	var rp: Vector3 = rest["root"]["pos"] if rest.has("root") else Vector3.ZERO
+	var rb := Basis.from_euler(rest["root"]["rot"] if rest.has("root") else Vector3.ZERO)
+	var down_b := rb * Basis(Vector3.RIGHT, PI * 0.5) * Basis(Vector3.UP, DOWN_ROLL)
+	root.basis = Basis(root.basis.get_rotation_quaternion().slerp(down_b.get_rotation_quaternion(), e))
+	root.position = root.position.lerp(rp + Vector3(0.0, DOWN_LIFT, DOWN_BACK), e)
+	for j in DOWN_POSE:
+		var n := _loco.get_joint(j)
+		if n == null or not rest.has(j):
+			continue
+		n.position = n.position.lerp(rest[j]["pos"], e)
+		n.rotation = n.rotation.lerp((rest[j]["rot"] as Vector3) + (DOWN_POSE[j] as Vector3), e)
 
 
 func _pose_right_arm(delta: float) -> void:

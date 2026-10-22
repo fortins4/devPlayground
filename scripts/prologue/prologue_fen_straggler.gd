@@ -1199,10 +1199,11 @@ func _start_cutaway() -> void:
 	_cut_cam.global_position = head + fwd * 1.0 - side * 0.38 + Vector3(0, 0.04, 0)
 	_cut_cam.look_at(head + Vector3(0, -0.06, 0), Vector3.UP)
 	_cut_cam.current = true
-	# Off camera he goes down and is still: by the cut back he lies at the margin.
+	# Off camera he goes down and is still: by the cut back he lies in the reeds, dragged back off
+	# the margin, and stays exactly as he lies through the hold and the fade.
 	archer.visible = false
 	archer.call("set_seized", 0.0)
-	archer.call("set_down", true)
+	archer.call("set_down", true, true)  # the body: lies in the reeds, still (villager DOWN_POSE)
 	Sfx.play(self, &"struggle", archer.global_position + Vector3(0, 0.8, 0), 0.0, 6.0)
 	if _raid:
 		_raid.call("_caption", "He fights the hand for a moment. Then he's still.", TAKEDOWN_CUTAWAY)
