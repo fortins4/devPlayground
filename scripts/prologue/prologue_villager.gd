@@ -69,6 +69,7 @@ var crouching: bool = false
 var _down_on: bool = false
 var _down_w: float = 0.0
 var _down_body: bool = false
+var _down_back: float = 0.6
 var _thrust_point: Vector3 = Vector3.ZERO
 var _thrust_w: float = 0.0
 var _thrust_target_w: float = 0.0
@@ -264,11 +265,14 @@ func set_crouch(on: bool) -> void:
 	crouching = on
 
 
-## Struck down: he goes over backwards and lies still (no blood, no close-up). `body` (the fen
-## archer after the takedown): the held lying pose (DOWN_POSE), fully still once down.
-func set_down(on: bool, body: bool = false) -> void:
+## Struck down: he goes over backwards and lies still (no blood, no close-up). `body`: the held
+## lying pose (DOWN_POSE), fully still once down — the dawn herd-hand and the fen archer after
+## the takedown. `back`: how far behind his feet he comes to lie (the archer is dragged back a
+## step off the cow's nose; the herd-hand drops where he stood).
+func set_down(on: bool, body: bool = false, back: float = DOWN_BACK) -> void:
 	_down_on = on
 	_down_body = body
+	_down_back = back
 	if on:
 		_path.clear()
 		_follow = null
@@ -407,7 +411,7 @@ func _pose_extra(delta: float) -> void:
 			f.rotation = f.rotation.lerp(Vector3(deg_to_rad(95.0), 0.0, 0.0), e)
 
 
-## set_down(true, true) — the body: lying on his back in the reeds, rolled a little onto his
+## set_down(true, true) — the body: lying on his back (in the fen reeds, on the dawn causeway), rolled a little onto his
 ## right side, head fallen to that side, the right arm flung out on the ground, the left slack at
 ## his side, the left knee a little up. An absolute pose (rest + these offsets) blended in over
 ## the idle rig, so once he is fully down nothing breathes, sways or drifts: he stays put.
@@ -426,7 +430,7 @@ const DOWN_POSE := {
 }
 const DOWN_ROLL := -0.38  ## about his long axis: onto the right side
 const DOWN_LIFT := 0.15   ## the tipped body's half depth, so he lies on the turf, not in it
-const DOWN_BACK := 0.6    ## dragged back a step as he went over (off the cow's nose)
+const DOWN_BACK := 0.6    ## default: dragged back a step as he went over (the fen archer)
 
 
 func _pose_down(delta: float) -> void:
@@ -459,7 +463,7 @@ func _pose_down(delta: float) -> void:
 	var rb := Basis.from_euler(rest["root"]["rot"] if rest.has("root") else Vector3.ZERO)
 	var down_b := rb * Basis(Vector3.RIGHT, PI * 0.5) * Basis(Vector3.UP, DOWN_ROLL)
 	root.basis = Basis(root.basis.get_rotation_quaternion().slerp(down_b.get_rotation_quaternion(), e))
-	root.position = root.position.lerp(rp + Vector3(0.0, DOWN_LIFT, DOWN_BACK), e)
+	root.position = root.position.lerp(rp + Vector3(0.0, DOWN_LIFT, _down_back), e)
 	for j in DOWN_POSE:
 		var n := _loco.get_joint(j)
 		if n == null or not rest.has(j):

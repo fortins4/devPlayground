@@ -513,7 +513,7 @@ func _tick_herd_hand() -> void:
 func _on_hh_hit() -> void:
 	_hh.call("reach_right", Vector3.ZERO, 0.0)
 	_hh.call("reach_left", Vector3.ZERO, 0.0)
-	_hh.call("set_down", true)
+	_hh.call("set_down", true, true, 0.1)  # the still body pose (villager DOWN_POSE), where he stood
 	_hh_down = true
 	_phase_to(_hh, "down")
 	print("RAID_HERD_HAND_DOWN at=%s" % _hh.global_position)
