@@ -294,7 +294,24 @@ func _bind() -> void:
 	_tie = get_tree().get_first_node_in_group("opening_rope_tie")
 	if _opening and _opening.has_signal("sequence_complete"):
 		_opening.connect("sequence_complete", _on_opening_complete)
+	_open_house()
 	print("RAID_SEQUENCE_READY")
+
+
+## The family house is open from the start of the opening, evening as well as dawn: Cian can walk in
+## at the door at any step (the dark interior, the hearth embers, the doorway's light). Nothing in
+## the opening's or the evening's steps happens inside, so walking in neither starts nor skips
+## anything; the knife peg is still only hung at the dawn (no knife in the opening).
+func _open_house() -> void:
+	if _interior != null:
+		return
+	var root := get_parent()
+	if root == null or root.find_child("Roundhouse", true, false) == null:
+		return  # not the farm (another scene): nothing to open
+	_interior = HouseInteriorScript.new()
+	_interior.name = "PrologueHouseInterior"
+	add_child(_interior)
+	_interior.call("build", root)
 
 
 func _on_opening_complete() -> void:
@@ -1088,11 +1105,8 @@ func _spawn_dawn_cast() -> void:
 	_hand.name = "PrologueHandHold"
 	add_child(_hand)
 	_hand.call("set_girl", _girl)
-	# The house opens for the dawn: a dark shell, door glow, hearth embers.
-	_interior = HouseInteriorScript.new()
-	_interior.name = "PrologueHouseInterior"
-	add_child(_interior)
-	_interior.call("build", root)
+	# The house (open since the evening; opened here if it was not): a dark shell, door glow, embers.
+	_open_house()
 	# A rush pallet on the ground just inside the door, along the wall.
 	_pallet = MeshInstance3D.new()
 	_pallet.name = "RushPallet"

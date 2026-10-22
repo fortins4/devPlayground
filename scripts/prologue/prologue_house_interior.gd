@@ -1,6 +1,7 @@
 extends Node3D
 class_name PrologueHouseInterior
-## Raid day, dawn on (steps 4–6): the family roundhouse can be entered. The evening's greybox house
+## From the start of the opening (evening as well as raid-day dawn) the family roundhouse can be
+## entered. The evening's greybox house
 ## is a solid drum (one cylinder collider, the doorway a dark slab); for the wake Cian sleeps
 ## inside, on the rush pallet just inside the door, and at step 6 the knife hangs on the inside
 ## face of the wattle, left of the doorway as you go out. This swaps the drum for a ring of wall
@@ -31,6 +32,9 @@ var _hearth_light: OmniLight3D = null
 var _t: float = 0.0
 var _built: bool = false
 var _cam_dist_now: float = -1.0
+var _door_light: OmniLight3D = null
+var _world_env: WorldEnvironment = null
+var _sun: DirectionalLight3D = null
 
 
 static func centre() -> Vector3:
@@ -152,6 +156,10 @@ func build(scene_root: Node) -> void:
 	door_light.omni_range = 3.0
 	door_light.position = DOOR + Vector3(0.0, gy + 1.1, -0.45)
 	add_child(door_light)
+	_door_light = door_light
+	_world_env = scene_root.find_child("WorldEnvironment", true, false) as WorldEnvironment
+	_sun = scene_root.find_child("Sun", true, false) as DirectionalLight3D
+	_door_follow_outside()
 	_build_indoor_air(c, gy)
 	print("PROLOGUE_HOUSE_INTERIOR built panels=%d" % (PANELS - 2))
 
@@ -236,7 +244,28 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _hearth_light:
 		_hearth_light.light_energy = 1.0 + 0.18 * sin(_t * 7.3) + 0.1 * sin(_t * 12.9 + 1.3)
+	_door_follow_outside()
 	_camera_rig()
+
+
+## The doorway lets in the light outside as it is: the sky's colour and strength (the time of day's
+## ambient) plus some of the sun while it is up — so a warm low evening glow, the grey of first
+## light, and a little brighter in the afternoon. The room beyond stays dark.
+func _door_follow_outside() -> void:
+	if _door_light == null or _world_env == null or _world_env.environment == null:
+		return
+	var env := _world_env.environment
+	var col := env.ambient_light_color
+	var e := 0.6 * env.ambient_light_energy
+	if _sun and _sun.visible and _sun.light_energy > 0.001:
+		col = col.lerp(_sun.light_color, clampf(_sun.light_energy * 0.3, 0.0, 0.4))
+		e += 0.25 * _sun.light_energy
+	_door_light.light_color = col
+	_door_light.light_energy = e
+
+
+func door_glow() -> OmniLight3D:
+	return _door_light
 
 
 func camera_pulled() -> bool:

@@ -19,6 +19,7 @@ class_name PrologueFarmDog
 ## none; it never takes a step that would put it into a prop. It turns on the spot into its lying
 ## heading before it settles. No physics body of its own.
 
+const HouseI := preload("res://scripts/prologue/prologue_house_interior.gd")
 const LIE_AT := Vector3(-5.9, 0.0, 2.7)
 const LIE_YAW := 2.6
 const FOLLOW_GAP := 2.4
@@ -610,12 +611,13 @@ func _set_mode(m: Mode) -> void:
 	_sniff_t = 0.0
 
 
-## Who it would trot after: Cian when he is in the yard and away from the door, else the herd-hand
+## Who it would trot after: Cian when he is in the yard (not in the house) and away from the door, else the herd-hand
 ## once he is down in the yard; nobody while Cian sits at the meal / is in at the door.
 func _pick_lead() -> Node3D:
 	if _player and is_instance_valid(_player):
 		var pp := _player.global_position
-		if _flat(pp - RATH_C) < YARD_R and _flat(pp - LIE_AT) > 4.0:
+		# Not after him into the house: it waits at its place by the door.
+		if _flat(pp - RATH_C) < YARD_R and _flat(pp - LIE_AT) > 4.0 and not HouseI.is_inside(pp, -0.4):
 			return _player
 	if _hh and is_instance_valid(_hh) and _hh.visible:
 		var hp := _hh.global_position

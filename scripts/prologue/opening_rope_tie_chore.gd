@@ -53,6 +53,12 @@ const OUT_PATH: Array[Vector3] = [Vector3(5.3, 0.0, 8.6), Vector3(5.3, 0.0, 11.0
 ## Leading: she follows his track this far behind him.
 const FOLLOW_GAP := 2.0
 const TRAIL_STEP := 0.25
+## The house is open (Cian can go in at the door); the milk cow is not led in: she balks short of
+## the doorway — no track point for her within this of the door or inside — and stands outside,
+## clear of the door, until he comes out to her again.
+const HouseI := preload("res://scripts/prologue/prologue_house_interior.gd")
+const DOOR_BALK_R := 2.6
+const ROPE_TAUT := 3.4 ## halter rope from her head to his hand, plus his reach
 const TIE_REACH := 4.5
 
 const C_POST := Color(0.38, 0.28, 0.16)
@@ -532,8 +538,19 @@ func _tick_leading() -> void:
 		return
 	var pp := _player.global_position
 	pp.y = 0.0
-	if _trail.is_empty() or _flat(_trail[-1]).distance_to(pp) >= TRAIL_STEP:
+	var at_door := _flat(pp).distance_to(_flat(HouseI.DOOR)) < DOOR_BALK_R or HouseI.is_inside(pp, -0.3)
+	if not at_door and (_trail.is_empty() or _flat(_trail[-1]).distance_to(pp) >= TRAIL_STEP):
 		_trail.append(pp)
+	if at_door:
+		# The rope comes taut: he gets no further from her than its length.
+		var cp := _flat(_cow.global_position)
+		var off := _flat(pp) - cp
+		if off.length() > ROPE_TAUT:
+			var held := cp + off.normalized() * ROPE_TAUT
+			_player.global_position = Vector3(held.x, _player.global_position.y, held.z)
+		if _trail.size() <= 1 and _cow_at(_trail[0] if not _trail.is_empty() else _cow.global_position, 0.5):
+			_cow.call("set_pen_slot", _cow.global_position)  # she stands
+			return
 	# Drop track points she has reached.
 	while _trail.size() > 1 and _flat(_cow.global_position).distance_to(_flat(_trail[0])) < 0.45:
 		_trail.remove_at(0)
