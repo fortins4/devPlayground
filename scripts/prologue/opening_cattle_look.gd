@@ -158,6 +158,50 @@ static func dress(body: MeshInstance3D, head: MeshInstance3D, coat: Color, horne
 	return coat_parts
 
 
+## The tied milk cow, in milk (opening_cow.dress_in_milk; visual only): a small udder between the
+## hind legs with four short teats, the belly carried higher (less barrel), the hip bones (hooks)
+## and a few ribs showing a touch. Still the small dark native cow — no dairy-breed bag or frame.
+## `rest`: the body's rest transform (cow space). Returns the new coat-coloured parts.
+const C_UDDER := Color(0.36, 0.26, 0.23)
+const C_TEAT := Color(0.46, 0.33, 0.29)
+const MILK_WIDTH_K := 0.93  ## barrel width × this (0.62 → ~0.58 m)
+
+
+static func dress_in_milk(body: MeshInstance3D, rest: Transform3D, coat: Color, mat: Callable) -> Array:
+	var parts: Array = []
+	var sph := _sphere()
+	# Less barrel: the hanging belly piece mid-trunk tucked up to the line of the body.
+	for c in body.get_children():
+		var mi := c as MeshInstance3D
+		if mi and (rest * mi.transform).origin.distance_to(Vector3(0, 0.6, -0.05)) < 0.03:
+			mi.transform = rest.affine_inverse() * Transform3D(Basis.from_scale(Vector3(0.22, 0.045, 0.4)), Vector3(0, 0.6, -0.05))
+	# Hooks: the hip bones standing up either side of the rump.
+	for sx in [-1.0, 1.0]:
+		parts.append(_attach_rest(body, rest, Vector3(sx * 0.2, 0.99, 0.47), Basis.from_scale(Vector3(0.065, 0.05, 0.07)), sph, coat, mat))
+	# Ribs: four faint ridges on each flank behind the shoulder.
+	var half_w := 0.25 * 1.24 * MILK_WIDTH_K
+	for sx in [-1.0, 1.0]:
+		for z in [-0.3, -0.15, 0.0, 0.15]:
+			parts.append(_attach_rest(body, rest, Vector3(sx * (half_w - 0.008), 0.76, z), Basis(Vector3.RIGHT, 0.2) * Basis.from_scale(Vector3(0.02, 0.13, 0.026)), sph, coat.lightened(0.04), mat))
+	# Udder: fore and rear quarters as one small bag under the hindquarters, rising between the thighs.
+	_attach_rest(body, rest, Vector3(0, 0.47, 0.48), Basis.from_scale(Vector3(0.12, 0.1, 0.16)), sph, C_UDDER, mat)
+	_attach_rest(body, rest, Vector3(0, 0.55, 0.62), Basis.from_scale(Vector3(0.1, 0.08, 0.1)), sph, C_UDDER, mat)
+	for sx in [-1.0, 1.0]:
+		for z in [0.415, 0.545]:
+			_attach_rest(body, rest, Vector3(sx * 0.05, 0.36, z), Basis.from_scale(Vector3(0.016, 0.07, 0.016)), _cyl(0.75, 1.0), C_TEAT, mat)
+	return parts
+
+
+static func _attach_rest(parent: MeshInstance3D, rest: Transform3D, pos: Vector3, basis: Basis, mesh: Mesh, col: Color, mat: Callable) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = "Milk%d" % parent.get_child_count()
+	mi.mesh = mesh
+	mi.material_override = mat.call(col)
+	mi.transform = rest.affine_inverse() * Transform3D(basis, pos)
+	parent.add_child(mi)
+	return mi
+
+
 ## Basis whose +Y points along `dir` (unit).
 static func _axis_basis(dir: Vector3) -> Basis:
 	var y := dir.normalized()

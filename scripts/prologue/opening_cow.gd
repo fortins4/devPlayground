@@ -151,6 +151,26 @@ func _restyle_native() -> void:
 			leg.material_override = _coat_mat(_coat.darkened(0.25))
 
 
+## The tied milk cow (opening_rope_tie binds her and calls this once): in milk — udder and
+## teats, a slightly narrower barrel, hooks and ribs a touch more visible. Visual only; the other
+## herd cows never get it. Collider, legs, gait, sink and AI unchanged.
+var in_milk: bool = false
+
+
+func dress_in_milk() -> void:
+	var body := get_node_or_null("MeshInstance3D") as MeshInstance3D
+	if in_milk or body == null or not _tilt_base.has("MeshInstance3D"):
+		return
+	in_milk = true
+	var rest: Transform3D = _tilt_base["MeshInstance3D"]
+	var lean := Basis.from_scale(Vector3(CattleLook.MILK_WIDTH_K, 1.0, 1.0))
+	rest = Transform3D(lean * rest.basis, lean * rest.origin)
+	_tilt_base["MeshInstance3D"] = rest
+	body.transform = rest
+	_coat_parts.append_array(CattleLook.dress_in_milk(body, rest, _coat, _coat_mat))
+	print("OPENING_COW_IN_MILK %s" % name)
+
+
 func _coat_mat(c: Color) -> StandardMaterial3D:
 	var key := c.to_html()
 	if not _coat_mats.has(key):

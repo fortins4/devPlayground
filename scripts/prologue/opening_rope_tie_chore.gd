@@ -109,6 +109,8 @@ func _bind() -> void:
 	_director = get_node_or_null(director_path)
 	_gate = get_node_or_null(gate_path)
 	_cow = get_node_or_null(milk_cow_path) as CharacterBody3D
+	if _cow and _cow.has_method("dress_in_milk"):
+		_cow.call("dress_in_milk")  # she's the one in milk: udder, a leaner frame (visual only)
 	print("OPENING_MILK_TIE_READY post=%s cow=%s" % [POST_POS, _cow.name if _cow else "none"])
 
 
