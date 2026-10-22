@@ -21,6 +21,9 @@ const C_DAUB := Color(0.74, 0.66, 0.52)
 const C_SOOT := Color(0.14, 0.11, 0.085)
 const C_THATCH_IN := Color(0.1, 0.08, 0.06)
 const C_FLOOR := Color(0.2, 0.16, 0.12)
+const AIR_TOP := 2.05
+## The little ambient that is left indoors (bounce off the floor from the door and the embers).
+const INDOOR_AMBIENT := Color(0.05, 0.045, 0.04)
 
 var _player: Node3D = null
 var _cam_pulled: bool = false
@@ -74,7 +77,7 @@ func build(scene_root: Node) -> void:
 		var out_p := ring_point(ang, R - 0.04)
 		_panel(body, out_p, yaw, Vector3(chord + 0.03, WALL_H, 0.08), C_DAUB, gy)
 		var in_p := ring_point(ang, R - 0.12)
-		_panel(body, in_p, yaw, Vector3(chord * (R - 0.12) / R + 0.02, WALL_H, 0.06), C_SOOT, gy)
+		_panel(body, in_p, yaw, Vector3(chord * (R - 0.12) / R + 0.02, WALL_H, 0.06), C_SOOT, gy, true)
 		var cs := CollisionShape3D.new()
 		var bs := BoxShape3D.new()
 		bs.size = Vector3(chord + 0.04, WALL_H, 0.2)
@@ -94,7 +97,7 @@ func build(scene_root: Node) -> void:
 	cm.flip_faces = true
 	cm.radial_segments = 36
 	cone.mesh = cm
-	cone.material_override = _mat(C_THATCH_IN)
+	cone.material_override = _mat(C_THATCH_IN, true)
 	cone.position = c + Vector3(0.0, gy + WALL_H - 0.1 + cm.height * 0.5, 0.0)
 	cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(cone)
@@ -106,7 +109,7 @@ func build(scene_root: Node) -> void:
 	fm.height = 0.02
 	fm.radial_segments = 36
 	floor_mi.mesh = fm
-	floor_mi.material_override = _mat(C_FLOOR)
+	floor_mi.material_override = _mat(C_FLOOR, true)
 	floor_mi.position = c + Vector3(0.0, gy + 0.012, 0.0)
 	add_child(floor_mi)
 	# Hearth embers (the greybox kerb stays): a glowing bed, a few coals, the only warm light.
@@ -116,7 +119,7 @@ func build(scene_root: Node) -> void:
 	bm.bottom_radius = 0.4
 	bm.height = 0.05
 	bed.mesh = bm
-	var em := _mat(Color(0.35, 0.1, 0.03))
+	var em := _mat(Color(0.35, 0.1, 0.03), true)
 	em.emission_enabled = true
 	em.emission = Color(1.0, 0.36, 0.08)
 	em.emission_energy_multiplier = 1.6
@@ -128,7 +131,7 @@ func build(scene_root: Node) -> void:
 		var cb := BoxMesh.new()
 		cb.size = Vector3(0.09, 0.05, 0.07)
 		coal.mesh = cb
-		coal.material_override = em if i % 2 == 0 else _mat(Color(0.08, 0.06, 0.05))
+		coal.material_override = em if i % 2 == 0 else _mat(Color(0.08, 0.06, 0.05), true)
 		var a := TAU * float(i) / 6.0 + 0.4
 		coal.position = c + Vector3(cos(a) * 0.18, gy + 0.12, sin(a) * 0.18)
 		coal.rotation.y = a
@@ -149,7 +152,40 @@ func build(scene_root: Node) -> void:
 	door_light.omni_range = 3.0
 	door_light.position = DOOR + Vector3(0.0, gy + 1.1, -0.45)
 	add_child(door_light)
+	_build_indoor_air(c, gy)
 	print("PROLOGUE_HOUSE_INTERIOR built panels=%d" % (PANELS - 2))
+
+
+## No mist indoors. The dawn ground mist and the day's haze are the Environment's depth / height
+## fog, and the sky ambient lights everything the same; inside a windowless roundhouse neither
+## should reach. (1) The interior's own surfaces (sooty wattle, thatch underside, floor, hearth)
+## take no fog and no sky ambient: they are lit only by the embers and the door glow. (2) Anything
+## that stands inside (Cian, Máire, the girl, the pallet, the kerb) gets its ambient from an
+## interior ReflectionProbe filling the drum with a near-black ambient instead of the sky's; the
+## probe's blend distance fades that over the last 0.3 m to the doorway, so walking in and
+## out does not pop. The outside is untouched (the probe ends at the wall, the fog settings are
+## never changed).
+func _build_indoor_air(c: Vector3, gy: float) -> void:
+	var probe := ReflectionProbe.new()
+	probe.name = "IndoorAir"
+	probe.interior = true
+	# Floor to just over head height: the box is square round a round drum, so above the wall top
+	# its corners would reach the outside of the thatch skirt; up to 2.05 m only the eave lip's
+	# underside (in its own shade anyway) falls in a corner.
+	probe.size = Vector3(R * 2.0, AIR_TOP + 0.3, R * 2.0)
+	probe.position = c + Vector3(0.0, gy + (AIR_TOP - 0.3) * 0.5, 0.0)
+	probe.blend_distance = 0.3
+	probe.ambient_mode = ReflectionProbe.AMBIENT_COLOR
+	probe.ambient_color = INDOOR_AMBIENT
+	probe.ambient_color_energy = 1.0
+	probe.intensity = 0.15
+	probe.update_mode = ReflectionProbe.UPDATE_ONCE
+	probe.max_distance = R * 2.0
+	add_child(probe)
+
+
+func indoor_air() -> ReflectionProbe:
+	return get_node_or_null("IndoorAir") as ReflectionProbe
 
 
 ## The greybox drum: collider off, its wall skin and the dark door slab hidden (the posts, the
@@ -263,19 +299,23 @@ func _camera_rig() -> void:
 	_cam_pulled = true
 
 
-func _panel(parent: Node3D, p: Vector3, yaw: float, size: Vector3, col: Color, gy: float) -> void:
+func _panel(parent: Node3D, p: Vector3, yaw: float, size: Vector3, col: Color, gy: float, indoor: bool = false) -> void:
 	var mi := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = size
 	mi.mesh = bm
-	mi.material_override = _mat(col)
+	mi.material_override = _mat(col, indoor)
 	mi.position = p + Vector3(0.0, gy + size.y * 0.5, 0.0)
 	mi.rotation.y = yaw
 	parent.add_child(mi)
 
 
-func _mat(col: Color) -> StandardMaterial3D:
+## `indoor`: an inside surface — no fog, no sky ambient (lit by the embers and the door only).
+func _mat(col: Color, indoor: bool = false) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = col
 	m.roughness = 0.95
+	if indoor:
+		m.disable_fog = true
+		m.disable_ambient_light = true
 	return m
