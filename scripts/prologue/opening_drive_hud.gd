@@ -138,9 +138,26 @@ func _process(_delta: float) -> void:
 		or _chore_active(_gate_chore)
 		or prologue_active
 	):
-		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · %s3 goad · Q cycle · LMB/RMB prod · E interact · R reset herd · T restart · Esc mouse" % _knife_hint()
+		_controls.text = _controls_text(true, raid)
 	else:
-		_controls.text = "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · %s3 goad · Q cycle · LMB/RMB prod · R reset herd · T restart · Esc mouse" % _knife_hint()
+		_controls.text = _controls_text(false, raid)
+
+
+## The bottom key line. The afternoon / evening: the herd keys (prod, R reset herd, T restart).
+## From the night on (the raid at dawn, the fen) only what applies there: move, crouch, the knife
+## once he has it, the goad, strike, E when there is something to take or do, and G for a stone
+## at the fen — no herd reset or drive restart (the director ignores R / T then too).
+func _controls_text(interact: bool, raid: Node) -> String:
+	if raid_part(raid):
+		var fen := StringName(raid.call("current_step_id")) == &"fen"
+		return "WASD move · Shift sprint · Alt walk · Ctrl crouch · mouse look · 1 stow · %s3 goad · Q cycle · LMB/RMB strike · %s%sEsc mouse" % [
+			_knife_hint(), "E interact · " if interact else "", "G stone · " if fen else ""]
+	return "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · %s3 goad · Q cycle · LMB/RMB prod · %sR reset herd · T restart · Esc mouse" % [_knife_hint(), "E interact · " if interact else ""]
+
+
+## The raid and fen part of the prologue: from the night cut on.
+static func raid_part(raid: Node) -> bool:
+	return raid != null and bool(raid.call("is_running")) and bool(raid.call("is_night_reached"))
 
 
 

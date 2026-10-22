@@ -179,6 +179,8 @@ func _physics_process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key := (event as InputEventKey).keycode
+		if (key == KEY_R or key == KEY_T) and _raid_part():
+			return  # the herd reset / drive restart are the afternoon's; nothing at the raid or the fen
 		if key == KEY_R:
 			reset_herd()
 			get_viewport().set_input_as_handled()
@@ -189,6 +191,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				_player.set("velocity", Vector3.ZERO)
 				_stow_goad()  # a restart starts as the game does: goad on his back
 			get_viewport().set_input_as_handled()
+
+
+func _raid_part() -> bool:
+	var raid := get_tree().get_first_node_in_group("raid_sequence")
+	return raid != null and bool(raid.call("is_running")) and bool(raid.call("is_night_reached"))
 
 
 func _stow_goad() -> void:
