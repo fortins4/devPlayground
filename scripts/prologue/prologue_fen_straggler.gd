@@ -70,6 +70,10 @@ const LOW_PERIOD := 3.6
 const LOW_ON := 1.8
 const HAUL_SECS := 38.0                   ## lying still: he works her free in this long
 const FREE_SECS := 3.0                    ## the last heave, out of the mud
+## Bogged: how far she is down in the margin mud (visual, opening_cow.visual_sink): hooves and
+## lower legs under, the belly at the mud's surface. Eases in as she founders, out as she's freed.
+const COW_SINK := 0.5
+const COW_SINK_RATE := 0.45               ## m/s
 const SUSPICIOUS_LOOK := 3.0              ## turned to look this long before going back to her
 const NOTICE_NEAR := 4.5                  ## SUSPICIOUS with Cian this near → face to face
 const FIND_DIST := 2.4                    ## he walks this near Máire / the girl → found
@@ -699,6 +703,10 @@ func _tick_cow(delta: float) -> void:
 	if _cow == null:
 		return
 	_lowing_left = maxf(0.0, _lowing_left - delta)
+	var sink_to := COW_SINK if _cow_bogged else 0.0
+	if _cow_bogged and _state == S.FREE:
+		sink_to = COW_SINK * (1.0 - 0.5 * clampf(_st / FREE_SECS, 0.0, 1.0))  # the last heave lifts her
+	_cow.set("visual_sink", move_toward(float(_cow.get("visual_sink")), sink_to, COW_SINK_RATE * delta))
 	if not _cow_bogged:
 		if _state in [S.IDLE, S.WALK_IN] and _cow_i < COW_IN.size():
 			var tgt: Vector3 = COW_IN[_cow_i]
@@ -733,18 +741,18 @@ func _bog_cow() -> void:
 	var lb := _cow.get("label") as VisualInstance3D
 	if lb:
 		lb.layers = 0  # the cow keeps rewriting its text / colour; off every camera instead
-	# Down to the hocks in the black margin mud.
+	# Down past the knees in the black margin mud (she sinks into it: visual_sink, _tick_cow).
 	_mud = Node3D.new()
 	_mud.name = "CowMud"
 	add_child(_mud)
 	_mud.global_position = _ground(COW_AT, 0.0)
-	# A low wet dome of churned mud round her legs (to the hocks), not a step: it sits mostly
-	# under the turf.
+	# A wide, nearly flat skin of wet churned mud round her, its top a few cm over the turf (at
+	# her sunk belly), the rim under the turf; a lip of churned lumps at her flanks.
 	var mm := StandardMaterial3D.new()
-	mm.albedo_color = Color(0.16, 0.12, 0.08)
-	mm.roughness = 0.85
+	mm.albedo_color = Color(0.13, 0.1, 0.065)
+	mm.roughness = 0.72  # wet, but not a mirror
 	_mud.rotation.y = PI * 0.5
-	for lump in [[Vector3(0.0, -0.06, 0.0), Vector3(0.62, 0.3, 1.05)], [Vector3(0.18, -0.08, 0.45), Vector3(0.42, 0.26, 0.5)], [Vector3(-0.2, -0.08, -0.5), Vector3(0.45, 0.24, 0.48)]]:
+	for lump in [[Vector3(0.0, -0.15, 0.0), Vector3(1.1, 0.22, 1.5)], [Vector3(0.5, -0.03, 0.3), Vector3(0.22, 0.13, 0.32)], [Vector3(-0.5, -0.03, -0.35), Vector3(0.22, 0.12, 0.34)], [Vector3(-0.15, -0.04, -0.98), Vector3(0.32, 0.12, 0.22)]]:
 		var mud := MeshInstance3D.new()
 		var cm := SphereMesh.new()
 		cm.radius = 1.0
@@ -781,7 +789,7 @@ func _cow_lead(off: float = 1.6) -> void:
 func _horn_point() -> Vector3:
 	if _cow == null:
 		return archer.global_position + Vector3(-1, 1, 0)
-	return _cow.global_position + (-_cow.global_transform.basis.z) * 0.55 + Vector3(0, 0.85, 0)
+	return _cow.global_position + (-_cow.global_transform.basis.z) * 0.55 + Vector3(0, 0.85 - float(_cow.get("visual_sink")) * 0.75, 0)  # opening_cow.HEAD_SINK_K
 
 
 func _tick_rope() -> void:

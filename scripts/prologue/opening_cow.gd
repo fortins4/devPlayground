@@ -90,6 +90,11 @@ var bogged: bool = false
 ## Chore cow only: while bogged and not being worked by the player, stay stuck fast
 ## (herd cows keep their existing bog behaviour).
 var bog_hold_still: bool = false
+## Visual only: how far the body, head and legs sit down in the mud (the fen's bogged cow). The
+## legs keep at least their nominal length below the lowered hips, so the hooves and lower legs
+## go under the mud surface instead of crumpling onto the turf. Collider and AI unchanged.
+var visual_sink: float = 0.0
+const HEAD_SINK_K := 0.75
 ## Set by the opening set sequence: goads bounce off (no impulse / drive / stir) until unlocked.
 var goad_locked: bool = false
 ## Dog ambush: scattered off the lane, needs regathering (cleared when pushed fresh again).
@@ -415,21 +420,25 @@ func _apply_pose() -> void:
 		return
 	var tb := Basis(_tilt_q)
 	var gt := global_transform
+	var sink := Vector3(0.0, -visual_sink, 0.0)
 	for nm in _tilt_base:
 		var n := get_node_or_null(nm) as Node3D
 		if n == null:
 			continue
 		var base: Transform3D = _tilt_base[nm]
 		if not _leg_angle.has(nm) and not _LEG_NODES.has(nm):
-			n.transform = Transform3D(tb * base.basis, tb * base.origin)
+			# Sunk, she holds her head up out of it (straining): the head goes down less.
+			n.transform = Transform3D(tb * base.basis, tb * base.origin + (sink * HEAD_SINK_K if nm == "Head" else sink))
 			continue
 		var a: float = _leg_angle.get(nm, 0.0)
 		var lift: float = _leg_lift.get(nm, 0.0)
 		# Positive angle about +X swings the hoof toward -Z (the cow's head end = forward).
 		var rot := tb * Basis(Vector3.RIGHT, a)
-		var hip_l := tb * Vector3(base.origin.x, LEG_HIP_Y, base.origin.z)
+		var hip_l := tb * Vector3(base.origin.x, LEG_HIP_Y, base.origin.z) + sink
 		var axis_l := rot * Vector3.DOWN
 		var reach := _leg_reach(gt * hip_l, (gt.basis * axis_l).normalized())
+		if visual_sink > 0.0:
+			reach = maxf(reach, LEG_LEN)  # sunk: the hoof is under the mud, not on the turf
 		# Swinging legs shorten from the hip so the hoof clears the grass.
 		var length := clampf(reach - lift * LEG_LEN, LEG_LEN * 0.5, LEG_LEN * LEG_STRETCH_MAX)
 		var sy := length / LEG_LEN
