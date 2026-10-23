@@ -57,8 +57,17 @@ func is_active() -> bool:
 	return _open() and _state == State.WAITING
 
 
+## The hand is a thing of the escape only: the knife step (taking her) and step 7 (out). Once
+## he is in the wood (step 8 and on, the cut to the fen, the fade) there is no hand prompt and E does
+## nothing hand-related; _fen_cut and _reach_wood already let go of her.
+func _escape_live() -> bool:
+	return _raid != null and (bool(_raid.call("is_step_active", SEQ_STEP)) or bool(_raid.call("is_step_active", &"out")))
+
+
 func interact_prompt() -> String:
 	if _player == null or _girl == null:
+		return ""
+	if not _escape_live():
 		return ""
 	if not _near(_player.global_position, _girl.global_position, INTERACT_RANGE):
 		return ""
@@ -93,7 +102,7 @@ func _input(event: InputEvent) -> void:
 
 
 func try_interact() -> bool:
-	if _player == null or _girl == null:
+	if _player == null or _girl == null or not _escape_live():
 		return false
 	if not _near(_player.global_position, _girl.global_position, INTERACT_RANGE):
 		return false
