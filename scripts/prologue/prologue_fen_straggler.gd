@@ -571,7 +571,7 @@ func objective_text() -> String:
 			return ""
 		S.FIGHT, S.BACK_OFF:
 			return "He has his knife out."
-	return "Keep him from finding Máire and your sister.  (G throws a stone.)"
+	return "Crouch in the reeds. Take him from behind with the knife; G stone draws him off."
 
 
 ## All of spec step 9.6, checked live.
