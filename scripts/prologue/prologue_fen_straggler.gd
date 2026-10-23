@@ -58,7 +58,11 @@ const COW_START := Vector3(-35.0, 0.0, 166.6)
 const ARCHER_START := Vector3(-28.0, 0.0, 166.4)
 const ARCHER_IN: Array[Vector3] = [Vector3(-40.0, 0.0, 166.4), Vector3(-46.0, 0.0, 165.6), HAUL_AT]
 const ARCHER_OUT: Array[Vector3] = [Vector3(-46.0, 0.0, 165.4), Vector3(-40.0, 0.0, 166.2), Vector3(-30.0, 0.0, 166.5), Vector3(-18.0, 0.0, 165.0), Vector3(-24.0, 0.0, 174.0)]
-const ARCHER_DELAY := 3.0                 ## he comes off the lane after her this long in
+## He comes off the lane after her this long after the fen starts (the clock starts under the black;
+## control returns FEN_FADE_SECS = 1.6 s later). His sensor wakes with him, so this is also when the
+## first awareness can gain: a player who lies down within a few seconds of control is hidden before
+## the archer is even on the lane (was 3.0 s: he was in view 1.4 s after control).
+const ARCHER_DELAY := 10.0
 const GONE_DIST := 24.0                   ## away from the hide this far = gone
 
 # ---- the archer
