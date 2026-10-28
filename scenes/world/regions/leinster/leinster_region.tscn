@@ -1,6 +1,7 @@
-[gd_scene load_steps=27 format=3 uid="uid://cq8riochtleinst01"]
+[gd_scene load_steps=28 format=3 uid="uid://cq8riochtleinst01"]
 
 [ext_resource type="Script" path="res://scripts/world/regions/leinster/leinster_region.gd" id="1_region"]
+[ext_resource type="Script" path="res://scripts/world/regions/leinster/exile_patch_greybox.gd" id="2_exile"]
 
 [sub_resource type="StandardMaterial3D" id="Mat_grass"]
 albedo_color = Color(0.34, 0.42, 0.27, 1)
@@ -40,10 +41,10 @@ albedo_color = Color(0.38, 0.44, 0.3, 1)
 roughness = 0.94
 
 [sub_resource type="BoxMesh" id="Mesh_ground"]
-size = Vector3(120, 0.25, 120)
+size = Vector3(185, 0.25, 120)
 
 [sub_resource type="BoxShape3D" id="Shape_ground"]
-size = Vector3(120, 0.25, 120)
+size = Vector3(185, 0.25, 120)
 
 [sub_resource type="BoxMesh" id="Mesh_path_seg"]
 size = Vector3(3.2, 0.08, 8.0)
@@ -108,12 +109,12 @@ collision_layer = 1
 collision_mask = 0
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.125, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32.5, -0.125, 0)
 mesh = SubResource("Mesh_ground")
 surface_material_override/0 = SubResource("Mat_grass")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.125, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32.5, -0.125, 0)
 shape = SubResource("Shape_ground")
 
 [node name="RoadNorthSouth" type="Node3D" parent="."]
@@ -307,7 +308,7 @@ shape = SubResource("Shape_cell")
 
 [node name="Label" type="Label3D" parent="HomeTuath"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.5, 0)
-text = "Home túath — continue west
+text = "Túath ringfort stub — continue west
 to playable ringfort muster"
 billboard = 1
 font_size = 36
@@ -315,7 +316,7 @@ modulate = Color(0.9, 0.82, 0.6, 1)
 
 [node name="PathSign" type="Label3D" parent="HomeTuath"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 2.8, 2)
-text = "← Home path"
+text = "← Ringfort path"
 billboard = 1
 font_size = 28
 modulate = Color(0.85, 0.8, 0.65, 1)
@@ -393,8 +394,8 @@ surface_material_override/0 = SubResource("Mat_wood")
 
 [node name="Label" type="Label3D" parent="CentralSign"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.4, 0)
-text = "Laigin — central roam
-N Dublin · S Bannow · W home · E stealth"
+text = "Laigin — systems yard (test pads)
+E burned home ráth · S Bannow · N Dublin · W ringfort"
 billboard = 1
 font_size = 30
 modulate = Color(0.9, 0.88, 0.7, 1)
@@ -416,3 +417,21 @@ cover + sentry on main"
 billboard = 1
 font_size = 26
 modulate = Color(0.7, 0.85, 0.7, 1)
+
+[node name="ExilePatch" type="Node3D" parent="." groups=["exile_patch"]]
+script = ExtResource("2_exile")
+
+[node name="BurnedRath" type="Node3D" parent="ExilePatch" groups=["exile_landmark"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 92, 0, 4)
+
+[node name="WoodEdge" type="Node3D" parent="ExilePatch" groups=["exile_landmark"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 61, 0, -2)
+
+[node name="TocharFen" type="Node3D" parent="ExilePatch" groups=["exile_landmark"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 46, 0, -22)
+
+[node name="BannowLane" type="Node3D" parent="ExilePatch" groups=["exile_landmark"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 86.5, 0, 26)
+
+[node name="ExileStart" type="Marker3D" parent="ExilePatch" groups=["exile_start"]]
+transform = Transform3D(-0.3105, 0, -0.9506, 0, 1, 0, 0.9506, 0, -0.3105, 67.5, 0.1, -4)
