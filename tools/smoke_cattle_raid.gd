@@ -36,6 +36,12 @@ func _run() -> void:
 	var herd_before := cattle.get_herd_size()
 	print("SMOKE herd_before=", herd_before)
 
+	# Main now spawns at ExileStart (~80 m east, past the raid's abandon distance).
+	# Put the player back on the old systems-yard spot this smoke was written for.
+	var _yard_player := get_first_node_in_group("player") as Node3D
+	if _yard_player:
+		_yard_player.global_position = Vector3(0, 0.1, 0)
+	await physics_frame
 	if director.has_method("debug_begin_raid"):
 		director.call("debug_begin_raid")
 	await process_frame
