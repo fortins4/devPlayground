@@ -209,6 +209,7 @@ surface_material_override/0 = SubResource("Mat_wood")
 
 [node name="Label" type="Label3D" parent="DublinGate"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.2, 0)
+visible = false
 text = "↑ Dublin road (stub)
 travel gate north"
 billboard = 1
@@ -242,6 +243,7 @@ surface_material_override/0 = SubResource("Mat_wood")
 
 [node name="Label" type="Label3D" parent="BannowBay"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.5, -2)
+visible = false
 text = "Bannow Bay
 Norman landing approach · 1169"
 billboard = 1
@@ -250,6 +252,7 @@ modulate = Color(0.75, 0.82, 0.95, 1)
 
 [node name="ApproachSign" type="Label3D" parent="BannowBay"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.2, -12)
+visible = false
 text = "↓ Beachhead"
 billboard = 1
 font_size = 32
@@ -275,6 +278,7 @@ surface_material_override/0 = SubResource("Mat_wood")
 
 [node name="Label" type="Label3D" parent="NorseContact"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.0, 0)
+visible = false
 text = "Norse contact hint
 (Wexford / Waterford coast stub)"
 billboard = 1
@@ -308,6 +312,7 @@ shape = SubResource("Shape_cell")
 
 [node name="Label" type="Label3D" parent="HomeTuath"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.5, 0)
+visible = false
 text = "Túath ringfort stub — continue west
 to playable ringfort muster"
 billboard = 1
@@ -316,6 +321,7 @@ modulate = Color(0.9, 0.82, 0.6, 1)
 
 [node name="PathSign" type="Label3D" parent="HomeTuath"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 2.8, 2)
+visible = false
 text = "← Ringfort path"
 billboard = 1
 font_size = 28
@@ -350,6 +356,7 @@ shape = SubResource("Shape_cell")
 
 [node name="Label" type="Label3D" parent="MonasticStub"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 10.5, 0)
+visible = false
 text = "Monastic stub
 (round tower · sanctuary hint)"
 billboard = 1
@@ -378,6 +385,7 @@ surface_material_override/0 = SubResource("Mat_wood")
 
 [node name="Label" type="Label3D" parent="HillFort"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.2, 0)
+visible = false
 text = "Hill fort overlook
 (wilderness exile fringe)"
 billboard = 1
@@ -394,6 +402,7 @@ surface_material_override/0 = SubResource("Mat_wood")
 
 [node name="Label" type="Label3D" parent="CentralSign"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.4, 0)
+visible = false
 text = "Laigin — systems yard (test pads)
 E burned home ráth · S Bannow · N Dublin · W ringfort"
 billboard = 1
@@ -404,6 +413,7 @@ modulate = Color(0.9, 0.88, 0.7, 1)
 
 [node name="CombatYardNote" type="Label3D" parent="YardPads"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 2.4, -6)
+visible = false
 text = "Combat yard (−Z)
 dummy on main"
 billboard = 1
@@ -412,6 +422,7 @@ modulate = Color(0.85, 0.7, 0.65, 1)
 
 [node name="StealthYardNote" type="Label3D" parent="YardPads"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2.4, 4.5)
+visible = false
 text = "Stealth lane (+X)
 cover + sentry on main"
 billboard = 1

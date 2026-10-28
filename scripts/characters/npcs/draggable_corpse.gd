@@ -295,11 +295,12 @@ func _refresh_labels() -> void:
 					_prompt.text = "Hold E — dragging · release to drop"
 					_prompt.modulate = Color(0.95, 0.9, 0.55)
 			State.HIDING:
-				_prompt.visible = true
+				# Minimal UI: the body sinking is the cue; no caption once the E action is done.
+				_prompt.visible = false
 				_prompt.text = "Sinking into peat…"
 				_prompt.modulate = Color(0.55, 0.7, 0.5)
 			State.HIDDEN:
-				_prompt.visible = true
+				_prompt.visible = false
 				_prompt.text = "CONCEALED in bog"
 				_prompt.modulate = Color(0.4, 0.7, 0.45)
 			_:

@@ -1,5 +1,23 @@
 extends CanvasLayer
-## Minimal HUD for the opening cattle drive: objective line, pen count, controls, banners.
+## Minimal HUD for the opening cattle drive.
+## Minimal UI (2026-10-28): only the flash line draws — Máire's spoken lines, close-range E prompts
+## from the chores, and short one-off "not yet" / first-use tips, each gone when it no longer
+## applies. The objective strip, the bottom key line, the "herd is home" banner and the status
+## counter are still filled in (smokes and tools read them) but never drawn.
+const SHOW_OBJECTIVE := false
+const SHOW_CONTROLS := false
+const SHOW_BANNER := false
+const SHOW_STATUS := false
+## First use of a new verb: the key hints the hidden objective / controls lines used to carry come
+## up once, as a short line in the flash slot (under speech and near prompts), then go.
+## [objective substring, tip]; "knife" fires when the knife is first carried.
+const VERB_TIPS := [
+	["prod a cow (LMB / RMB)", "3 — draw the goad · LMB / RMB — prod"],
+	["crouch (Ctrl)", "Ctrl — crouch"],
+	["G stone", "G — throw a stone to draw him off"],
+]
+const KNIFE_TIP := "2 — the knife"
+const TIP_SECS := 6.0
 
 @export var director_path: NodePath = ^"../OpeningDriveDirector"
 
@@ -17,6 +35,9 @@ var _dog_chore: Node = null
 var _meal_chore: Node = null
 var _gate_chore: Node = null
 var _intro: Node = null
+var _tip := ""
+var _tip_left := 0.0
+var _tips_shown := {}
 
 
 func _ready() -> void:
@@ -90,18 +111,19 @@ func _bind() -> void:
 	_gate_chore = get_tree().get_first_node_in_group("opening_pen_gate")
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _director == null:
 		return
 	# Opening intro shot: no objective or controls until Cian has control (her call still shows).
 	if _intro == null or not is_instance_valid(_intro):
 		_intro = get_tree().get_first_node_in_group("opening_intro")
 	var intro_on := _intro != null and bool(_intro.call("is_playing"))
-	_objective.visible = not intro_on
-	_controls.visible = not intro_on
+	_objective.visible = SHOW_OBJECTIVE and not intro_on
+	_controls.visible = SHOW_CONTROLS and not intro_on
 	_objective.text = String(_director.call("objective_text"))
+	_tick_tips(delta, intro_on)
 	_status.text = String(_director.call("status_text"))
-	_status.visible = _status.text != ""   # empty in the opening: no herd counter
+	_status.visible = SHOW_STATUS and _status.text != ""   # empty in the opening: no herd counter
 	var f := String(_director.call("flash_text"))
 	if f == "":
 		f = _chore_prompt(_chore)
@@ -126,6 +148,8 @@ func _process(_delta: float) -> void:
 		if f == "":
 			f = _chore_prompt(c)
 		prologue_active = prologue_active or _chore_active(c)
+	if f == "" and _tip_left > 0.0:
+		f = _tip
 	_flash.text = f
 	_flash.visible = f != ""
 	if (
@@ -155,6 +179,32 @@ func _controls_text(interact: bool, raid: Node) -> String:
 	return "WASD move · Shift sprint · Alt walk · mouse look · 1 stow · %s3 goad · Q cycle · LMB/RMB prod · %sR reset herd · T restart · Esc mouse" % [_knife_hint(), "E interact · " if interact else ""]
 
 
+func _tick_tips(delta: float, intro_on: bool) -> void:
+	_tip_left = maxf(0.0, _tip_left - delta)
+	if intro_on:
+		return
+	for t in VERB_TIPS:
+		if not _tips_shown.has(t[0]) and _objective.text.contains(String(t[0])):
+			_show_tip(String(t[0]), String(t[1]))
+	if not _tips_shown.has("knife") and _knife_hint() != "":
+		_show_tip("knife", KNIFE_TIP)
+
+
+func _show_tip(key: String, text: String) -> void:
+	_tips_shown[key] = true
+	_tip = text
+	_tip_left = TIP_SECS
+
+
+## Smoke: the verb tips shown so far, and the one up now ("" when none).
+func tips_shown() -> Array:
+	return _tips_shown.keys()
+
+
+func current_tip() -> String:
+	return _tip if _tip_left > 0.0 else ""
+
+
 ## The raid and fen part of the prologue: from the night cut on.
 static func raid_part(raid: Node) -> bool:
 	return raid != null and bool(raid.call("is_running")) and bool(raid.call("is_night_reached"))
@@ -179,7 +229,7 @@ func _chore_active(chore: Node) -> bool:
 
 func _on_success(_home: int, _total: int) -> void:
 	_banner.text = "The herd is home in the pen"   # no count (home/total stay internal)
-	_banner.visible = true
+	_banner.visible = SHOW_BANNER
 
 
 func _on_stage(_stage: int, stage_name: String) -> void:

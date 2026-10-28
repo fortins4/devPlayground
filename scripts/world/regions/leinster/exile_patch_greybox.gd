@@ -12,6 +12,8 @@ extends Node3D
 ## its greybox follows (BannowLane only marks where the lane leaves the ráth). Layout mirrors the prologue farm (opening_terrain.gd /
 ## opening_farm_greybox.gd): 30 m bank crest, gap to the south, roundhouse west, byre east, pen SE,
 ## wood to the west.
+## Minimal UI (2026-10-28): no floating place labels over the ráth, lane, wood edge or fen — the
+## ground itself (bank, ash, track, planks, masts) is the cue.
 
 @export var rath_path: NodePath = ^"BurnedRath"
 @export var wood_path: NodePath = ^"WoodEdge"
@@ -75,7 +77,6 @@ const C_SAND := Color(0.62, 0.55, 0.38)
 const C_MUDFLAT := Color(0.33, 0.33, 0.27)
 const C_WATER := Color(0.22, 0.36, 0.44)
 const C_HULL := Color(0.3, 0.25, 0.19)
-const C_LABEL := Color(0.92, 0.84, 0.62)
 
 var _mats: Dictionary = {}
 var _gen: Node3D = null
@@ -163,7 +164,6 @@ func _build_rath(c: Vector3) -> void:
 	_post(root, gp + side * 3.0, 0.16, 1.1, C_CHAR, true)
 	_post(root, gp - side * 3.0, 0.16, 0.7, C_CHAR, true)
 	_box(root, gp + side * 0.6 + g * 1.2 + Vector3(0, 0.05, 0), Vector3(2.6, 0.08, 1.1), C_CHAR_WOOD, atan2(-g.x, -g.z) + 0.3)
-	_label(c + Vector3(0, 6.2, 0), "Home ráth — burned in the raid\n(gap to the south)", 40, C_LABEL, "BurnedRathLabel")
 
 
 func _build_house(h: Vector3) -> void:
@@ -279,10 +279,8 @@ func _build_lane(c: Vector3) -> void:
 	# Waymark where the lane leaves the ráth, and one further down where the strand opens out.
 	var w0 := pts[2] + Vector3(2.4, 0, -0.8)
 	_post(root, w0, 0.12, 1.6, C_TRUNK, true)
-	_label(w0 + Vector3(0, 2.5, 0), "Lane to the strand ↙\nBannow — where they landed", 32, C_LABEL, "BannowLaneSign")
 	var w1 := pts[pts.size() - 3] + Vector3(0, 0, -2.4)
 	_post(root, w1, 0.12, 1.4, C_TRUNK, true)
-	_label(w1 + Vector3(0, 2.3, 0), "← Bannow strand", 30, C_LABEL, "BannowLaneSign2")
 
 
 func _build_strand() -> void:
@@ -358,7 +356,6 @@ func _build_wood(w: Vector3) -> void:
 		bush.material_override = _mat(C_HAZEL)
 		bush.position = p2 + Vector3(0, bm.height * 0.45, 0)
 		root.add_child(bush)
-	_label(w + Vector3(4.0, 6.5, -14.0), "Wood edge", 30, C_LABEL, "WoodEdgeLabel")
 
 
 func _build_fen(f: Vector3) -> void:
@@ -414,7 +411,6 @@ func _build_fen(f: Vector3) -> void:
 		var p := a.lerp(b, t) + Vector3(0, 0.12 - (0.05 if _rng.randf() < 0.15 else 0.0), 0)
 		var plank := _box(track, p, Vector3(1.6, 0.07, 0.3), C_OAK_PLANK, yaw + _rng.randf_range(-0.06, 0.06), false)
 		plank.rotation.z = _rng.randf_range(-0.04, 0.04)
-	_label(f + Vector3(0, 4.0, 0), "Tóchar — the fen causeway", 34, C_LABEL, "TocharFenLabel")
 
 
 # ---------------------------------------------------------------- helpers
@@ -531,20 +527,6 @@ func _ember(parent: Node, pos: Vector3) -> void:
 	mi.add_to_group("exile_embers")
 	parent.add_child(mi)
 
-
-func _label(pos: Vector3, text: String, size: int, color: Color, nm: String) -> Label3D:
-	var l := Label3D.new()
-	l.name = nm
-	l.text = text
-	l.font_size = size
-	l.pixel_size = 0.01
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.modulate = color
-	l.outline_size = 10
-	l.outline_modulate = Color(0.05, 0.05, 0.04, 0.85)
-	l.position = pos
-	_gen.add_child(l)
-	return l
 
 
 func _dist_seg(p: Vector3, a: Vector3, b: Vector3) -> float:
