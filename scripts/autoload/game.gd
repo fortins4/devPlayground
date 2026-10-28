@@ -7,6 +7,10 @@ signal region_changed(region_id: StringName)
 
 enum GamePhase { BOOT, PROLOGUE, OPEN_WORLD }
 
+## The F5 open world (Leinster roam). finish_prologue() loads it; Cian is placed at the
+## `ExileStart` marker in leinster_region.tscn by scenes/main/main.tscn's ExileSpawn node.
+const OPEN_WORLD_SCENE := "res://scenes/main/main.tscn"
+
 var phase: GamePhase = GamePhase.BOOT
 var current_region: StringName = &"leinster"
 ## Prologue ("The foragers from the strand") outcome flags as the beat sets them (raid spec 2.17;
@@ -27,6 +31,8 @@ func enter_prologue() -> void:
 func finish_prologue() -> void:
 	phase = GamePhase.OPEN_WORLD
 	prologue_finished.emit()
+	# Deferred: the caller usually lives in the prologue scene that the swap frees.
+	get_tree().call_deferred("change_scene_to_file", OPEN_WORLD_SCENE)
 
 
 
