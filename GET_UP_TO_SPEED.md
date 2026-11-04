@@ -17,6 +17,9 @@ Read this file before doing any Ríocht task. These are the locked rules. Each n
 ## UI
 - 2026-10-28: Minimal UI. No floating place, object or name labels in the world, no always-on objective strip, controls line, counters or system readouts (HP, heat, band, raid status), and no "in hand" labels. What stays: close-range E prompts on things Cian can use, spoken lines while someone is talking, short one-off tips the first time a new verb comes up, and fade-to-black narrative lines. Don't add death or threat HUD, a carry or stow cue, or a new controls menu.
 
+## Open world
+- 2026-11-04: A full sleep at the exile camp (near-E on the bed) advances WorldClock by exactly one day (fade to black, dawn light, wake at camp). Hunger is open-world only: slowdown when it bites, never damage or a meter; sleeping makes Cian hungrier, eating forage lowers it, forage regrows after a night.
+
 ## Opening sequence
 - 2026-10-20: Cian has no knife anywhere in the opening. The knife first appears in the later raid.
 - 2026-10-08: The opening is a set sequence: Máire, then bucket to spring to trough, then bringing the herd home, then (2026-10-20, replacing the pre-drive knife hitch) roping the milk cow out of the pen and tying her by hand to the post by the house, then stow and meal.

@@ -63,6 +63,9 @@ var _torso_tween: Tween
 var _camera_base_pos: Vector3
 var _punch_tween: Tween
 var _sprinting: bool = false
+## Outside pace multiplier (1.0 = normal). Scales walk / trot / sprint only; set by gameplay
+## systems such as open-world hunger (scripts/world/exile_hunger.gd). Never above 1.
+var move_speed_scale: float = 1.0
 ## Carried-object registry: instance id → source object (any chore / prop holding a load).
 var _carry_sources: Dictionary = {}
 var _arm_fore_scale: float = 0.35
@@ -574,6 +577,7 @@ func _physics_process(delta: float) -> void:
 		target_speed = _lead_walk_speed()
 	elif sprinting:
 		target_speed = SPRINT_SPEED
+	target_speed *= clampf(move_speed_scale, 0.0, 1.0)
 	if bog:
 		target_speed = bog.limit_speed(target_speed)
 	if move_locked:
